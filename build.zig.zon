@@ -1,0 +1,21 @@
+.{
+    .name = .giztoy_zig,
+    .version = "0.1.0",
+    .fingerprint = 0xa547d0b6545df9de,
+    .minimum_zig_version = "0.15.2",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    .dependencies = .{
+        .embed = .{
+            .url = "https://github.com/embed-zig/embed-zig/archive/ef54795bc54a26dd08317120480201afeeb0a054.tar.gz",
+            .hash = "embed_zig-0.1.0-EGFcOczqKABUga3bHiqDzEnImRzSQOhGuP-H6vXYD83y",
+        },
+        .kcp = .{
+            .url = "git+https://github.com/jinzhongjia/zig-kcp.git#fafdad53e0eb109e717d93e501849d547b6101e1",
+            .hash = "kcp-0.0.1-Z1pMoS2gAgB4tkCwbWBjOEDuqFf3qP8oZKWPDuaCXIEd",
+        },
+    },
+}

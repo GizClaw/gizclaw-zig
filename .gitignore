@@ -1,0 +1,8 @@
+openteam/
+.zig-cache/
+**/.zig-cache/
+zig-out/
+kcov-out/
+kcov-out-core/
+kcov-out-kcp/
+kcov-out-noise/
