@@ -1,0 +1,3 @@
+openteam/
+.*zig-*/
+zig-out/

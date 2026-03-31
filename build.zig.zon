@@ -1,0 +1,17 @@
+.{
+    .name = .giztoy_zig,
+    .version = "0.0.0",
+    .fingerprint = 0xa547d0b6feca0805,
+    .minimum_zig_version = "0.15.2",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "lib",
+    },
+    .dependencies = .{
+        .embed = .{
+            .url = "https://github.com/embed-zig/embed-zig/archive/bea936ef6011ca17c41f8696b68560e1686f0be9.tar.gz",
+            .hash = "embed_zig-0.0.0-prAy_MbEKwAB_nIiopiI27RaEelpdKNOKDsB-K4hj_Nu",
+        },
+    },
+}
