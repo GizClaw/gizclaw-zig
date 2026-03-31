@@ -1,6 +1,7 @@
 const Key = @import("key.zig");
 const ReplayFilter = @import("replay_filter.zig");
 const cipher = @import("cipher.zig");
+const lib_adapter = @import("lib_adapter.zig");
 const errors = @import("errors.zig");
 
 pub const State = enum {
@@ -132,7 +133,8 @@ pub fn Session(comptime Crypto: type) type {
     };
 }
 
-pub fn testAll(comptime Crypto: type, testing: anytype) !void {
+pub fn testAll(comptime lib: type, testing: anytype) !void {
+    const Crypto = lib_adapter.make(lib);
     const T = Session(Crypto);
     const send_key = Key.fromBytes(cipher.hash(Crypto, &.{"send key"}));
     const recv_key = Key.fromBytes(cipher.hash(Crypto, &.{"recv key"}));

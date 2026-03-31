@@ -1,7 +1,6 @@
 const embed = @import("embed");
 const testing_api = @import("testing");
 const key_pair = @import("../../noise/key_pair.zig");
-const support = @import("support.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const Runner = struct {
@@ -13,7 +12,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
         pub fn run(self: *@This(), t: *testing_api.T, allocator: embed.mem.Allocator) bool {
             _ = self;
             _ = allocator;
-            key_pair.testAll(support.TestCrypto(lib), lib.testing) catch |err| {
+            key_pair.testAll(lib, lib.testing) catch |err| {
                 t.logErrorf("noise/key_pair failed: {}", .{err});
                 return false;
             };

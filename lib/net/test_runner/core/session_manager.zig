@@ -1,6 +1,6 @@
 const embed = @import("embed");
 const testing_api = @import("testing");
-const cipher_state = @import("../../noise/cipher_state.zig");
+const session_manager = @import("../../core/session_manager.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const Runner = struct {
@@ -11,9 +11,8 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 
         pub fn run(self: *@This(), t: *testing_api.T, allocator: embed.mem.Allocator) bool {
             _ = self;
-            _ = allocator;
-            cipher_state.testAll(lib, lib.testing) catch |err| {
-                t.logErrorf("noise/cipher_state failed: {}", .{err});
+            session_manager.testAll(lib, lib.testing, allocator) catch |err| {
+                t.logErrorf("core/session_manager failed: {}", .{err});
                 return false;
             };
             return true;

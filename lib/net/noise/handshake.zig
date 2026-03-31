@@ -1,6 +1,7 @@
 const Key = @import("key.zig");
 const KeyPair = @import("key_pair.zig").KeyPair;
 const SymmetricState = @import("symmetric_state.zig").SymmetricState;
+const lib_adapter = @import("lib_adapter.zig");
 const errors = @import("errors.zig");
 
 pub const Pattern = enum {
@@ -210,7 +211,8 @@ pub fn Handshake(comptime Crypto: type) type {
     };
 }
 
-pub fn testAll(comptime Crypto: type, testing: anytype) !void {
+pub fn testAll(comptime lib: type, testing: anytype) !void {
+    const Crypto = lib_adapter.make(lib);
     const H = Handshake(Crypto);
     const KP = KeyPair(Crypto);
 

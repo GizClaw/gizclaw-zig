@@ -1,5 +1,6 @@
 const Key = @import("key.zig");
 const cipher = @import("cipher.zig");
+const lib_adapter = @import("lib_adapter.zig");
 
 pub fn CipherState(comptime Crypto: type) type {
     return struct {
@@ -42,7 +43,8 @@ pub fn CipherState(comptime Crypto: type) type {
     };
 }
 
-pub fn testAll(comptime Crypto: type, testing: anytype) !void {
+pub fn testAll(comptime lib: type, testing: anytype) !void {
+    const Crypto = lib_adapter.make(lib);
     const T = CipherState(Crypto);
     const key = Key.fromBytes([_]u8{42} ** Key.key_size);
     var alice = T.init(key);

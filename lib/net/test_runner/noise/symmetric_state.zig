@@ -1,7 +1,6 @@
 const embed = @import("embed");
 const testing_api = @import("testing");
 const symmetric_state = @import("../../noise/symmetric_state.zig");
-const support = @import("support.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const Runner = struct {
@@ -13,7 +12,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
         pub fn run(self: *@This(), t: *testing_api.T, allocator: embed.mem.Allocator) bool {
             _ = self;
             _ = allocator;
-            symmetric_state.testAll(support.TestCrypto(lib), lib.testing) catch |err| {
+            symmetric_state.testAll(lib, lib.testing) catch |err| {
                 t.logErrorf("noise/symmetric_state failed: {}", .{err});
                 return false;
             };

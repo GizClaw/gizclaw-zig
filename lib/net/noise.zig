@@ -3,6 +3,7 @@ const key_pair = @import("noise/key_pair.zig");
 const replay_filter = @import("noise/replay_filter.zig");
 const transport = @import("noise/transport.zig");
 const blake2s = @import("noise/blake2s.zig");
+const lib_adapter = @import("noise/lib_adapter.zig");
 const cipher = @import("noise/cipher.zig");
 const cipher_state = @import("noise/cipher_state.zig");
 const symmetric_state = @import("noise/symmetric_state.zig");
@@ -17,6 +18,7 @@ pub const Key = key;
 pub const PublicKey = key;
 pub const ReplayFilter = replay_filter;
 pub const Blake2s256 = blake2s;
+pub const LibAdapter = lib_adapter;
 
 pub const MessageType = message.MessageType;
 pub const HandshakeInit = message.HandshakeInit;
@@ -48,7 +50,7 @@ pub const MessageError = errors.MessageError;
 pub const HandshakeError = errors.HandshakeError;
 pub const SessionError = errors.SessionError;
 
-pub fn Package(comptime Crypto: type) type {
+pub fn make(comptime Crypto: type) type {
     return struct {
         pub const KeyPair = key_pair.KeyPair(Crypto);
         pub const CipherState = cipher_state.CipherState(Crypto);

@@ -10,6 +10,13 @@ In this repository, only `README.md` files count as user-facing docs.
 - Prefer `embed` for runtime, memory, crypto, time, threading, formatting, and testing support.
 - Use file-as-struct style for primary objects: prefer `const Conn = @import("conn.zig");` over wrapper shapes such as `ConnFile.Conn`.
 - Only `lib/net.zig` should aggregate package entry files such as `net/noise.zig` or future `net/core.zig`.
+- For comptime factories that return a type, do not use vague names such as `Package`.
+- Allowed forms for type factories are:
+  `TypeName(comptime ...) type`
+  `TypeName.make(comptime ...) type`
+  `namespace.make(comptime ...) type`
+- For the public package root `lib/net.zig`, prefer `net.make(comptime lib: type) type`.
+- Lower-level package entry files that only need crypto-shaped capabilities, such as `lib/net/noise.zig` or `lib/net/core.zig`, may use `make(comptime Crypto: type) type`.
 
 ## Testing Rules
 

@@ -1,5 +1,6 @@
 const Key = @import("key.zig");
 const cipher = @import("cipher.zig");
+const lib_adapter = @import("lib_adapter.zig");
 const CipherState = @import("cipher_state.zig").CipherState;
 
 pub fn SymmetricState(comptime Crypto: type) type {
@@ -91,7 +92,8 @@ pub fn SymmetricState(comptime Crypto: type) type {
     };
 }
 
-pub fn testAll(comptime Crypto: type, testing: anytype) !void {
+pub fn testAll(comptime lib: type, testing: anytype) !void {
+    const Crypto = lib_adapter.make(lib);
     const T = SymmetricState(Crypto);
 
     var lhs = T.init("Noise_IK_25519_ChaChaPoly_BLAKE2s");

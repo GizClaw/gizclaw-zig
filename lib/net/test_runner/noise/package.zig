@@ -1,7 +1,6 @@
 const embed = @import("embed");
 const testing_api = @import("testing");
 const noise = @import("../../noise.zig");
-const support = @import("support.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const Runner = struct {
@@ -33,9 +32,9 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 
 fn runImpl(comptime lib: type) !void {
     const testing = lib.testing;
-    const Package = noise.Package(support.TestCrypto(lib));
-    const KP = Package.KeyPair;
-    const Handshake = Package.Handshake;
+    const Noise = noise.make(noise.LibAdapter.make(lib));
+    const KP = Noise.KeyPair;
+    const Handshake = Noise.Handshake;
 
     const alice_static = try KP.fromPrivate(noise.Key.fromBytes([_]u8{3} ** noise.Key.key_size));
     const bob_static = try KP.fromPrivate(noise.Key.fromBytes([_]u8{4} ** noise.Key.key_size));

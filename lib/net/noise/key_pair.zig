@@ -1,5 +1,6 @@
 const errors = @import("errors.zig");
 const Key = @import("key.zig");
+const lib_adapter = @import("lib_adapter.zig");
 
 pub fn KeyPair(comptime Crypto: type) type {
     const X25519 = Crypto.X25519;
@@ -48,7 +49,8 @@ pub fn KeyPair(comptime Crypto: type) type {
     };
 }
 
-pub fn testAll(comptime Crypto: type, testing: anytype) !void {
+pub fn testAll(comptime lib: type, testing: anytype) !void {
+    const Crypto = lib_adapter.make(lib);
     const T = KeyPair(Crypto);
 
     const private_a = Key.fromBytes([_]u8{42} ** Key.key_size);

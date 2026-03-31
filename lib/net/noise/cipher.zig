@@ -3,6 +3,7 @@ const mem = embed.mem;
 
 const errors = @import("errors.zig");
 const Key = @import("key.zig");
+const lib_adapter = @import("lib_adapter.zig");
 
 const Self = @This();
 
@@ -118,7 +119,8 @@ pub fn decryptWithAd(comptime Crypto: type, key: *const Key, additional_data: []
     return decrypt(Crypto, key.asBytes(), 0, ciphertext, additional_data, out);
 }
 
-pub fn testAll(comptime Crypto: type, testing: anytype) !void {
+pub fn testAll(comptime lib: type, testing: anytype) !void {
+    const Crypto = lib_adapter.make(lib);
     const key = [_]u8{7} ** Key.key_size;
     const plaintext = "hello, noise";
     const ad = "aad";
