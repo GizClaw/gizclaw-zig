@@ -1,67 +1,55 @@
 const std = @import("std");
 
-const Self = @This();
+const Tests = @This();
 
-pub const ImportOptions = struct {
-    noise: bool = false,
-    zig_kcp: bool = false,
-    embed_std: bool = false,
-    testing: bool = false,
-};
+const unit_test_tag = "unit_tests";
+const integration_test_tag = "integration_tests";
 
-pub const Modules = struct {
-    embed: *std.Build.Module,
-    noise: ?*std.Build.Module = null,
-    zig_kcp: ?*std.Build.Module = null,
-    embed_std: ?*std.Build.Module = null,
-    testing: ?*std.Build.Module = null,
-};
+pub const LinkHook = *const fn (b: *std.Build, compile: *std.Build.Step.Compile) void;
 
-b: *std.Build,
-modules: Modules,
+unit_step: *std.Build.Step,
+integration_step: *std.Build.Step,
+full_step: *std.Build.Step,
 
-pub fn init(b: *std.Build, modules: Modules) Self {
-    return .{
-        .b = b,
-        .modules = modules,
+pub fn create(b: *std.Build) Tests {
+    var tests: Tests = .{
+        .unit_step = b.step("test-unit", "Run unit tests"),
+        .integration_step = b.step("test-integration", "Run integration tests"),
+        .full_step = b.step("test", "Run all tests"),
     };
+    tests.full_step.dependOn(tests.unit_step);
+    tests.full_step.dependOn(tests.integration_step);
+    return tests;
 }
 
-pub fn createModule(
-    self: Self,
-    root_source_file: std.Build.LazyPath,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    imports: ImportOptions,
-) *std.Build.Module {
-    const module = self.b.createModule(.{
-        .root_source_file = root_source_file,
-        .target = target,
-        .optimize = optimize,
+pub fn addTest(self: Tests, b: *std.Build, mod_name: []const u8, link_hook: ?LinkHook) void {
+    const root_module = b.modules.get(mod_name) orelse @panic("test module missing");
+    const module_step_name = if (std.mem.eql(u8, mod_name, "integration"))
+        "test-lib-integration"
+    else
+        b.fmt("test-{s}", .{mod_name});
+    const module_step = b.step(
+        module_step_name,
+        b.fmt("Run {s} tests", .{mod_name}),
+    );
+
+    const compile_unit_test = b.addTest(.{
+        .root_module = root_module,
+        .filters = &.{unit_test_tag},
     });
-    module.addImport("embed", self.modules.embed);
-    if (imports.noise) module.addImport("noise", self.modules.noise orelse @panic("missing module: noise"));
-    if (imports.zig_kcp) module.addImport("zig_kcp", self.modules.zig_kcp orelse @panic("missing module: zig_kcp"));
-    if (imports.embed_std) module.addImport("embed_std", self.modules.embed_std orelse @panic("missing module: embed_std"));
-    if (imports.testing) module.addImport("testing", self.modules.testing orelse @panic("missing module: testing"));
-    return module;
-}
+    if (link_hook) |hook| hook(b, compile_unit_test);
+    const run_unit_test = b.addRunArtifact(compile_unit_test);
+    run_unit_test.setName(b.fmt("{s}:unit", .{mod_name}));
+    self.unit_step.dependOn(&run_unit_test.step);
+    module_step.dependOn(&run_unit_test.step);
 
-pub fn addRun(self: Self, module: *std.Build.Module) *std.Build.Step.Run {
-    const compile = self.b.addTest(.{
-        .root_module = module,
+    const compile_integration_test = b.addTest(.{
+        .root_module = root_module,
+        .filters = &.{integration_test_tag},
     });
-    return self.b.addRunArtifact(compile);
-}
-
-pub fn addNamedTest(
-    self: Self,
-    step_name: []const u8,
-    description: []const u8,
-    module: *std.Build.Module,
-) *std.Build.Step.Run {
-    const run = self.addRun(module);
-    const step = self.b.step(step_name, description);
-    step.dependOn(&run.step);
-    return run;
+    if (link_hook) |hook| hook(b, compile_integration_test);
+    const run_integration_test = b.addRunArtifact(compile_integration_test);
+    run_integration_test.setName(b.fmt("{s}:integration", .{mod_name}));
+    self.integration_step.dependOn(&run_integration_test.step);
+    module_step.dependOn(&run_integration_test.step);
 }
