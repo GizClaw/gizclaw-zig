@@ -19,14 +19,18 @@ pub fn build(b: *std.Build) void {
     const tests = Tests.init(b, .{
         .embed = embed_modules.embed,
         .noise = net_modules.noise,
+        .zig_kcp = net_modules.zig_kcp,
         .embed_std = embed_modules.embed_std,
         .testing = embed_modules.testing,
     });
     const giztoy_mod = net_modules.giztoy;
 
-    const check_step = b.step("check", "Compile-check the giztoy module");
+    const check_step = b.step("check", "Compile-check the giztoy module and package test graphs");
     check_step.dependOn(&b.addObject(.{
         .name = "giztoy_check",
+        .root_module = giztoy_mod,
+    }).step);
+    check_step.dependOn(&b.addTest(.{
         .root_module = giztoy_mod,
     }).step);
 
@@ -46,6 +50,9 @@ pub fn build(b: *std.Build) void {
         "Run noise package tests",
         noise_test_mod,
     );
+    check_step.dependOn(&b.addTest(.{
+        .root_module = noise_test_mod,
+    }).step);
 
     const core_test_mod = tests.createModule(
         b.path("lib/net/core_test.zig"),
@@ -62,11 +69,34 @@ pub fn build(b: *std.Build) void {
         "Run core package tests",
         core_test_mod,
     );
+    check_step.dependOn(&b.addTest(.{
+        .root_module = core_test_mod,
+    }).step);
+
+    const kcp_test_mod = tests.createModule(
+        b.path("lib/net/kcp_test.zig"),
+        target,
+        optimize,
+        .{
+            .zig_kcp = true,
+            .embed_std = true,
+            .testing = true,
+        },
+    );
+    const run_kcp_tests = tests.addNamedTest(
+        "test-kcp",
+        "Run kcp package tests",
+        kcp_test_mod,
+    );
+    check_step.dependOn(&b.addTest(.{
+        .root_module = kcp_test_mod,
+    }).step);
 
     const test_step = b.step("test", "Run configured test suites");
     test_step.dependOn(&run_root_tests.step);
     test_step.dependOn(&run_noise_tests.step);
     test_step.dependOn(&run_core_tests.step);
+    test_step.dependOn(&run_kcp_tests.step);
 }
 
 fn resolveEmbedModules(

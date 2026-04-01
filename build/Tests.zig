@@ -4,6 +4,7 @@ const Self = @This();
 
 pub const ImportOptions = struct {
     noise: bool = false,
+    zig_kcp: bool = false,
     embed_std: bool = false,
     testing: bool = false,
 };
@@ -11,6 +12,7 @@ pub const ImportOptions = struct {
 pub const Modules = struct {
     embed: *std.Build.Module,
     noise: ?*std.Build.Module = null,
+    zig_kcp: ?*std.Build.Module = null,
     embed_std: ?*std.Build.Module = null,
     testing: ?*std.Build.Module = null,
 };
@@ -39,6 +41,7 @@ pub fn createModule(
     });
     module.addImport("embed", self.modules.embed);
     if (imports.noise) module.addImport("noise", self.modules.noise orelse @panic("missing module: noise"));
+    if (imports.zig_kcp) module.addImport("zig_kcp", self.modules.zig_kcp orelse @panic("missing module: zig_kcp"));
     if (imports.embed_std) module.addImport("embed_std", self.modules.embed_std orelse @panic("missing module: embed_std"));
     if (imports.testing) module.addImport("testing", self.modules.testing orelse @panic("missing module: testing"));
     return module;

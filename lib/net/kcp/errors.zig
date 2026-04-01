@@ -1,0 +1,16 @@
+pub const Error = error{
+    ServiceMuxClosed,
+    AcceptQueueEmpty,
+    InvalidServiceFrame,
+    StreamIdExhausted,
+    StreamLimitReached,
+    StreamNotFound,
+    RemoteRejected,
+    NoData,
+    BufferTooSmall,
+    FragmentIncomplete,
+    EmptyData,
+    FragmentTooLarge,
+    OutputFailed,
+    EngineFailure,
+};

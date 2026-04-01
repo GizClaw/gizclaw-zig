@@ -14,5 +14,9 @@
             .url = "https://github.com/embed-zig/embed-zig/archive/bea936ef6011ca17c41f8696b68560e1686f0be9.tar.gz",
             .hash = "embed_zig-0.0.0-prAy_MbEKwAB_nIiopiI27RaEelpdKNOKDsB-K4hj_Nu",
         },
+        .zig_kcp = .{
+            .url = "https://github.com/jinzhongjia/zig-kcp/archive/fafdad53e0eb109e717d93e501849d547b6101e1.tar.gz",
+            .hash = "kcp-0.0.1-Z1pMoS2gAgB4tkCwbWBjOEDuqFf3qP8oZKWPDuaCXIEd",
+        },
     },
 }
