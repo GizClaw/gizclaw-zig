@@ -2,7 +2,7 @@
 //!
 //! The implementation contract and package design live in `lib/net/AGENTS.md`.
 
-const noise_ns = @import("noise");
+const noise_ns = @import("net/noise.zig");
 const core_ns = @import("net/core.zig");
 const kcp_ns = @import("net/kcp.zig");
 
@@ -11,13 +11,10 @@ pub const core = core_ns;
 pub const kcp = kcp_ns;
 
 pub fn make(comptime lib: type) type {
-    const Crypto = noise_ns.LibAdapter.make(lib);
-
     return struct {
-        pub const noise = noise_ns.make(Crypto);
-        pub const core = core_ns.make(Crypto);
-        // KCP stays as the raw package until the core-facing adapter boundary exists.
-        pub const kcp = kcp_ns;
+        pub const noise = noise_ns.make(lib);
+        pub const core = core_ns.make(lib);
+        pub const kcp = kcp_ns.make(core_ns);
     };
 }
 
@@ -26,4 +23,5 @@ test {
     _ = noise;
     _ = core;
     _ = kcp;
+    _ = @import("net/test_runner/unit.zig");
 }

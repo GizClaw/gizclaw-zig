@@ -42,23 +42,3 @@ pub fn isDirect(protocol: u8) bool {
 pub fn validate(protocol: u8) errors.Error!void {
     if (!isFoundation(protocol)) return errors.Error.UnsupportedProtocol;
 }
-
-pub fn testAll(testing: anytype) !void {
-    try testing.expect(isFoundation(http));
-    try testing.expect(isFoundation(rpc));
-    try testing.expect(isFoundation(event));
-    try testing.expect(isFoundation(opus));
-    try testing.expect(!isFoundation(0x42));
-
-    try testing.expect(isStream(http));
-    try testing.expect(isStream(rpc));
-    try testing.expect(!isStream(event));
-    try testing.expect(isDirect(event));
-    try testing.expect(isDirect(opus));
-    try testing.expect(!isDirect(http));
-
-    try testing.expectEqual(Kind.stream, try kind(http));
-    try testing.expectEqual(Kind.direct, try kind(event));
-    try testing.expectError(errors.Error.UnsupportedProtocol, kind(0xff));
-    try testing.expectError(errors.Error.UnsupportedProtocol, validate(0xfe));
-}

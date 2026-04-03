@@ -43,19 +43,3 @@ pub fn len(value: u64) usize {
     }
     return n;
 }
-
-pub fn testAll(testing: anytype) !void {
-    var buf: [max_len]u8 = undefined;
-    const values = [_]u64{ 0, 1, 127, 128, 255, 300, 16_384, 1 << 32 };
-
-    for (values) |value| {
-        const written = encode(&buf, value);
-        const decoded = try decode(buf[0..written]);
-        try testing.expectEqual(value, decoded.value);
-        try testing.expectEqual(written, decoded.n);
-        try testing.expectEqual(written, len(value));
-    }
-
-    try testing.expectError(errors.MessageError.TooShort, decode(&[_]u8{0x80}));
-    try testing.expectError(errors.MessageError.InvalidVarint, decode(&[_]u8{ 0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80 }));
-}

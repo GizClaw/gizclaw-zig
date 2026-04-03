@@ -13,3 +13,4 @@ pub const raw_queue_size: usize = 4096;
 pub const decrypted_queue_size: usize = 256;
 pub const inbound_queue_size: usize = 8192;
 pub const default_accept_queue_size: usize = 16;
+pub const default_pending_send_queue_size: usize = 16;

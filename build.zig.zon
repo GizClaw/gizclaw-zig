@@ -8,6 +8,7 @@
         "build.zig",
         "build.zig.zon",
         "lib",
+        "pkg",
     },
     .dependencies = .{
         .embed = .{

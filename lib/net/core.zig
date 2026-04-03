@@ -1,22 +1,22 @@
-const noise = @import("noise");
+const dep = @import("dep");
+const noise = @import("noise.zig");
+
+const root = @This();
+const testing_api = dep.testing;
 
 const consts = @import("core/consts.zig");
-const conn = @import("core/conn.zig");
-const dial = @import("core/dial.zig");
 const errors = @import("core/errors.zig");
-const host = @import("core/host.zig");
-const listener = @import("core/listener.zig");
-const protocol = @import("core/protocol.zig");
-const service_mux = @import("core/service_mux.zig");
-const session_manager = @import("core/session_manager.zig");
+const core_runner = @import("test_runner/unit/core.zig");
+pub const Conn = @import("core/Conn.zig");
+pub const Dialer = @import("core/Dialer.zig");
+pub const Host = @import("core/Host.zig");
+pub const Listener = @import("core/Listener.zig");
+pub const protocol = @import("core/protocol.zig");
+pub const ServiceMux = @import("core/ServiceMux.zig");
+pub const SessionManager = @import("core/SessionManager.zig");
+pub const UDP = @import("core/UDP.zig");
 
 pub const Error = errors.Error;
-
-pub const ProtocolHTTP = protocol.http;
-pub const ProtocolRPC = protocol.rpc;
-pub const ProtocolEVENT = protocol.event;
-pub const ProtocolOPUS = protocol.opus;
-pub const ProtocolKind = protocol.Kind;
 
 pub const RekeyAfterTimeMs = consts.rekey_after_time_ms;
 pub const RekeyAttemptTimeMs = consts.rekey_attempt_time_ms;
@@ -28,14 +28,6 @@ pub const RawQueueSize = consts.raw_queue_size;
 pub const DecryptedQueueSize = consts.decrypted_queue_size;
 pub const InboundQueueSize = consts.inbound_queue_size;
 pub const DefaultAcceptQueueSize = consts.default_accept_queue_size;
-
-pub const ConnState = conn.State;
-pub const TickAction = conn.TickAction;
-pub const DecryptResult = conn.DecryptResult;
-pub const ServiceMuxConfig = service_mux.Config;
-pub const StreamAdapter = service_mux.StreamAdapter;
-pub const HostPeerState = host.PeerState;
-pub const HostRoute = host.Route;
 
 pub fn isFoundationProtocol(value: u8) bool {
     return protocol.isFoundation(value);
@@ -49,15 +41,29 @@ pub fn isDirectProtocol(value: u8) bool {
     return protocol.isDirect(value);
 }
 
-pub fn make(comptime Crypto: type) type {
-    const Noise = noise.make(Crypto);
+pub fn make(comptime lib: type) type {
+    const Noise = noise.make(lib);
+    const DialerType = Dialer.make(lib, Noise);
 
     return struct {
-        pub const Conn = conn.Conn(Noise);
-        pub const Dial = dial.Dial(Noise);
-        pub const Listener = listener.Listener(Noise);
-        pub const SessionManager = session_manager.SessionManager(Noise);
-        pub const ServiceMux = service_mux.ServiceMux(Noise);
-        pub const Host = host.Host(Noise);
+        pub const Conn = root.Conn.make(Noise);
+        pub const Dial = DialerType;
+        pub const Dialer = DialerType;
+        pub const Host = root.Host.make(lib, Noise);
+        pub const Listener = root.Listener.make(lib, Noise);
+        pub const ServiceMux = root.ServiceMux.make(lib, Noise);
+        pub const SessionManager = root.SessionManager.make(lib, Noise);
+        pub const UDP = root.UDP.make(lib, Noise);
     };
+}
+
+test "net/unit_tests/core" {
+    const runtime = dep.embed_std.std;
+
+    var t = testing_api.T.new(runtime, .core);
+    defer t.deinit();
+
+    t.timeout(5 * runtime.time.ns_per_s);
+    t.run("core", core_runner.runner(runtime));
+    if (!t.wait()) return error.TestFailed;
 }

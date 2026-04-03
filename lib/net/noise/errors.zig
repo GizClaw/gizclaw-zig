@@ -32,6 +32,5 @@ pub const SessionError = error{
     NotEstablished,
     ReplayDetected,
     NonceExhausted,
-    AuthenticationFailed,
-    InvalidCiphertext,
+    DecryptionFailed,
 };

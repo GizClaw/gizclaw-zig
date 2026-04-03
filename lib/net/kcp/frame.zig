@@ -44,44 +44,6 @@ pub fn decode(in: []const u8) !Decoded {
     };
 }
 
-pub fn testAll(testing: anytype) !void {
-    var buf: [32]u8 = undefined;
-    const payload = "abc";
-    const n = try encode(&buf, 7, data, payload);
-    const decoded = try decode(buf[0..n]);
-    try testing.expectEqual(@as(u64, 7), decoded.stream_id);
-    try testing.expectEqual(data, decoded.frame_type);
-    try testing.expectEqualStrings(payload, decoded.payload);
-
-    const open_n = try encode(&buf, 9, open, &.{});
-    const open_frame = try decode(buf[0..open_n]);
-    try testing.expectEqual(@as(u64, 9), open_frame.stream_id);
-    try testing.expectEqual(open, open_frame.frame_type);
-    try testing.expectEqual(@as(usize, 0), open_frame.payload.len);
-
-    const close_n = try encode(&buf, 12, close, &[_]u8{close_reason_abort});
-    const close_frame = try decode(buf[0..close_n]);
-    try testing.expectEqual(@as(u64, 12), close_frame.stream_id);
-    try testing.expectEqual(close, close_frame.frame_type);
-    try testing.expectEqual(@as(u8, close_reason_abort), close_frame.payload[0]);
-
-    const close_ack_n = try encode(&buf, 12, close_ack, &.{});
-    const close_ack_frame = try decode(buf[0..close_ack_n]);
-    try testing.expectEqual(@as(u64, 12), close_ack_frame.stream_id);
-    try testing.expectEqual(close_ack, close_ack_frame.frame_type);
-    try testing.expectEqual(@as(usize, 0), close_ack_frame.payload.len);
-
-    var short_buf: [1]u8 = undefined;
-    try testing.expectError(errors.Error.BufferTooSmall, encode(&short_buf, 128, data, "x"));
-
-    try testing.expectError(errors.Error.InvalidServiceFrame, decode(&.{}));
-    try testing.expectError(errors.Error.InvalidServiceFrame, decode(&[_]u8{0x80}));
-    try testing.expectError(
-        errors.Error.InvalidServiceFrame,
-        decode(&[_]u8{ 0xff, 0xff, 0xff, 0xff, 0x10, data }),
-    );
-}
-
 fn encodeVarint(out: []u8, value: u64) usize {
     var current = value;
     var index: usize = 0;
