@@ -18,6 +18,7 @@ pub const UDP = @import("core/UDP.zig");
 
 pub const Error = errors.Error;
 
+pub const MaxPayloadSize = noise.MaxPayloadSize;
 pub const RekeyAfterTimeMs = consts.rekey_after_time_ms;
 pub const RekeyAttemptTimeMs = consts.rekey_attempt_time_ms;
 pub const RekeyTimeoutMs = consts.rekey_timeout_ms;

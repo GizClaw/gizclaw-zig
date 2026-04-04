@@ -1,0 +1,16 @@
+pub const Error = error{
+    NilListener,
+    NilConn,
+    InvalidHandle,
+    Closed,
+    ConnClosed,
+    StreamClosed,
+    OpusFrameTooShort,
+    InvalidOpusFrameVersion,
+    InvalidV,
+    MissingID,
+    MissingName,
+    MissingMethod,
+    RPCErrorMessageRequired,
+    InvalidJSON,
+};

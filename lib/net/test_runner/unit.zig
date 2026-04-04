@@ -4,6 +4,7 @@ const testing_api = dep.testing;
 const NoiseRunner = @import("unit/noise.zig");
 const CoreRunner = @import("unit/core.zig");
 const KcpRunner = @import("unit/kcp.zig");
+const PeerRunner = @import("unit/peer.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const Runner = struct {
@@ -19,6 +20,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
             t.run("noise", NoiseRunner.runner(lib));
             t.run("core", CoreRunner.runner(lib));
             t.run("kcp", KcpRunner.runner(lib));
+            t.run("peer", PeerRunner.runner(lib));
             return true;
         }
 

@@ -1,8 +1,10 @@
 const dep = @import("dep");
 const testing_api = dep.testing;
 
-const CoreRunner = @import("integration/core.zig");
-const PeerRunner = @import("integration/peer.zig");
+const UdpHandshakeAndDirectRunner = @import("core/udp_handshake_and_direct.zig");
+const UdpRetryAfterDroppedInitRunner = @import("core/udp_retry_after_dropped_init.zig");
+const UdpKcpStreamOpenDataCloseRunner = @import("core/udp_kcp_stream_open_data_close.zig");
+const UdpRoamingUpdatesEndpointRunner = @import("core/udp_roaming_updates_endpoint.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const Runner = struct {
@@ -15,8 +17,10 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
             _ = self;
             _ = allocator;
 
-            t.run("core", CoreRunner.make(lib));
-            t.run("peer", PeerRunner.make(lib));
+            t.run("udp_handshake_and_direct", UdpHandshakeAndDirectRunner.make(lib));
+            t.run("udp_retry_after_dropped_init", UdpRetryAfterDroppedInitRunner.make(lib));
+            t.run("udp_kcp_stream_open_data_close", UdpKcpStreamOpenDataCloseRunner.make(lib));
+            t.run("udp_roaming_updates_endpoint", UdpRoamingUpdatesEndpointRunner.make(lib));
             return true;
         }
 

@@ -44,6 +44,7 @@ pub fn make(comptime lib: type) type {
         pub const Options = struct {
             enable_kcp: bool = false,
             drop_first_client_write: bool = false,
+            allow_all_services: bool = true,
         };
 
         const AcceptTask = struct {
@@ -192,15 +193,21 @@ pub fn make(comptime lib: type) type {
 
             var client_config: UdpType.Config = .{
                 .allow_unknown = false,
-                .service_config = .{
-                    .on_new_service = allowAllServices,
-                },
+                .service_config = if (options.allow_all_services)
+                    .{
+                        .on_new_service = allowAllServices,
+                    }
+                else
+                    .{},
             };
             var server_config: UdpType.Config = .{
                 .allow_unknown = true,
-                .service_config = .{
-                    .on_new_service = allowAllServices,
-                },
+                .service_config = if (options.allow_all_services)
+                    .{
+                        .on_new_service = allowAllServices,
+                    }
+                else
+                    .{},
             };
             if (self.kcp_factory) |factory| {
                 client_config.service_config.stream_adapter_factory = factory.adapterFactory();
