@@ -1,12 +1,10 @@
 const std = @import("std");
-const Tests = @import("build/Tests.zig");
+const build_test = @import("build/test.zig");
 
-const lib_integration = @import("build/lib/integration.zig");
 const lib_net = @import("build/lib/net.zig");
 const pkg_dep = @import("build/pkg/dep.zig");
 
 const Libraries = struct {
-    pub const integration = lib_integration;
     pub const net = lib_net;
 };
 
@@ -34,7 +32,5 @@ pub fn build(b: *std.Build) void {
         }
     }
 
-    const tests = Tests.create(b);
-    tests.addTest(b, "integration", null, .integration_only);
-    tests.addTest(b, "net", null, .unit_only);
+    build_test.createTestModule(b, target, optimize, Libraries, Packages);
 }

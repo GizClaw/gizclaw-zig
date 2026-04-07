@@ -1,5 +1,4 @@
 const dep = @import("dep");
-const testing_api = dep.testing;
 
 const AdapterFile = @import("kcp/Adapter.zig");
 const config = @import("kcp/config.zig");
@@ -8,7 +7,6 @@ const errors = @import("kcp/errors.zig");
 const frame = @import("kcp/frame.zig");
 const MuxFile = @import("kcp/Mux.zig");
 const StreamFile = @import("kcp/Stream.zig");
-const kcp_runner = @import("test_runner/unit/kcp.zig");
 
 const mem = dep.embed.mem;
 
@@ -85,15 +83,4 @@ pub fn make(comptime Core: type) type {
             return MuxFile.init(allocator, service_id, mux_config);
         }
     };
-}
-
-test "net/unit_tests/kcp" {
-    const runtime = dep.embed_std.std;
-
-    var t = testing_api.T.new(runtime, .kcp);
-    defer t.deinit();
-
-    t.timeout(5 * runtime.time.ns_per_s);
-    t.run("kcp", kcp_runner.runner(runtime));
-    if (!t.wait()) return error.TestFailed;
 }

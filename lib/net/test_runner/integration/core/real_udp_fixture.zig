@@ -1,5 +1,6 @@
 const dep = @import("dep");
-const net_pkg = @import("net");
+const net_pkg = @import("../../../../net.zig");
+const bench = @import("../../benchmark/common.zig");
 
 const noise = net_pkg.noise;
 const CoreFile = net_pkg.core;
@@ -45,16 +46,26 @@ pub fn make(comptime lib: type) type {
             enable_kcp: bool = false,
             drop_first_client_write: bool = false,
             allow_all_services: bool = true,
+            client_impairment: bench.ImpairmentProfile = bench.no_impairment,
+            server_impairment: bench.ImpairmentProfile = bench.no_impairment,
+            kcp_accept_backlog: usize = 0,
+            kcp_max_active_streams: usize = 0,
         };
 
         const AcceptTask = struct {
-            ctx_api: *ContextApi,
+            allocator: dep.embed.mem.Allocator,
             udp: *UdpType,
             conn: ?*Core.Conn = null,
             err: ?anyerror = null,
 
             fn run(self: *AcceptTask) void {
-                var ctx = self.ctx_api.withTimeout(self.ctx_api.background(), default_timeout_ns) catch |err| {
+                var ctx_api = ContextApi.init(self.allocator) catch |err| {
+                    self.err = err;
+                    return;
+                };
+                defer ctx_api.deinit();
+
+                var ctx = ctx_api.withTimeout(ctx_api.background(), default_timeout_ns) catch |err| {
                     self.err = err;
                     return;
                 };
@@ -74,6 +85,17 @@ pub fn make(comptime lib: type) type {
             read_timeout_ms: ?u32 = null,
             write_timeout_ms: ?u32 = null,
             write_count: usize = 0,
+            impairment: bench.ImpairmentProfile = bench.no_impairment,
+            drop_burst_remaining: usize = 0,
+            delayed_packet: ?DelayedPacket = null,
+            teardown_requested: bool = false,
+
+            const DelayedPacket = struct {
+                payload: [noise.MaxPacketSize]u8 = undefined,
+                payload_len: usize,
+                addr: PacketConn.AddrStorage = [_]u8{0} ** @sizeOf(PacketConn.AddrStorage),
+                addr_len: u32,
+            };
 
             fn init(allocator: dep.embed.mem.Allocator, active: PacketConn) !*SwitchablePacketConn {
                 const self = try allocator.create(SwitchablePacketConn);
@@ -90,6 +112,12 @@ pub fn make(comptime lib: type) type {
                 self.active = next;
                 self.active.setReadTimeout(self.read_timeout_ms);
                 self.active.setWriteTimeout(self.write_timeout_ms);
+            }
+
+            fn setImpairment(self: *SwitchablePacketConn, impairment: bench.ImpairmentProfile) void {
+                self.impairment = impairment;
+                self.drop_burst_remaining = 0;
+                self.delayed_packet = null;
             }
 
             fn localSockAddr(self: *SwitchablePacketConn) !LocalAddr {
@@ -121,8 +149,27 @@ pub fn make(comptime lib: type) type {
                     self.drop_first_write = false;
                     return buf.len;
                 }
-                self.active.setWriteTimeout(self.write_timeout_ms);
-                return self.active.writeTo(buf, addr, addr_len);
+                const should_drop = self.shouldDropCurrent();
+                const should_reorder = self.shouldReorderCurrent();
+
+                if (self.delayed_packet != null) {
+                    if (!should_drop) {
+                        try self.sendActive(buf, addr, addr_len);
+                        try self.maybeDuplicateActive(buf, addr, addr_len);
+                    }
+                    try self.flush();
+                    return buf.len;
+                }
+
+                if (should_drop) return buf.len;
+                if (should_reorder) {
+                    try self.storeDelayed(buf, addr, addr_len);
+                    return buf.len;
+                }
+
+                try self.sendActive(buf, addr, addr_len);
+                try self.maybeDuplicateActive(buf, addr, addr_len);
+                return buf.len;
             }
 
             pub fn close(self: *SwitchablePacketConn) void {
@@ -131,10 +178,11 @@ pub fn make(comptime lib: type) type {
             }
 
             pub fn deinit(self: *SwitchablePacketConn) void {
-                self.active.deinit();
-                if (self.retired) |packet| packet.deinit();
-                const allocator = self.allocator;
-                allocator.destroy(self);
+                if (self.teardown_requested) return;
+                self.teardown_requested = true;
+                // PacketConn calls this hook during UDP teardown, so owner-side
+                // heap release stays in finalize().
+                self.close();
             }
 
             pub fn setReadTimeout(self: *SwitchablePacketConn, ms: ?u32) void {
@@ -145,6 +193,92 @@ pub fn make(comptime lib: type) type {
             pub fn setWriteTimeout(self: *SwitchablePacketConn, ms: ?u32) void {
                 self.write_timeout_ms = ms;
                 self.active.setWriteTimeout(ms);
+            }
+
+            pub fn flush(self: *SwitchablePacketConn) PacketConn.WriteToError!void {
+                if (self.delayed_packet) |packet| {
+                    try self.sendActive(packet.payload[0..packet.payload_len], @ptrCast(&packet.addr), packet.addr_len);
+                    self.delayed_packet = null;
+                }
+            }
+
+            fn sendActive(
+                self: *SwitchablePacketConn,
+                buf: []const u8,
+                addr: [*]const u8,
+                addr_len: u32,
+            ) PacketConn.WriteToError!void {
+                self.active.setWriteTimeout(self.write_timeout_ms);
+                _ = try self.active.writeTo(buf, addr, addr_len);
+            }
+
+            fn maybeDuplicateActive(
+                self: *SwitchablePacketConn,
+                buf: []const u8,
+                addr: [*]const u8,
+                addr_len: u32,
+            ) PacketConn.WriteToError!void {
+                if (!self.shouldDuplicateCurrent()) return;
+
+                const burst = if (self.impairment.burst_len == 0) 1 else self.impairment.burst_len;
+                var copy_index: usize = 0;
+                while (copy_index < burst) : (copy_index += 1) {
+                    try self.sendActive(buf, addr, addr_len);
+                }
+            }
+
+            fn storeDelayed(
+                self: *SwitchablePacketConn,
+                buf: []const u8,
+                addr: [*]const u8,
+                addr_len: u32,
+            ) PacketConn.WriteToError!void {
+                if (buf.len > noise.MaxPacketSize) return error.MessageTooLong;
+
+                var owned = DelayedPacket{
+                    .payload_len = buf.len,
+                    .addr_len = addr_len,
+                };
+                @memcpy(owned.payload[0..buf.len], buf);
+                const addr_len_usize: usize = @intCast(addr_len);
+                @memcpy(owned.addr[0..addr_len_usize], addr[0..addr_len_usize]);
+                self.delayed_packet = owned;
+            }
+
+            fn shouldDropCurrent(self: *SwitchablePacketConn) bool {
+                if (self.drop_burst_remaining != 0) {
+                    self.drop_burst_remaining -= 1;
+                    return true;
+                }
+                if (!percentHit(self.write_count, self.impairment.loss_pct)) return false;
+                if (self.impairment.burst_len > 1) {
+                    self.drop_burst_remaining = self.impairment.burst_len - 1;
+                }
+                return true;
+            }
+
+            fn shouldReorderCurrent(self: *SwitchablePacketConn) bool {
+                return self.impairment.reorder_pct != 0 and percentHit(self.write_count, self.impairment.reorder_pct);
+            }
+
+            fn shouldDuplicateCurrent(self: *SwitchablePacketConn) bool {
+                return self.impairment.duplicate_pct != 0 and percentHit(self.write_count, self.impairment.duplicate_pct);
+            }
+
+            fn percentHit(write_count: usize, pct: u8) bool {
+                if (pct == 0 or write_count == 0) return false;
+                const pct_usize: usize = pct;
+                return ((write_count - 1) * pct_usize) / 100 != (write_count * pct_usize) / 100;
+            }
+
+            fn finalize(self: *SwitchablePacketConn) void {
+                // The fixture owns the wrapper allocation and must call finalize()
+                // after UDP deinit has triggered the PacketConn deinit hook.
+                self.delayed_packet = null;
+                self.active.deinit();
+                if (self.retired) |packet| packet.deinit();
+                const allocator = self.allocator;
+                allocator.destroy(self);
             }
         };
 
@@ -168,6 +302,12 @@ pub fn make(comptime lib: type) type {
                 factory.* = .{};
                 factory.config.mux.close_ack_timeout_ms = 50;
                 factory.config.mux.interval = 1;
+                if (options.kcp_accept_backlog != 0) {
+                    factory.config.mux.accept_backlog = options.kcp_accept_backlog;
+                }
+                if (options.kcp_max_active_streams != 0) {
+                    factory.config.mux.max_active_streams = options.kcp_max_active_streams;
+                }
                 self.kcp_factory = factory;
             }
             errdefer if (self.kcp_factory) |factory| allocator.destroy(factory);
@@ -179,8 +319,9 @@ pub fn make(comptime lib: type) type {
                     .address = dep.net.netip.AddrPort.from4(.{ 127, 0, 0, 1 }, 0),
                 }),
             );
-            errdefer self.client_wrapper.deinit();
+            errdefer self.client_wrapper.finalize();
             self.client_wrapper.drop_first_write = options.drop_first_client_write;
+            self.client_wrapper.setImpairment(options.client_impairment);
 
             self.server_wrapper = try SwitchablePacketConn.init(
                 allocator,
@@ -189,7 +330,8 @@ pub fn make(comptime lib: type) type {
                     .address = dep.net.netip.AddrPort.from4(.{ 127, 0, 0, 1 }, 0),
                 }),
             );
-            errdefer self.server_wrapper.deinit();
+            errdefer self.server_wrapper.finalize();
+            self.server_wrapper.setImpairment(options.server_impairment);
 
             var client_config: UdpType.Config = .{
                 .allow_unknown = false,
@@ -236,6 +378,8 @@ pub fn make(comptime lib: type) type {
         pub fn deinit(self: *Self) void {
             self.client_udp.deinit();
             self.server_udp.deinit();
+            self.client_wrapper.finalize();
+            self.server_wrapper.finalize();
             if (self.kcp_factory) |factory| self.allocator.destroy(factory);
             self.ctx_api.deinit();
             self.* = undefined;
@@ -250,7 +394,7 @@ pub fn make(comptime lib: type) type {
             );
 
             var accept_task = AcceptTask{
-                .ctx_api = &self.ctx_api,
+                .allocator = self.allocator,
                 .udp = &self.server_udp,
             };
             var accept_thread = try lib.Thread.spawn(.{}, AcceptTask.run, .{&accept_task});
@@ -268,14 +412,26 @@ pub fn make(comptime lib: type) type {
         pub fn drive(self: *Self, rounds: usize) !void {
             var round: usize = 0;
             while (round < rounds) : (round += 1) {
+                try self.flushClientWrites();
+                try self.flushServerWrites();
                 try self.pumpServer();
                 try self.pumpClient();
                 try self.client_udp.tick();
                 try self.server_udp.tick();
+                try self.flushClientWrites();
+                try self.flushServerWrites();
                 try self.pumpServer();
                 try self.pumpClient();
                 lib.Thread.sleep(5 * lib.time.ns_per_ms);
             }
+        }
+
+        pub fn flushClientWrites(self: *Self) !void {
+            try self.client_wrapper.flush();
+        }
+
+        pub fn flushServerWrites(self: *Self) !void {
+            try self.server_wrapper.flush();
         }
 
         pub fn pumpServer(self: *Self) !void {

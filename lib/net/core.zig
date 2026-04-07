@@ -1,12 +1,9 @@
-const dep = @import("dep");
 const noise = @import("noise.zig");
 
 const root = @This();
-const testing_api = dep.testing;
 
 const consts = @import("core/consts.zig");
 const errors = @import("core/errors.zig");
-const core_runner = @import("test_runner/unit/core.zig");
 pub const Conn = @import("core/Conn.zig");
 pub const Dialer = @import("core/Dialer.zig");
 pub const Host = @import("core/Host.zig");
@@ -56,15 +53,4 @@ pub fn make(comptime lib: type) type {
         pub const SessionManager = root.SessionManager.make(lib, Noise);
         pub const UDP = root.UDP.make(lib, Noise);
     };
-}
-
-test "net/unit_tests/core" {
-    const runtime = dep.embed_std.std;
-
-    var t = testing_api.T.new(runtime, .core);
-    defer t.deinit();
-
-    t.timeout(5 * runtime.time.ns_per_s);
-    t.run("core", core_runner.runner(runtime));
-    if (!t.wait()) return error.TestFailed;
 }

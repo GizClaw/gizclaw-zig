@@ -315,5 +315,5 @@ Current tests cover:
 Run the focused package suite with:
 
 ```sh
-zig build test-net
+zig build test-unit-net
 ```

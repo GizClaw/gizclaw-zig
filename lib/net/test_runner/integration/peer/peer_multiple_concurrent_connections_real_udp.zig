@@ -1,5 +1,5 @@
 const dep = @import("dep");
-const net_pkg = @import("net");
+const net_pkg = @import("../../../../net.zig");
 const testing_api = dep.testing;
 
 const core_pkg = net_pkg.core;
@@ -33,20 +33,33 @@ fn Helpers(comptime lib: type) type {
             }
         };
 
-        const AcceptTask = struct {
-            ctx_api: *ContextApi,
+        const DialTask = struct {
+            allocator: dep.embed.mem.Allocator,
             listener: *Peer.Listener,
+            server_key: noise_pkg.Key,
+            server_addr: LocalAddr,
             conn: ?*Peer.Conn = null,
             err: ?anyerror = null,
 
-            fn run(self: *AcceptTask) void {
-                var ctx = self.ctx_api.withTimeout(self.ctx_api.background(), 8 * lib.time.ns_per_s) catch |err| {
+            fn run(self: *DialTask) void {
+                var ctx_api = ContextApi.init(self.allocator) catch |err| {
+                    self.err = err;
+                    return;
+                };
+                defer ctx_api.deinit();
+
+                var ctx = ctx_api.withTimeout(ctx_api.background(), 8 * lib.time.ns_per_s) catch |err| {
                     self.err = err;
                     return;
                 };
                 defer ctx.deinit();
 
-                self.conn = self.listener.acceptContext(ctx) catch |err| {
+                self.conn = self.listener.dialContext(
+                    ctx,
+                    self.server_key,
+                    @ptrCast(&self.server_addr.storage),
+                    self.server_addr.len,
+                ) catch |err| {
                     self.err = err;
                     return;
                 };
@@ -104,61 +117,79 @@ fn Helpers(comptime lib: type) type {
             try testing_impl.expect(!clients[0].key_pair.public.eql(clients[2].key_pair.public));
             try testing_impl.expect(!clients[1].key_pair.public.eql(clients[2].key_pair.public));
 
-            var accepted_keys: [client_count]noise_pkg.Key = undefined;
-            var accepted_conns: [client_count]*Peer.Conn = undefined;
-            var accepted_count: usize = 0;
+            var accepted_conns: [client_count]?*Peer.Conn = [_]?*Peer.Conn{null} ** client_count;
             defer {
-                var index: usize = 0;
-                while (index < accepted_count) : (index += 1) {
-                    accepted_conns[index].deinit();
+                for (accepted_conns) |maybe_conn| {
+                    if (maybe_conn) |handle| handle.deinit();
+                }
+            }
+
+            var dial_tasks: [client_count]DialTask = undefined;
+            var dial_threads: [client_count]lib.Thread = undefined;
+            var started: usize = 0;
+            errdefer {
+                var cleanup_index: usize = 0;
+                while (cleanup_index < started) : (cleanup_index += 1) {
+                    if (dial_tasks[cleanup_index].conn) |handle| handle.deinit();
+                }
+            }
+            errdefer {
+                var join_index: usize = 0;
+                while (join_index < started) : (join_index += 1) {
+                    dial_threads[join_index].join();
                 }
             }
 
             for (&clients, 0..) |*client, index| {
-                var accept_task = AcceptTask{
-                    .ctx_api = &ctx_api,
-                    .listener = server_listener,
+                dial_tasks[index] = .{
+                    .allocator = allocator,
+                    .listener = client.listener,
+                    .server_key = server_key.public,
+                    .server_addr = server_addr,
                 };
-                var accept_thread = try lib.Thread.spawn(.{}, AcceptTask.run, .{&accept_task});
-                var accept_joined = false;
-                errdefer if (!accept_joined) accept_thread.join();
+                dial_threads[index] = try lib.Thread.spawn(.{}, DialTask.run, .{&dial_tasks[index]});
+                started += 1;
+            }
 
+            var accept_count: usize = 0;
+            while (accept_count < client_count) : (accept_count += 1) {
                 var ctx = try ctx_api.withTimeout(ctx_api.background(), 8 * lib.time.ns_per_s);
                 defer ctx.deinit();
+                const accepted = server_listener.acceptContext(ctx) catch |err| {
+                    return switch (accept_count) {
+                        0 => mapTimeout(err, error.Accept0Failed),
+                        1 => mapTimeout(err, error.Accept1Failed),
+                        2 => mapTimeout(err, error.Accept2Failed),
+                        else => err,
+                    };
+                };
+                const client_index = clientIndexForKey(&clients, accepted.publicKey()) orelse {
+                    accepted.deinit();
+                    return error.TestUnexpectedResult;
+                };
+                if (accepted_conns[client_index] != null) {
+                    accepted.deinit();
+                    return error.TestUnexpectedResult;
+                }
+                accepted_conns[client_index] = accepted;
+            }
 
-                client.conn = client.listener.dialContext(
-                    ctx,
-                    server_key.public,
-                    @ptrCast(&server_addr.storage),
-                    server_addr.len,
-                ) catch |err| return switch (index) {
+            var join_index: usize = 0;
+            while (join_index < started) : (join_index += 1) {
+                dial_threads[join_index].join();
+            }
+            for (&clients, 0..) |*client, index| {
+                if (dial_tasks[index].err) |err| return switch (index) {
                     0 => mapTimeout(err, error.Client0DialFailed),
                     1 => mapTimeout(err, error.Client1DialFailed),
                     2 => mapTimeout(err, error.Client2DialFailed),
                     else => err,
                 };
-
-                accept_thread.join();
-                accept_joined = true;
-                if (accept_task.err) |err| return switch (index) {
-                    0 => mapTimeout(err, error.Accept0Failed),
-                    1 => mapTimeout(err, error.Accept1Failed),
-                    2 => mapTimeout(err, error.Accept2Failed),
-                    else => err,
-                };
-                accepted_conns[index] = accept_task.conn orelse return error.TestUnexpectedResult;
-                accepted_keys[index] = accepted_conns[index].publicKey();
-                accepted_count += 1;
+                client.conn = dial_tasks[index].conn orelse return error.TestUnexpectedResult;
+                dial_tasks[index].conn = null;
                 try testing_impl.expect(client.conn.?.publicKey().eql(server_key.public));
-            }
-
-            for (accepted_keys, 0..) |accepted_key, index| {
-                try testing_impl.expect(keyInClients(&clients, accepted_key));
-                var other: usize = 0;
-                while (other < client_count) : (other += 1) {
-                    if (other == index) continue;
-                    try testing_impl.expect(!accepted_key.eql(accepted_keys[other]));
-                }
+                const accepted = accepted_conns[index] orelse return error.TestUnexpectedResult;
+                try testing_impl.expect(accepted.publicKey().eql(clients[index].key_pair.public));
             }
 
             try testing_impl.expectError(core_pkg.Error.QueueEmpty, server_listener.accept());
@@ -195,11 +226,11 @@ fn Helpers(comptime lib: type) type {
             };
         }
 
-        fn keyInClients(clients: *const [client_count]Client, key: noise_pkg.Key) bool {
-            for (clients) |client| {
-                if (client.key_pair.public.eql(key)) return true;
+        fn clientIndexForKey(clients: *const [client_count]Client, key: noise_pkg.Key) ?usize {
+            for (clients, 0..) |client, index| {
+                if (client.key_pair.public.eql(key)) return index;
             }
-            return false;
+            return null;
         }
 
         fn localSockAddr(packet: PacketConn) !LocalAddr {

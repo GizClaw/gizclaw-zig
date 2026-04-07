@@ -20,11 +20,14 @@ In this repository, only `README.md` files count as user-facing docs.
 
 ## Testing Rules
 
-- Unit package test entries currently live in `lib/net/noise.zig`, `lib/net/core.zig`, and `lib/net/kcp.zig`.
-- The integration package test entry lives at `lib/integration.zig`.
+- `lib`-side named test blocks are centralized in `lib/test.zig`.
+- The current `lib/net` test entry names are `net/unit`, `net/integration`, `net/benchmark`, and `net/cork`.
 - Put per-file unit runners under `lib/net/test_runner/unit/<package>/`.
-- Put integration scenario runners under `lib/net/test_runner/integration/`.
-- Keep the aggregate runner entry files at `lib/net/test_runner/unit.zig` and `lib/net/test_runner/integration.zig`.
+- Put integration scenario runners under `lib/net/test_runner/integration/`, split by layer such as `integration/core/` and `integration/peer/`.
+- Put benchmark runners under `lib/net/test_runner/benchmark/<package>/`.
+- Keep the aggregate runner entry files at `lib/net/test_runner/unit.zig`, `lib/net/test_runner/integration.zig`, `lib/net/test_runner/benchmark.zig`, and `lib/net/test_runner/cork.zig`.
+- Build wiring relies on the named-test filters `net/unit`, `net/integration`, `net/benchmark`, and `net/cork`.
+- Focused build steps are type-qualified, for example `zig build test-unit-net`, `zig build test-integration-net`, `zig build test-benchmark-net`, and `zig build test-cork-net`.
 - Keep tests deterministic and small; host-only behavior should stay in explicit test entry files instead of leaking into library code.
 
 ## Read Before Editing

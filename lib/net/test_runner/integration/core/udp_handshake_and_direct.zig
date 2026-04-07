@@ -1,6 +1,6 @@
 const dep = @import("dep");
 const testing_api = dep.testing;
-const net_pkg = @import("net");
+const net_pkg = @import("../../../../net.zig");
 
 const RealUdpFixtureFile = @import("real_udp_fixture.zig");
 

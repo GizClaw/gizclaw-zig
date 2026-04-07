@@ -1,5 +1,5 @@
 const dep = @import("dep");
-const net_pkg = @import("net");
+const net_pkg = @import("../../../../net.zig");
 const testing_api = dep.testing;
 
 const peer = net_pkg.peer;

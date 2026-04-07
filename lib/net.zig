@@ -11,6 +11,12 @@ pub const noise = noise_ns;
 pub const core = core_ns;
 pub const kcp = kcp_ns;
 pub const peer = peer_ns;
+pub const test_runner = struct {
+    pub const unit = @import("net/test_runner/unit.zig");
+    pub const integration = @import("net/test_runner/integration.zig");
+    pub const benchmark = @import("net/test_runner/benchmark.zig");
+    pub const cork = @import("net/test_runner/cork.zig");
+};
 
 pub fn make(comptime lib: type) type {
     const Core = core_ns.make(lib);
@@ -20,13 +26,4 @@ pub fn make(comptime lib: type) type {
         pub const kcp = kcp_ns.make(core_ns);
         pub const peer = peer_ns.make(Core);
     };
-}
-
-test {
-    _ = @This();
-    _ = noise;
-    _ = core;
-    _ = kcp;
-    _ = peer;
-    _ = @import("net/test_runner/unit.zig");
 }

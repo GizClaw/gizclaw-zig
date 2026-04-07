@@ -1,6 +1,3 @@
-const dep = @import("dep");
-const testing_api = dep.testing;
-
 const root = @This();
 const conn = @import("peer/Conn.zig");
 const listener = @import("peer/Listener.zig");
@@ -68,16 +65,4 @@ pub fn make(comptime Core: type) type {
         pub const stampOpusFrame = root.stampOpusFrame;
         pub const parseStampedOpusFrame = root.parseStampedOpusFrame;
     };
-}
-
-test "net/unit_tests/peer" {
-    const runtime = dep.embed_std.std;
-    const peer_runner = @import("test_runner/unit/peer.zig");
-
-    var t = testing_api.T.new(runtime, .peer);
-    defer t.deinit();
-
-    t.timeout(5 * runtime.time.ns_per_s);
-    t.run("peer", peer_runner.runner(runtime));
-    if (!t.wait()) return error.TestFailed;
 }

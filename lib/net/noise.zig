@@ -1,4 +1,3 @@
-const dep = @import("dep");
 const KeyFile = @import("noise/Key.zig");
 const KeyPairFile = @import("noise/KeyPair.zig");
 const ReplayFilterFile = @import("noise/ReplayFilter.zig");
@@ -65,17 +64,4 @@ pub fn make(comptime lib: type) type {
         pub const Varint = varint;
         pub const Message = message;
     };
-}
-
-test "net/unit_tests/noise" {
-    const runtime = dep.embed_std.std;
-    const testing_api = dep.testing;
-    const noise_runner = @import("test_runner/unit/noise.zig");
-
-    var t = testing_api.T.new(runtime, .noise);
-    defer t.deinit();
-
-    t.timeout(5 * runtime.time.ns_per_s);
-    t.run("noise", noise_runner.runner(runtime));
-    if (!t.wait()) return error.TestFailed;
 }

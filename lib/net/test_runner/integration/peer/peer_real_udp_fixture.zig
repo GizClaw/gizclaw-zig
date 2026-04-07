@@ -1,5 +1,6 @@
 const dep = @import("dep");
-const net_pkg = @import("net");
+const net_pkg = @import("../../../../net.zig");
+const bench = @import("../../benchmark/common.zig");
 
 const CoreFile = net_pkg.core;
 const KcpFile = net_pkg.kcp;
@@ -36,16 +37,26 @@ pub fn make(comptime lib: type) type {
             enable_kcp: bool = false,
             allow_all_services: bool = true,
             drop_first_client_write: bool = false,
+            client_impairment: bench.ImpairmentProfile = bench.no_impairment,
+            server_impairment: bench.ImpairmentProfile = bench.no_impairment,
+            kcp_accept_backlog: usize = 0,
+            kcp_max_active_streams: usize = 0,
         };
 
         const AcceptTask = struct {
-            ctx_api: *ContextApi,
+            allocator: dep.embed.mem.Allocator,
             listener: *Peer.Listener,
             conn: ?*Peer.Conn = null,
             err: ?anyerror = null,
 
             fn run(self: *AcceptTask) void {
-                var ctx = self.ctx_api.withTimeout(self.ctx_api.background(), BaseFixture.default_timeout_ns) catch |err| {
+                var ctx_api = ContextApi.init(self.allocator) catch |err| {
+                    self.err = err;
+                    return;
+                };
+                defer ctx_api.deinit();
+
+                var ctx = ctx_api.withTimeout(ctx_api.background(), BaseFixture.default_timeout_ns) catch |err| {
                     self.err = err;
                     return;
                 };
@@ -59,13 +70,19 @@ pub fn make(comptime lib: type) type {
         };
 
         const CoreAcceptTask = struct {
-            ctx_api: *ContextApi,
+            allocator: dep.embed.mem.Allocator,
             udp: *Core.UDP,
             conn: ?*Core.Conn = null,
             err: ?anyerror = null,
 
             fn run(self: *CoreAcceptTask) void {
-                var ctx = self.ctx_api.withTimeout(self.ctx_api.background(), BaseFixture.default_timeout_ns) catch |err| {
+                var ctx_api = ContextApi.init(self.allocator) catch |err| {
+                    self.err = err;
+                    return;
+                };
+                defer ctx_api.deinit();
+
+                var ctx = ctx_api.withTimeout(ctx_api.background(), BaseFixture.default_timeout_ns) catch |err| {
                     self.err = err;
                     return;
                 };
@@ -85,6 +102,10 @@ pub fn make(comptime lib: type) type {
                 .enable_kcp = options.enable_kcp,
                 .allow_all_services = options.allow_all_services,
                 .drop_first_client_write = options.drop_first_client_write,
+                .client_impairment = options.client_impairment,
+                .server_impairment = options.server_impairment,
+                .kcp_accept_backlog = options.kcp_accept_backlog,
+                .kcp_max_active_streams = options.kcp_max_active_streams,
             });
             errdefer base.deinit();
 
@@ -115,7 +136,7 @@ pub fn make(comptime lib: type) type {
             const server_addr = try self.base.currentServerAddr();
 
             var accept_task = AcceptTask{
-                .ctx_api = &self.base.ctx_api,
+                .allocator = self.allocator,
                 .listener = self.server_listener,
             };
             var accept_thread = try lib.Thread.spawn(.{}, AcceptTask.run, .{&accept_task});
@@ -142,7 +163,7 @@ pub fn make(comptime lib: type) type {
             // handle. The caller later asserts that Listener.accept() still stays
             // empty while another handle keeps the peer known.
             var accept_task = CoreAcceptTask{
-                .ctx_api = &self.base.ctx_api,
+                .allocator = self.allocator,
                 .udp = try self.server_listener.udpHandle(),
             };
             var accept_thread = try lib.Thread.spawn(.{}, CoreAcceptTask.run, .{&accept_task});
@@ -168,6 +189,14 @@ pub fn make(comptime lib: type) type {
 
         pub fn drive(self: *Self, rounds: usize) !void {
             try self.base.drive(rounds);
+        }
+
+        pub fn flushClientWrites(self: *Self) !void {
+            try self.base.flushClientWrites();
+        }
+
+        pub fn flushServerWrites(self: *Self) !void {
+            try self.base.flushServerWrites();
         }
 
         pub fn closeClientUDP(self: *Self) !void {
