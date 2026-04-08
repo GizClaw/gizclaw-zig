@@ -2,6 +2,7 @@ const dep = @import("dep");
 const testing_api = dep.testing;
 
 const CoreRunner = @import("integration/core.zig");
+const HttpTransportRunner = @import("integration/http_transport.zig");
 const PeerRunner = @import("integration/peer.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
@@ -16,6 +17,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
             _ = allocator;
 
             t.run("core", CoreRunner.make(lib));
+            t.run("http_transport", HttpTransportRunner.make(lib));
             t.run("peer", PeerRunner.make(lib));
             return true;
         }

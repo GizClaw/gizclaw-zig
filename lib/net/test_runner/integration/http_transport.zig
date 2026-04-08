@@ -1,11 +1,7 @@
 const dep = @import("dep");
 const testing_api = dep.testing;
 
-const NoiseRunner = @import("benchmark/noise.zig");
-const CoreRunner = @import("benchmark/core.zig");
-const HttpTransportRunner = @import("benchmark/http_transport.zig");
-const KcpRunner = @import("benchmark/kcp.zig");
-const PeerRunner = @import("benchmark/peer.zig");
+const ClientServerRealUdpRunner = @import("http_transport/client_server_real_udp.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const Runner = struct {
@@ -18,11 +14,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
             _ = self;
             _ = allocator;
 
-            t.run("noise", NoiseRunner.make(lib));
-            t.run("core", CoreRunner.make(lib));
-            t.run("http_transport", HttpTransportRunner.make(lib));
-            t.run("kcp", KcpRunner.make(lib));
-            t.run("peer", PeerRunner.make(lib));
+            t.run("client_server_real_udp", ClientServerRealUdpRunner.make(lib));
             return true;
         }
 

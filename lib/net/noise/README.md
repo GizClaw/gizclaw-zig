@@ -19,7 +19,7 @@ machinery that higher layers build on top of.
 
 - Implementation files in `lib/net/noise/` must not import `std`.
 - External dependencies should come from `embed`.
-- `noise` must not depend on `core`, `kcp`, `peer`, or `httptransport`.
+- `noise` must not depend on `core`, `kcp`, `peer`, or `http_transport`.
 - Keep file-as-struct style for main objects such as `Handshake`, `Session`, and `ReplayFilter`.
 
 ## Entry Points
