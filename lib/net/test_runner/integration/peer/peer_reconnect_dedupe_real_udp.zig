@@ -3,7 +3,7 @@ const net_pkg = @import("../../../../net.zig");
 const testing_api = dep.testing;
 
 const core = net_pkg.core;
-const PeerRealUdpFixtureFile = @import("peer_real_udp_fixture.zig");
+const PeerRealUdpFixtureFile = @import("../test_utils/peer_real_udp_fixture.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const testing = lib.testing;

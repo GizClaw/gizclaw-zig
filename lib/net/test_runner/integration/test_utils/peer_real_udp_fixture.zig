@@ -6,7 +6,7 @@ const CoreFile = net_pkg.core;
 const KcpFile = net_pkg.kcp;
 const PeerFile = net_pkg.peer;
 
-const RealUdpFixtureFile = @import("../core/real_udp_fixture.zig");
+const RealUdpFixtureFile = @import("real_udp_fixture.zig");
 
 // Wrap the real UDP integration harness with peer.Listener / peer.Conn helpers.
 // The network path stays real loopback sockets; this fixture only raises the API

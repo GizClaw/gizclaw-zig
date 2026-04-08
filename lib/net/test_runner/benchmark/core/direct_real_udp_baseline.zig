@@ -3,10 +3,10 @@ const testing_api = dep.testing;
 const net_pkg = @import("../../../../net.zig");
 
 const bench = @import("../common.zig");
-const RealUdpFixtureFile = @import("../../integration/core/real_udp_fixture.zig");
+const RealUdpHarnessFile = @import("../test_utils/real_udp_harness.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
-    const Fixture = RealUdpFixtureFile.make(lib);
+    const Harness = RealUdpHarnessFile.make(lib);
 
     const Runner = struct {
         pub fn init(self: *@This(), allocator: dep.embed.mem.Allocator) !void {
@@ -17,7 +17,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
         pub fn run(self: *@This(), t: *testing_api.T, allocator: dep.embed.mem.Allocator) bool {
             _ = self;
 
-            var fixture = Fixture.init(allocator, .{}) catch |err| {
+            var fixture = Harness.init(allocator, .{}) catch |err| {
                 t.logErrorf("benchmark/core/direct_real_udp_baseline setup failed: {}", .{err});
                 return false;
             };

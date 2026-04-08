@@ -3,7 +3,7 @@ const net_pkg = @import("../../../../net.zig");
 const testing_api = dep.testing;
 
 const bench = @import("../common.zig");
-const PeerRealUdpFixtureFile = @import("../../integration/peer/peer_real_udp_fixture.zig");
+const PeerRealUdpHarnessFile = @import("../test_utils/peer_real_udp_harness.zig");
 
 const CoreFile = net_pkg.core;
 const PeerFile = net_pkg.peer;
@@ -11,7 +11,7 @@ const PeerFile = net_pkg.peer;
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const Core = CoreFile.make(lib);
     const Peer = PeerFile.make(Core);
-    const Fixture = PeerRealUdpFixtureFile.make(lib);
+    const Fixture = PeerRealUdpHarnessFile.make(lib);
 
     const Runner = struct {
         pub fn init(self: *@This(), allocator: dep.embed.mem.Allocator) !void {

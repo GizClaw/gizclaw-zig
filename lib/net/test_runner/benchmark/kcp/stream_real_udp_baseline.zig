@@ -2,10 +2,10 @@ const dep = @import("dep");
 const testing_api = dep.testing;
 
 const bench = @import("../common.zig");
-const RealUdpFixtureFile = @import("../../integration/core/real_udp_fixture.zig");
+const RealUdpHarnessFile = @import("../test_utils/real_udp_harness.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
-    const Fixture = RealUdpFixtureFile.make(lib);
+    const Fixture = RealUdpHarnessFile.make(lib);
 
     const Runner = struct {
         pub fn init(self: *@This(), allocator: dep.embed.mem.Allocator) !void {

@@ -2,6 +2,7 @@ const dep = @import("dep");
 const testing_api = dep.testing;
 
 const TransportMessageCodecBaselineRunner = @import("noise/transport_message_codec_baseline.zig");
+const TransportSessionRoundtripBaselineRunner = @import("noise/transport_session_roundtrip_baseline.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const Runner = struct {
@@ -15,6 +16,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
             _ = allocator;
 
             t.run("transport_message_codec_baseline", TransportMessageCodecBaselineRunner.make(lib));
+            t.run("transport_session_roundtrip_baseline", TransportSessionRoundtripBaselineRunner.make(lib));
             return true;
         }
 

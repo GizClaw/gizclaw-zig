@@ -1,7 +1,7 @@
 const dep = @import("dep");
 const testing_api = dep.testing;
 
-const RealUdpFixtureFile = @import("real_udp_fixture.zig");
+const RealUdpFixtureFile = @import("../test_utils/real_udp_fixture.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
     const testing = lib.testing;
