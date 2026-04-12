@@ -207,44 +207,20 @@ pub fn make(comptime lib: type) type {
             (try self.server_listener.udpHandle()).close();
         }
 
-        pub fn waitForServerEvent(
+        pub fn waitForServerRead(
             self: *Self,
-            allocator: dep.embed.mem.Allocator,
+            out: []u8,
             max_rounds: usize,
-        ) !Peer.Event {
-            return try self.waitForEvent(.server, allocator, max_rounds);
+        ) !Core.ServiceMux.ReadResult {
+            return try self.waitForRead(.server, out, max_rounds);
         }
 
-        pub fn waitForClientEvent(
+        pub fn waitForClientRead(
             self: *Self,
-            allocator: dep.embed.mem.Allocator,
+            out: []u8,
             max_rounds: usize,
-        ) !Peer.Event {
-            return try self.waitForEvent(.client, allocator, max_rounds);
-        }
-
-        pub fn waitForServerOpusFrame(
-            self: *Self,
-            allocator: dep.embed.mem.Allocator,
-            max_rounds: usize,
-        ) !Peer.StampedOpusFrame {
-            return try self.waitForOpusFrame(.server, allocator, max_rounds);
-        }
-
-        pub fn waitForClientOpusFrame(
-            self: *Self,
-            allocator: dep.embed.mem.Allocator,
-            max_rounds: usize,
-        ) !Peer.StampedOpusFrame {
-            return try self.waitForOpusFrame(.client, allocator, max_rounds);
-        }
-
-        pub fn waitForAcceptedServerRPC(self: *Self, max_rounds: usize) !*Peer.Stream {
-            return try self.waitForAcceptedService(.server, Peer.ServicePublic, max_rounds);
-        }
-
-        pub fn waitForAcceptedClientRPC(self: *Self, max_rounds: usize) !*Peer.Stream {
-            return try self.waitForAcceptedService(.client, Peer.ServicePublic, max_rounds);
+        ) !Core.ServiceMux.ReadResult {
+            return try self.waitForRead(.client, out, max_rounds);
         }
 
         pub fn waitForAcceptedServerService(
@@ -293,42 +269,22 @@ pub fn make(comptime lib: type) type {
             return error.TestUnexpectedResult;
         }
 
-        fn waitForEvent(
+        fn waitForRead(
             self: *Self,
             side: Side,
-            allocator: dep.embed.mem.Allocator,
+            out: []u8,
             max_rounds: usize,
-        ) !Peer.Event {
+        ) !Core.ServiceMux.ReadResult {
             var round: usize = 0;
             while (round < max_rounds) : (round += 1) {
-                const event = (try self.conn(side)).readEvent(allocator) catch |err| {
+                const result = (try self.conn(side)).read(out) catch |err| {
                     if (err == CoreFile.Error.QueueEmpty) {
                         try self.drive(1);
                         continue;
                     }
                     return err;
                 };
-                return event;
-            }
-            return error.TimedOut;
-        }
-
-        fn waitForOpusFrame(
-            self: *Self,
-            side: Side,
-            allocator: dep.embed.mem.Allocator,
-            max_rounds: usize,
-        ) !Peer.StampedOpusFrame {
-            var round: usize = 0;
-            while (round < max_rounds) : (round += 1) {
-                const frame = (try self.conn(side)).readOpusFrame(allocator) catch |err| {
-                    if (err == CoreFile.Error.QueueEmpty) {
-                        try self.drive(1);
-                        continue;
-                    }
-                    return err;
-                };
-                return frame;
+                return result;
             }
             return error.TimedOut;
         }

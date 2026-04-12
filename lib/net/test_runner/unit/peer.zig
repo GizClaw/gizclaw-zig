@@ -4,8 +4,6 @@ const testing_api = dep.testing;
 const ConnRunner = @import("peer/Conn.zig");
 const ListenerRunner = @import("peer/Listener.zig");
 const package_runner = @import("peer/package.zig");
-const opus_frame_runner = @import("peer/opus_frame.zig");
-const prologue_runner = @import("peer/prologue.zig");
 
 pub fn runner(comptime lib: type) testing_api.TestRunner {
     const Runner = struct {
@@ -18,8 +16,6 @@ pub fn runner(comptime lib: type) testing_api.TestRunner {
             _ = self;
             _ = allocator;
 
-            t.run("prologue", prologue_runner.make(lib));
-            t.run("opus_frame", opus_frame_runner.make(lib));
             t.run("Conn", ConnRunner.make(lib));
             t.run("Listener", ListenerRunner.make(lib));
             t.run("package", package_runner.make(lib));

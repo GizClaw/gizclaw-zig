@@ -46,6 +46,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 }
 
 fn runBaselineCase(comptime lib: type, fixture: anytype) !void {
+    const direct_protocol: u8 = 0x03;
     const payload_len: usize = 256;
     const payload: [payload_len]u8 = [_]u8{0x51} ** payload_len;
     const config: bench.Config = .{
@@ -71,13 +72,13 @@ fn runBaselineCase(comptime lib: type, fixture: anytype) !void {
         fn body(value: *State) !void {
             const sent = try value.fixture.client_udp.writeDirect(
                 value.fixture.server_static.public,
-                net_pkg.core.protocol.event,
+                direct_protocol,
                 value.payload,
             );
             if (sent != .sent) return error.TestUnexpectedResult;
 
             const read = try value.fixture.waitForServerDirect(&value.buffer, 256);
-            if (read.protocol_byte != net_pkg.core.protocol.event) return error.TestUnexpectedResult;
+            if (read.protocol_byte != direct_protocol) return error.TestUnexpectedResult;
             if (read.n != value.payload.len) return error.TestUnexpectedResult;
             if (!dep.embed.mem.eql(u8, value.payload, value.buffer[0..read.n])) return error.TestUnexpectedResult;
             value.sink +%= read.n;
@@ -94,6 +95,7 @@ fn runBaselineCase(comptime lib: type, fixture: anytype) !void {
 }
 
 fn runTransferRateCase(comptime lib: type, fixture: anytype) !void {
+    const direct_protocol: u8 = 0x03;
     const payload_len: usize = 1024;
     const payload: [payload_len]u8 = [_]u8{0x63} ** payload_len;
     const config: bench.Config = .{
@@ -117,13 +119,13 @@ fn runTransferRateCase(comptime lib: type, fixture: anytype) !void {
         fn body(value: *State) !void {
             const sent = try value.fixture.client_udp.writeDirect(
                 value.fixture.server_static.public,
-                net_pkg.core.protocol.event,
+                direct_protocol,
                 value.payload,
             );
             if (sent != .sent) return error.TestUnexpectedResult;
 
             const read = try value.fixture.waitForServerDirect(&value.buffer, 256);
-            if (read.protocol_byte != net_pkg.core.protocol.event) return error.TestUnexpectedResult;
+            if (read.protocol_byte != direct_protocol) return error.TestUnexpectedResult;
             if (read.n != value.payload.len) return error.TestUnexpectedResult;
             if (!dep.embed.mem.eql(u8, value.payload, value.buffer[0..read.n])) return error.TestUnexpectedResult;
             value.sink +%= read.n;

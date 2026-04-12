@@ -59,7 +59,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
             const stream_a = try adapter.open(7, 1);
             try testing.expectEqual(@as(u64, 1), stream_a);
             try testing.expectEqual(@as(u64, 7), output_capture.service);
-            try testing.expectEqual(core.protocol.rpc, output_capture.protocol_byte);
+            try testing.expectEqual(core.protocol.kcp, output_capture.protocol_byte);
             const open_frame = try frame.decode(output_capture.payload[0..output_capture.len]);
             try testing.expectEqual(@as(u64, 1), open_frame.stream_id);
             try testing.expectEqual(frame.open, open_frame.frame_type);
@@ -80,7 +80,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
             output_capture.reset();
             try testing.expectEqual(@as(u64, 0), try server_adapter.open(3, 3));
 
-            try testing.expectError(core.Error.UnsupportedProtocol, adapter.input(7, core.protocol.event, "x", 4));
+            try testing.expectError(core.Error.UnsupportedProtocol, adapter.input(7, 0x03, "x", 4));
             try adapter.stopAccepting(9);
             try testing.expectError(kcp_errors.Error.AcceptQueueEmpty, adapter.accept(9));
             try adapter.closeService(10);

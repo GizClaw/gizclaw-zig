@@ -42,15 +42,17 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 }
 
 fn runCase(fixture: anytype, comptime lib: type, testing: anytype) !void {
+    const direct_protocol: u8 = 0x03;
+
     try fixture.establish();
     const roamed_addr = try fixture.switchClientSocket();
 
-    const sent = try fixture.client_udp.writeDirect(fixture.server_static.public, net_pkg.core.protocol.event, "roam");
+    const sent = try fixture.client_udp.writeDirect(fixture.server_static.public, direct_protocol, "roam");
     try testing.expect(sent == .sent);
 
     var buf: [32]u8 = undefined;
     const read = try fixture.waitForServerDirect(&buf, 32);
-    try testing.expectEqual(net_pkg.core.protocol.event, read.protocol_byte);
+    try testing.expectEqual(direct_protocol, read.protocol_byte);
     try testing.expectEqualStrings("roam", buf[0..read.n]);
 
     const updated = try fixture.waitForServerEndpoint(roamed_addr, 32);

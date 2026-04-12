@@ -36,6 +36,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Allocator) !void {
     const Noise = noise.make(lib);
     const HostType = HostFile.make(lib, Noise);
+    const direct_protocol: u8 = 0x03;
 
     const alice_static = try Noise.KeyPair.fromPrivate(noise.Key.fromBytes([_]u8{9} ** noise.Key.key_size));
     const bob_static = try Noise.KeyPair.fromPrivate(noise.Key.fromBytes([_]u8{10} ** noise.Key.key_size));
@@ -68,7 +69,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     var send_wire: [96]u8 = undefined;
     const send_n = try client.sendDirect(
         bob_static.public,
-        protocol.event,
+        direct_protocol,
         "host",
         &send_plaintext,
         &send_ciphertext,
@@ -76,14 +77,14 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
         10,
     );
     const routed = try server.handlePacket(send_wire[0..send_n], &plaintext, &response_wire, 11);
-    try testing.expectEqual(protocol.event, routed.direct.protocol_byte);
+    try testing.expectEqual(direct_protocol, routed.direct.protocol_byte);
     try testing.expectEqualStrings("host", routed.direct.payload);
 
     var stream_plaintext: [64]u8 = undefined;
     const stream_n = try client.sendStream(
         bob_static.public,
         7,
-        protocol.http,
+        protocol.kcp,
         "ok",
         &stream_plaintext,
         &send_ciphertext,
@@ -93,7 +94,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     try testing.expectEqual(@as(u64, 12), client.connection(bob_static.public).?.last_sent_ms);
     _ = try server.handlePacket(send_wire[0..stream_n], &plaintext, &response_wire, 13);
     try testing.expectEqual(@as(u64, 7), stream_capture.service);
-    try testing.expectEqual(protocol.http, stream_capture.protocol_byte);
+    try testing.expectEqual(protocol.kcp, stream_capture.protocol_byte);
     try testing.expectEqualStrings("ok", stream_capture.payload[0..stream_capture.len]);
 
     var locked_server = try HostType.init(allocator, bob_static, false, .{

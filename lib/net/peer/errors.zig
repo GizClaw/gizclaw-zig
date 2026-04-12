@@ -5,12 +5,4 @@ pub const Error = error{
     Closed,
     ConnClosed,
     StreamClosed,
-    OpusFrameTooShort,
-    InvalidOpusFrameVersion,
-    InvalidV,
-    MissingID,
-    MissingName,
-    MissingMethod,
-    RPCErrorMessageRequired,
-    InvalidJSON,
 };

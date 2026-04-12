@@ -38,6 +38,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     const Noise = noise.make(lib);
     const ListenerType = ListenerFile.make(lib, Noise);
     const DialerType = DialerFile.make(lib, Noise);
+    const direct_protocol: u8 = 0x03;
 
     const alice_static = try Noise.KeyPair.fromPrivate(noise.Key.fromBytes([_]u8{7} ** noise.Key.key_size));
     const bob_static = try Noise.KeyPair.fromPrivate(noise.Key.fromBytes([_]u8{8} ** noise.Key.key_size));
@@ -61,7 +62,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     var send_plaintext: [64]u8 = undefined;
     var send_ciphertext: [80]u8 = undefined;
     var send_wire: [96]u8 = undefined;
-    const send_n = try dialer.connection().send(protocol.event, "listener", &send_plaintext, &send_ciphertext, &send_wire, 10);
+    const send_n = try dialer.connection().send(direct_protocol, "listener", &send_plaintext, &send_ciphertext, &send_wire, 10);
     const payload_result = try listener.receive(send_wire[0..send_n], &plaintext, &response_wire, 11);
     try testing.expectEqualStrings("listener", payload_result.payload.payload);
 
@@ -69,7 +70,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     const prefix_len = noise.Varint.encode(&send_plaintext, 9);
     @memcpy(send_plaintext[prefix_len .. prefix_len + 2], "hi");
     var encoded_payload: [noise.Message.max_payload_size]u8 = undefined;
-    const wrapped_len = try noise.Message.encodePayload(&encoded_payload, protocol.http, send_plaintext[0 .. prefix_len + 2]);
+    const wrapped_len = try noise.Message.encodePayload(&encoded_payload, protocol.kcp, send_plaintext[0 .. prefix_len + 2]);
     const encrypted = try send_session.encrypt(encoded_payload[0..wrapped_len], &send_ciphertext);
     const stream_wire_n = try noise.Message.buildTransportMessage(
         &send_wire,
@@ -77,7 +78,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
         encrypted.nonce,
         send_ciphertext[0..encrypted.n],
     );
-    try testing.expectError(errors.Error.HTTPMustUseStream, listener.receive(send_wire[0..stream_wire_n], &plaintext, &response_wire, 13));
+    try testing.expectError(errors.Error.KCPMustUseStream, listener.receive(send_wire[0..stream_wire_n], &plaintext, &response_wire, 13));
 
     var tight_listener = try ListenerType.init(allocator, bob_static, 1);
     defer tight_listener.deinit();

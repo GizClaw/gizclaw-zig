@@ -36,12 +36,6 @@ fn runCases(comptime lib: type, t: *testing_api.T) !void {
     const Core = core.make(lib);
     const Peer = peer.make(Core);
 
-    try lib.testing.expectEqual(peer.ServicePublic, Peer.ServicePublic);
-    try lib.testing.expectEqual(peer.ServiceAdmin, Peer.ServiceAdmin);
-    try lib.testing.expectEqual(peer.ServiceReverse, Peer.ServiceReverse);
-    try lib.testing.expectEqual(peer.PrologueVersion, Peer.PrologueVersion);
-    try lib.testing.expectEqual(peer.OpusFrameVersion, Peer.OpusFrameVersion);
-
     _ = t;
     _ = Peer.Conn;
     _ = Peer.Listener;

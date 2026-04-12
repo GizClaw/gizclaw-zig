@@ -1,6 +1,5 @@
 const dep = @import("dep");
 const testing_api = @import("dep").testing;
-const errors = @import("../../../core/errors.zig");
 const protocol = @import("../../../core/protocol.zig");
 
 pub fn make(comptime lib: type) testing_api.TestRunner {
@@ -32,21 +31,16 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 }
 
 fn runCases(testing: anytype) !void {
-    try testing.expect(protocol.isFoundation(protocol.http));
-    try testing.expect(protocol.isFoundation(protocol.rpc));
-    try testing.expect(protocol.isFoundation(protocol.event));
-    try testing.expect(protocol.isFoundation(protocol.opus));
+    try testing.expect(protocol.isFoundation(protocol.kcp));
     try testing.expect(!protocol.isFoundation(0x42));
 
-    try testing.expect(protocol.isStream(protocol.http));
-    try testing.expect(protocol.isStream(protocol.rpc));
-    try testing.expect(!protocol.isStream(protocol.event));
-    try testing.expect(protocol.isDirect(protocol.event));
-    try testing.expect(protocol.isDirect(protocol.opus));
-    try testing.expect(!protocol.isDirect(protocol.http));
+    try testing.expect(protocol.isStream(protocol.kcp));
+    try testing.expect(!protocol.isStream(0x03));
+    try testing.expect(protocol.isDirect(0x03));
+    try testing.expect(protocol.isDirect(0x10));
+    try testing.expect(!protocol.isDirect(protocol.kcp));
 
-    try testing.expectEqual(protocol.Kind.stream, try protocol.kind(protocol.http));
-    try testing.expectEqual(protocol.Kind.direct, try protocol.kind(protocol.event));
-    try testing.expectError(errors.Error.UnsupportedProtocol, protocol.kind(0xff));
-    try testing.expectError(errors.Error.UnsupportedProtocol, protocol.validate(0xfe));
+    try testing.expectEqual(protocol.Kind.stream, try protocol.kind(protocol.kcp));
+    try testing.expectEqual(protocol.Kind.direct, try protocol.kind(0x03));
+    try protocol.validate(0xfe);
 }

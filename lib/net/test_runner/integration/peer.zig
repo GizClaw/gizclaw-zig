@@ -1,8 +1,6 @@
 const dep = @import("dep");
 const testing_api = dep.testing;
 
-const PeerListenerEventOpusRealUdpRunner = @import("peer/peer_listener_event_opus_real_udp.zig");
-const PeerRpcRoundTripRealUdpRunner = @import("peer/peer_rpc_round_trip_real_udp.zig");
 const PeerServiceRealUdpRunner = @import("peer/peer_service_real_udp.zig");
 const PeerConnCloseHandleLocalRealUdpRunner = @import("peer/peer_conn_close_handle_local_real_udp.zig");
 const PeerUnderlyingClosePropagationRealUdpRunner = @import("peer/peer_underlying_close_propagation_real_udp.zig");
@@ -20,8 +18,6 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
             _ = self;
             _ = allocator;
 
-            t.run("listener_event_opus_real_udp", PeerListenerEventOpusRealUdpRunner.make(lib));
-            t.run("rpc_round_trip_real_udp", PeerRpcRoundTripRealUdpRunner.make(lib));
             t.run("service_real_udp", PeerServiceRealUdpRunner.make(lib));
             t.run("conn_close_handle_local_real_udp", PeerConnCloseHandleLocalRealUdpRunner.make(lib));
             t.run("underlying_close_propagation_real_udp", PeerUnderlyingClosePropagationRealUdpRunner.make(lib));

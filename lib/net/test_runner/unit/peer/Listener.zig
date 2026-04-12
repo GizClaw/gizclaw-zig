@@ -40,6 +40,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     const FixtureType = fixture.Fixture(lib);
     const PacketConn = dep.net.PacketConn;
     const ContextApi = dep.context.make(lib);
+    const rpc_service: u64 = 4;
     const Helpers = struct {
         fn deinitAfterClientListener(pair: *FixtureType) void {
             pair.server_conn.deinit();
@@ -98,16 +99,16 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
 
         pair4.client_listener.deinit();
 
-        try testing.expectError(core.Error.Closed, retained.openRPC());
+        try testing.expectError(core.Error.Closed, retained.openService(rpc_service));
     }
 
     {
         var pair5 = try FixtureType.init(allocator);
         defer Helpers.deinitAfterClientListener(&pair5);
 
-        var client_stream = try pair5.client_conn.openRPC();
+        var client_stream = try pair5.client_conn.openService(rpc_service);
         defer client_stream.deinit();
-        var server_stream = try pair5.server_conn.acceptRPC();
+        var server_stream = try pair5.server_conn.acceptService(rpc_service);
         defer server_stream.deinit();
 
         pair5.client_listener.deinit();

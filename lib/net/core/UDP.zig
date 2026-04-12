@@ -398,12 +398,8 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
 
         pub fn writeDirect(self: *Self, remote_pk: noise.Key, protocol_byte: u8, payload: []const u8) !SendResult {
             if (self.closed) return errors.Error.Closed;
-            try protocol.validate(protocol_byte);
             if (protocol.isStream(protocol_byte)) {
-                return if (protocol_byte == protocol.rpc)
-                    errors.Error.RPCMustUseStream
-                else
-                    errors.Error.HTTPMustUseStream;
+                return errors.Error.KCPMustUseStream;
             }
             if (self.endpoints.get(remote_pk) == null) return errors.Error.NoEndpoint;
             if (try self.canSendImmediately(remote_pk)) {

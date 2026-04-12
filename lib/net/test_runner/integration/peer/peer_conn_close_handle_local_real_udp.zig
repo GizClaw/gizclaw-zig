@@ -45,14 +45,17 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 }
 
 fn runCase(fixture: anytype, testing: anytype, allocator: dep.embed.mem.Allocator) !void {
+    const rpc_service: u64 = 4;
+    const direct_protocol: u8 = 0x03;
+
     try fixture.dialAndAccept();
 
     var second_client = try fixture.secondClientHandle();
     defer second_client.deinit();
 
-    var client_stream = try (try fixture.clientConn()).openRPC();
+    var client_stream = try (try fixture.clientConn()).openService(rpc_service);
     defer client_stream.deinit();
-    var server_stream = try fixture.waitForAcceptedServerRPC(256);
+    var server_stream = try fixture.waitForAcceptedServerService(rpc_service, 256);
     defer server_stream.deinit();
 
     _ = try client_stream.write("before-close");
@@ -61,17 +64,15 @@ fn runCase(fixture: anytype, testing: anytype, allocator: dep.embed.mem.Allocato
     try testing.expectEqualStrings("before-close", buf[0..before_n]);
 
     try (try fixture.clientConn()).close();
-    try testing.expectError(peer.Error.ConnClosed, (try fixture.clientConn()).openRPC());
+    try testing.expectError(peer.Error.ConnClosed, (try fixture.clientConn()).openService(rpc_service));
 
-    try second_client.sendEvent(allocator, .{
-        .name = "still-alive",
-        .data = "{\"after\":\"conn-close\"}",
-    });
+    _ = allocator;
+    _ = try second_client.write(direct_protocol, "still-alive");
 
-    var received_event = try fixture.waitForServerEvent(allocator, 256);
-    defer received_event.deinit(allocator);
-    try testing.expectEqualStrings("still-alive", received_event.name);
-    try testing.expectEqualStrings("{\"after\":\"conn-close\"}", received_event.data.?);
+    var read_buf: [128]u8 = undefined;
+    const direct = try fixture.waitForServerRead(&read_buf, 256);
+    try testing.expectEqual(direct_protocol, direct.protocol_byte);
+    try testing.expectEqualStrings("still-alive", read_buf[0..direct.n]);
 
     _ = try server_stream.write("stream-still-open");
     const after_n = try fixture.waitForStreamRead(client_stream, &buf, 256);

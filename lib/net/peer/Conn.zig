@@ -3,8 +3,6 @@ const core = @import("../core.zig");
 
 const mem = dep.embed.mem;
 const errors = @import("errors.zig");
-const opus_frame = @import("opus_frame.zig");
-const prologue = @import("prologue.zig");
 const SharedRefFile = @import("SharedRef.zig");
 const StreamFile = @import("Stream.zig");
 
@@ -68,14 +66,6 @@ pub fn make(comptime Core: type) type {
             return Stream.init(self.allocator, self.shared.?, self.remote_pk, service, stream_id);
         }
 
-        pub fn openRPC(self: *Self) !*Stream {
-            return self.openService(prologue.ServicePublic);
-        }
-
-        pub fn acceptRPC(self: *Self) !*Stream {
-            return self.acceptService(prologue.ServicePublic);
-        }
-
         pub fn closeService(self: *Self, service: u64) !void {
             const service_mux = try self.serviceMux();
             try service_mux.closeService(service);
@@ -86,31 +76,14 @@ pub fn make(comptime Core: type) type {
             try service_mux.stopAcceptingService(service);
         }
 
-        pub fn sendEvent(self: *Self, allocator: dep.embed.mem.Allocator, event: prologue.Event) !void {
-            const udp = try self.getUDP();
-            const payload = try prologue.encodeEvent(allocator, event);
-            defer allocator.free(payload);
-            _ = try udp.writeDirect(self.remote_pk, core.protocol.event, payload);
+        pub fn read(self: *Self, out: []u8) !Core.ServiceMux.ReadResult {
+            const service_mux = try self.serviceMux();
+            return try service_mux.read(out);
         }
 
-        pub fn readEvent(self: *Self, allocator: dep.embed.mem.Allocator) !prologue.Event {
-            const udp = try self.getUDP();
-            var buf: [core.MaxPayloadSize]u8 = undefined;
-            const n = try udp.readServiceProtocol(self.remote_pk, prologue.ServicePublic, core.protocol.event, &buf);
-            return try prologue.decodeEvent(allocator, buf[0..n]);
-        }
-
-        pub fn sendOpusFrame(self: *Self, frame: opus_frame.StampedOpusFrame) !void {
-            const udp = try self.getUDP();
-            try frame.validate();
-            _ = try udp.writeDirect(self.remote_pk, core.protocol.opus, frame.bytes);
-        }
-
-        pub fn readOpusFrame(self: *Self, allocator: dep.embed.mem.Allocator) !opus_frame.StampedOpusFrame {
-            const udp = try self.getUDP();
-            var buf: [core.MaxPayloadSize]u8 = undefined;
-            const n = try udp.readServiceProtocol(self.remote_pk, prologue.ServicePublic, core.protocol.opus, &buf);
-            return try opus_frame.parseStampedOpusFrame(allocator, buf[0..n]);
+        pub fn write(self: *Self, protocol_byte: u8, payload: []const u8) !usize {
+            const service_mux = try self.serviceMux();
+            return try service_mux.write(protocol_byte, payload);
         }
 
         pub fn close(self: *Self) !void {

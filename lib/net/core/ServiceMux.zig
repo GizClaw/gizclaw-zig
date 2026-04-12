@@ -82,21 +82,17 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
         peer: noise.Key,
         config: Config,
         services: UIntMapFile.make(u64, ServiceState),
+        direct_queue: PacketQueue,
         closed: bool = false,
         output_errors: u64 = 0,
 
         const Self = @This();
         const ServiceState = struct {
             service_id: u64,
-            event_queue: PacketQueue,
-            opus_queue: PacketQueue,
             closed: bool = false,
             accepting_stopped: bool = false,
 
-            fn deinit(self: *ServiceState) void {
-                self.event_queue.deinit();
-                self.opus_queue.deinit();
-            }
+            fn deinit(_: *ServiceState) void {}
         };
 
         const Packet = struct {
@@ -129,12 +125,14 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
             }
 
             fn deinit(self: *PacketQueue) void {
-                while (self.len > 0) {
-                    const packet = self.pop() orelse break;
+                while (self.pop()) |packet| {
                     self.allocator.free(packet.payload);
                 }
                 self.allocator.free(self.slots);
                 self.slots = &.{};
+                self.head = 0;
+                self.tail = 0;
+                self.len = 0;
             }
 
             fn pushCopy(self: *PacketQueue, protocol_byte: u8, payload: []const u8) !void {
@@ -162,6 +160,33 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
                 self.len -= 1;
                 return packet;
             }
+
+            fn matchingOffset(self: *const PacketQueue, protocol_byte: u8) ?usize {
+                var offset: usize = 0;
+                while (offset < self.len) : (offset += 1) {
+                    const index = (self.head + offset) % self.slots.len;
+                    if (self.slots[index].packet.protocol_byte == protocol_byte) return offset;
+                }
+                return null;
+            }
+
+            fn packetAtOffset(self: *const PacketQueue, offset: usize) Packet {
+                return self.slots[(self.head + offset) % self.slots.len].packet;
+            }
+
+            fn removeAtOffset(self: *PacketQueue, offset: usize) Packet {
+                var cursor = offset;
+                const removed = self.packetAtOffset(offset);
+                while (cursor + 1 < self.len) : (cursor += 1) {
+                    const to_index = (self.head + cursor) % self.slots.len;
+                    const from_index = (self.head + cursor + 1) % self.slots.len;
+                    self.slots[to_index] = self.slots[from_index];
+                }
+                self.tail = (self.tail + self.slots.len - 1) % self.slots.len;
+                self.slots[self.tail] = .{};
+                self.len -= 1;
+                return removed;
+            }
         };
 
         pub fn init(allocator: mem.Allocator, peer: noise.Key, config: Config) !Self {
@@ -181,6 +206,7 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
                 .peer = peer,
                 .config = resolved_config,
                 .services = try UIntMapFile.make(u64, ServiceState).init(allocator, 8),
+                .direct_queue = try PacketQueue.init(allocator, resolved_config.inbound_queue_size),
             };
         }
 
@@ -198,57 +224,45 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
 
         pub fn inputAt(self: *Self, service: u64, protocol_byte: u8, data: []const u8, now_ms: u64) !void {
             if (self.closed) return errors.Error.ConnClosed;
-            try protocol.validate(protocol_byte);
+            if (protocol.isStream(protocol_byte)) {
+                const state = try self.getOrCreateService(service);
+                if (state.closed) return try self.rejectUnknownService(service, protocol_byte, data);
+                if (state.accepting_stopped and shouldRejectStoppedService(protocol_byte, data)) {
+                    return try self.rejectUnknownService(service, protocol_byte, data);
+                }
 
-            const state = try self.getOrCreateService(service);
-            if (state.closed) return try self.rejectUnknownService(service, protocol_byte, data);
-            if (state.accepting_stopped and shouldRejectStoppedService(protocol_byte, data)) {
-                return try self.rejectUnknownService(service, protocol_byte, data);
+                const adapter = self.config.stream_adapter orelse return errors.Error.StreamAdapterUnavailable;
+                try adapter.input(adapter.ctx, service, protocol_byte, data, now_ms);
+                return;
             }
 
-            switch (protocol_byte) {
-                protocol.http, protocol.rpc => {
-                    const adapter = self.config.stream_adapter orelse return errors.Error.StreamAdapterUnavailable;
-                    try adapter.input(adapter.ctx, service, protocol_byte, data, now_ms);
-                },
-                protocol.event => try state.event_queue.pushCopy(protocol_byte, data),
-                protocol.opus => try state.opus_queue.pushCopy(protocol_byte, data),
-                else => return errors.Error.UnsupportedProtocol,
-            }
+            try self.direct_queue.pushCopy(protocol_byte, data);
         }
 
         pub fn read(self: *Self, out: []u8) !ReadResult {
-            const state = self.getService(0) orelse return errors.Error.QueueEmpty;
-            if (state.event_queue.len > 0) {
-                return .{
-                    .protocol_byte = protocol.event,
-                    .n = try self.readServiceProtocol(0, protocol.event, out),
-                };
-            }
-            if (state.opus_queue.len > 0) {
-                return .{
-                    .protocol_byte = protocol.opus,
-                    .n = try self.readServiceProtocol(0, protocol.opus, out),
-                };
-            }
-            return errors.Error.QueueEmpty;
+            if (self.direct_queue.len == 0) return errors.Error.QueueEmpty;
+
+            const packet = self.direct_queue.packetAtOffset(0);
+            if (out.len < packet.payload.len) return errors.Error.BufferTooSmall;
+
+            const owned = self.direct_queue.pop() orelse return errors.Error.QueueEmpty;
+            defer self.allocator.free(owned.payload);
+            @memcpy(out[0..owned.payload.len], owned.payload);
+            return .{
+                .protocol_byte = owned.protocol_byte,
+                .n = owned.payload.len,
+            };
         }
 
         pub fn readServiceProtocol(self: *Self, service: u64, protocol_byte: u8, out: []u8) !usize {
-            const state = self.getService(service) orelse return errors.Error.QueueEmpty;
-            const queue = switch (protocol_byte) {
-                protocol.event => &state.event_queue,
-                protocol.opus => &state.opus_queue,
-                protocol.rpc => return errors.Error.RPCMustUseStream,
-                protocol.http => return errors.Error.HTTPMustUseStream,
-                else => return errors.Error.UnsupportedProtocol,
-            };
+            if (protocol.isStream(protocol_byte)) return errors.Error.KCPMustUseStream;
+            if (service != 0) return errors.Error.QueueEmpty;
 
-            if (queue.len == 0) return errors.Error.QueueEmpty;
-            const packet = queue.slots[queue.head].packet;
+            const offset = self.direct_queue.matchingOffset(protocol_byte) orelse return errors.Error.QueueEmpty;
+            const packet = self.direct_queue.packetAtOffset(offset);
             if (out.len < packet.payload.len) return errors.Error.BufferTooSmall;
 
-            const owned = queue.pop() orelse return errors.Error.QueueEmpty;
+            const owned = self.direct_queue.removeAtOffset(offset);
             defer self.allocator.free(owned.payload);
 
             @memcpy(out[0..owned.payload.len], owned.payload);
@@ -261,12 +275,8 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
 
         pub fn writeService(self: *Self, service: u64, protocol_byte: u8, data: []const u8) !usize {
             if (self.closed) return errors.Error.ConnClosed;
-            switch (protocol_byte) {
-                protocol.rpc => return errors.Error.RPCMustUseStream,
-                protocol.http => return errors.Error.HTTPMustUseStream,
-                protocol.event, protocol.opus => {},
-                else => return errors.Error.UnsupportedProtocol,
-            }
+            if (protocol.isStream(protocol_byte)) return errors.Error.KCPMustUseStream;
+            if (service != 0) return errors.Error.ServiceRejected;
 
             const output = self.config.output orelse return errors.Error.NoSession;
             try output.write(output.ctx, self.peer, service, protocol_byte, data);
@@ -349,6 +359,7 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
         pub fn close(self: *Self) void {
             if (self.closed) return;
             self.closed = true;
+            self.direct_queue.deinit();
 
             for (self.services.slots) |*slot| {
                 if (slot.state != .full) continue;
@@ -398,8 +409,6 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
 
             var state = ServiceState{
                 .service_id = service,
-                .event_queue = try PacketQueue.init(self.allocator, self.config.inbound_queue_size),
-                .opus_queue = try PacketQueue.init(self.allocator, self.config.inbound_queue_size),
             };
             errdefer state.deinit();
             _ = try self.services.put(service, state);
@@ -437,7 +446,7 @@ pub fn make(comptime lib: type, comptime Noise: type) type {
             const total = prefix_len + 1 + payload.len;
             if (total > frame.len) return;
             @memcpy(frame[prefix_len + 1 .. total], payload);
-            output.write(output.ctx, self.peer, service, protocol.rpc, frame[0..total]) catch |err| self.reportOutputError(service, err);
+            output.write(output.ctx, self.peer, service, protocol.kcp, frame[0..total]) catch |err| self.reportOutputError(service, err);
         }
 
         fn reportOutputError(self: *Self, service: u64, err: anyerror) void {

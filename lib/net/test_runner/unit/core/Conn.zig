@@ -37,6 +37,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 fn runCases(comptime lib: type, testing: anytype) !void {
     const Noise = noise.make(lib);
     const ConnType = ConnFile.make(Noise);
+    const direct_protocol: u8 = 0x03;
 
     const alice_static = try Noise.KeyPair.fromPrivate(noise.Key.fromBytes([_]u8{1} ** noise.Key.key_size));
     const bob_static = try Noise.KeyPair.fromPrivate(noise.Key.fromBytes([_]u8{2} ** noise.Key.key_size));
@@ -57,15 +58,15 @@ fn runCases(comptime lib: type, testing: anytype) !void {
     var plaintext: [64]u8 = undefined;
     var ciphertext: [80]u8 = undefined;
     var wire: [96]u8 = undefined;
-    const wire_n = try initiator.send(protocol.event, "hello", &plaintext, &ciphertext, &wire, 10);
+    const wire_n = try initiator.send(direct_protocol, "hello", &plaintext, &ciphertext, &wire, 10);
     var recv_plaintext: [64]u8 = undefined;
     const received = try responder.recv(wire[0..wire_n], &recv_plaintext, 11);
-    try testing.expectEqual(protocol.event, received.protocol_byte);
+    try testing.expectEqual(direct_protocol, received.protocol_byte);
     try testing.expectEqualStrings("hello", received.payload);
 
     try testing.expectError(
-        errors.Error.RPCMustUseStream,
-        initiator.send(protocol.rpc, "rpc", &plaintext, &ciphertext, &wire, 12),
+        errors.Error.KCPMustUseStream,
+        initiator.send(protocol.kcp, "rpc", &plaintext, &ciphertext, &wire, 12),
     );
 
     try testing.expectEqual(ConnFile.TickAction.none, try initiator.tick(12, true));

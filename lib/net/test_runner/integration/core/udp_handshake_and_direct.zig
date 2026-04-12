@@ -42,6 +42,8 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 }
 
 fn runCase(fixture: anytype, testing: anytype) !void {
+    const direct_protocol: u8 = 0x03;
+
     try fixture.establish();
 
     const client_info = fixture.client_udp.peerInfo(fixture.server_static.public) orelse return error.TestUnexpectedResult;
@@ -49,11 +51,11 @@ fn runCase(fixture: anytype, testing: anytype) !void {
     try testing.expectEqual(net_pkg.core.Host.PeerState.established, client_info.state);
     try testing.expectEqual(net_pkg.core.Host.PeerState.established, server_info.state);
 
-    const sent = try fixture.client_udp.writeDirect(fixture.server_static.public, net_pkg.core.protocol.event, "ping");
+    const sent = try fixture.client_udp.writeDirect(fixture.server_static.public, direct_protocol, "ping");
     try testing.expect(sent == .sent);
 
     var buf: [32]u8 = undefined;
     const read = try fixture.waitForServerDirect(&buf, 32);
-    try testing.expectEqual(net_pkg.core.protocol.event, read.protocol_byte);
+    try testing.expectEqual(direct_protocol, read.protocol_byte);
     try testing.expectEqualStrings("ping", buf[0..read.n]);
 }

@@ -57,8 +57,7 @@ Package and test entry files:
 `lib/net/core.zig` exports:
 
 - `Error`
-- the `protocol` namespace, including `protocol.http`, `protocol.rpc`,
-  `protocol.event`, `protocol.opus`, and `protocol.Kind`
+- the `protocol` namespace, including `protocol.kcp` and `protocol.Kind`
 - protocol helpers: `isFoundationProtocol()`, `isStreamProtocol()`,
   `isDirectProtocol()`
 - timing and queue constants used by the package
@@ -73,17 +72,14 @@ Package and test entry files:
 
 | Name | Byte | Kind |
 | --- | --- | --- |
-| `protocol.http` | `0x80` | stream |
-| `protocol.rpc` | `0x81` | stream |
-| `protocol.event` | `0x03` | direct packet |
-| `protocol.opus` | `0x10` | direct packet |
+| `protocol.kcp` | `0x00` | stream |
 
 Important routing rules:
 
-- HTTP and RPC are stream-only.
-- EVENT and OPUS stay on the direct packet lane.
+- `protocol.kcp` is the only built-in stream protocol.
 - Stream payloads are routed by `(service, protocol)` after a varint service
   prefix is decoded from the authenticated plaintext.
+- Any non-zero protocol byte is treated as an application-defined direct packet.
 - Direct payloads stay on the default direct lane.
 
 ## Main Types

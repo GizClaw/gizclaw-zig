@@ -204,12 +204,8 @@ pub fn make(comptime Noise: type) type {
             now_ms: u64,
         ) !usize {
             if (self.state_value == .closed) return errors.Error.ConnClosed;
-            try protocol.validate(protocol_byte);
             if (protocol.isStream(protocol_byte)) {
-                return if (protocol_byte == protocol.rpc)
-                    errors.Error.RPCMustUseStream
-                else
-                    errors.Error.HTTPMustUseStream;
+                return errors.Error.KCPMustUseStream;
             }
 
             const session = self.currentSession() orelse return errors.Error.NotEstablished;
@@ -279,10 +275,7 @@ pub fn make(comptime Noise: type) type {
         pub fn recv(self: *Self, data: []const u8, plaintext_out: []u8, now_ms: u64) !DecryptResult {
             const result = try self.decryptPayload(data, plaintext_out, now_ms);
             if (protocol.isStream(result.protocol_byte)) {
-                return if (result.protocol_byte == protocol.rpc)
-                    errors.Error.RPCMustUseStream
-                else
-                    errors.Error.HTTPMustUseStream;
+                return errors.Error.KCPMustUseStream;
             }
             return result;
         }

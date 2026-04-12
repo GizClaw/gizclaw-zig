@@ -46,6 +46,9 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 }
 
 fn runCase(fixture: anytype, testing: anytype, allocator: dep.embed.mem.Allocator) !void {
+    const rpc_service: u64 = 4;
+    const direct_protocol: u8 = 0x03;
+
     try fixture.dialAndAccept();
 
     var second_client = try fixture.secondClientHandle();
@@ -53,10 +56,9 @@ fn runCase(fixture: anytype, testing: anytype, allocator: dep.embed.mem.Allocato
 
     try fixture.closeClientUDP();
 
-    try testing.expectError(core.Error.Closed, (try fixture.clientConn()).openRPC());
-    try testing.expectError(core.Error.Closed, second_client.sendEvent(allocator, .{
-        .name = "after-close",
-    }));
+    try testing.expectError(core.Error.Closed, (try fixture.clientConn()).openService(rpc_service));
+    _ = allocator;
+    try testing.expectError(core.Error.Closed, second_client.write(direct_protocol, "after-close"));
     try (try fixture.clientConn()).close();
-    try testing.expectError(peer.Error.ConnClosed, (try fixture.clientConn()).openRPC());
+    try testing.expectError(peer.Error.ConnClosed, (try fixture.clientConn()).openService(rpc_service));
 }

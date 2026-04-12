@@ -66,6 +66,7 @@ fn runCase(
     impairment: bench.ImpairmentProfile,
     config: bench.Config,
 ) !void {
+    const stream_service: u64 = 4;
     const payload_len: usize = 384;
     const payload: [payload_len]u8 = [_]u8{0x52} ** payload_len;
     const max_rounds: usize = 2048;
@@ -95,12 +96,12 @@ fn runCase(
     const server_conn = try fixture.serverConn();
     var index: usize = 0;
     while (index < stream_count) : (index += 1) {
-        client_streams[index] = try client_conn.openRPC();
+        client_streams[index] = try client_conn.openService(stream_service);
     }
 
     index = 0;
     while (index < stream_count) : (index += 1) {
-        server_streams[index] = try fixture.waitForAcceptedServerRPC(max_rounds);
+        server_streams[index] = try fixture.waitForAcceptedServerService(stream_service, max_rounds);
     }
 
     var owned_client_streams: [stream_count]*Peer.Stream = undefined;
@@ -153,8 +154,8 @@ fn runCase(
     }.body);
     lib.mem.doNotOptimizeAway(state.sink);
 
-    try client_conn.closeService(Peer.ServicePublic);
-    try server_conn.closeService(Peer.ServicePublic);
+    try client_conn.closeService(stream_service);
+    try server_conn.closeService(stream_service);
     try fixture.flushClientWrites();
     try driveIgnoreServiceRejected(&fixture, 96);
 

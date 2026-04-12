@@ -45,7 +45,7 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 
 fn runCase(comptime lib: type, comptime payload_len: usize, config: bench.Config) !void {
     const Noise = net_pkg.noise.make(lib);
-    const protocol = net_pkg.core.protocol;
+    const direct_protocol: u8 = 0x03;
     const sender_key = net_pkg.noise.Key.fromBytes([_]u8{0x11} ** net_pkg.noise.Key.key_size);
     const receiver_key = net_pkg.noise.Key.fromBytes([_]u8{0x22} ** net_pkg.noise.Key.key_size);
     const remote_pk = net_pkg.noise.Key.fromBytes([_]u8{0x33} ** net_pkg.noise.Key.key_size);
@@ -82,7 +82,7 @@ fn runCase(comptime lib: type, comptime payload_len: usize, config: bench.Config
         fn body(value: *State) !void {
             const plaintext_n = try net_pkg.noise.Message.encodePayload(
                 &value.plaintext,
-                protocol.event,
+                direct_protocol,
                 &value.payload,
             );
             const encrypted = try value.sender.encrypt(value.plaintext[0..plaintext_n], &value.ciphertext);
@@ -101,7 +101,7 @@ fn runCase(comptime lib: type, comptime payload_len: usize, config: bench.Config
                 &value.decode_buf,
             );
             const decoded_payload = try net_pkg.noise.Message.decodePayload(value.decode_buf[0..plaintext_read]);
-            if (decoded_payload.protocol != protocol.event) return error.TestUnexpectedResult;
+            if (decoded_payload.protocol != direct_protocol) return error.TestUnexpectedResult;
             if (decoded_payload.payload.len != value.payload.len) return error.TestUnexpectedResult;
             if (!dep.embed.mem.eql(u8, &value.payload, decoded_payload.payload)) return error.TestUnexpectedResult;
             value.sink +%= decoded_transport.counter;

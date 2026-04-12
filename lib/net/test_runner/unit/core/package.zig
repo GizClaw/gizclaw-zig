@@ -40,7 +40,7 @@ fn runImpl(comptime lib: type, allocator: dep.embed.mem.Allocator) !void {
     var conn = Core.Conn.initResponder(kp, 1);
     _ = &conn;
 
-    try lib.testing.expect(core.isFoundationProtocol(core.protocol.event));
-    try lib.testing.expect(core.isStreamProtocol(core.protocol.http));
-    try lib.testing.expect(core.isDirectProtocol(core.protocol.opus));
+    try lib.testing.expect(core.isFoundationProtocol(core.protocol.kcp));
+    try lib.testing.expect(core.isStreamProtocol(core.protocol.kcp));
+    try lib.testing.expect(core.isDirectProtocol(0x10));
 }

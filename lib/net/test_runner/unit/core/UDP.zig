@@ -41,6 +41,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     const Kcp = @import("../../../kcp.zig").make(@import("../../../core.zig"));
     const UdpType = UDPFile.make(lib, Noise);
     const PacketConn = dep.net.PacketConn;
+    const direct_protocol: u8 = 0x03;
 
     const alice_static = try Noise.KeyPair.fromPrivate(noise.Key.fromBytes([_]u8{12} ** noise.Key.key_size));
     const bob_static = try Noise.KeyPair.fromPrivate(noise.Key.fromBytes([_]u8{13} ** noise.Key.key_size));
@@ -109,19 +110,19 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     try testing.expect(alice_host_info.rx_bytes > 0);
     try testing.expectEqual(@as(u64, 2), alice_host_info.endpoint_updates);
 
-    const direct_result = try alice_udp.writeDirect(bob_static.public, protocol.event, "udp");
+    const direct_result = try alice_udp.writeDirect(bob_static.public, direct_protocol, "udp");
     try testing.expect(direct_result == .sent);
     try testing.expect(direct_result.sent > 0);
     var direct_buf: [16]u8 = undefined;
     const direct = try bob_udp.read(alice_static.public, &direct_buf);
-    try testing.expectEqual(protocol.event, direct.protocol_byte);
+    try testing.expectEqual(direct_protocol, direct.protocol_byte);
     try testing.expectEqualStrings("udp", direct_buf[0..direct.n]);
 
-    const stream_result = try alice_udp.writeStream(bob_static.public, 7, protocol.http, "ok");
+    const stream_result = try alice_udp.writeStream(bob_static.public, 7, protocol.kcp, "ok");
     try testing.expect(stream_result == .sent);
     try testing.expect(stream_result.sent > 0);
     try testing.expectEqual(@as(u64, 7), stream_capture.service);
-    try testing.expectEqual(protocol.http, stream_capture.protocol_byte);
+    try testing.expectEqual(protocol.kcp, stream_capture.protocol_byte);
     try testing.expectEqualStrings("ok", stream_capture.payload[0..stream_capture.len]);
 
     var kcp_factory = Kcp.Adapter.Factory{};
@@ -193,7 +194,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
 
     const bob_endpoint_updates_before = bob_udp.hostInfo().endpoint_updates;
     alice_pc.local_addr[0] = 21;
-    const roaming_stream = try alice_udp.writeStream(bob_static.public, 8, protocol.http, "roam");
+    const roaming_stream = try alice_udp.writeStream(bob_static.public, 8, protocol.kcp, "roam");
     try testing.expect(roaming_stream == .sent);
     const bob_roamed = bob_udp.peerInfo(alice_static.public).?;
     try testing.expect(bob_roamed.has_endpoint);
@@ -201,7 +202,7 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     try testing.expectEqual(bob_endpoint_updates_before + 1, bob_udp.hostInfo().endpoint_updates);
 
     const bob_endpoint_updates_after_roam = bob_udp.hostInfo().endpoint_updates;
-    const same_endpoint_stream = try alice_udp.writeStream(bob_static.public, 8, protocol.http, "same");
+    const same_endpoint_stream = try alice_udp.writeStream(bob_static.public, 8, protocol.kcp, "same");
     try testing.expect(same_endpoint_stream == .sent);
     try testing.expectEqual(bob_endpoint_updates_after_roam, bob_udp.hostInfo().endpoint_updates);
 
@@ -229,9 +230,9 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     queued_server_pc.peer_udp = &queued_client;
     try queued_client.setPeerEndpoint(bob_static.public, @ptrCast(&queued_server_pc.local_addr), queued_server_pc.local_addr_len);
 
-    const queued_direct_a = try queued_client.writeDirect(bob_static.public, protocol.event, "one");
-    const queued_direct_b = try queued_client.writeDirect(bob_static.public, protocol.event, "two");
-    const queued_stream = try queued_client.writeStream(bob_static.public, 9, protocol.http, "qq");
+    const queued_direct_a = try queued_client.writeDirect(bob_static.public, direct_protocol, "one");
+    const queued_direct_b = try queued_client.writeDirect(bob_static.public, direct_protocol, "two");
+    const queued_stream = try queued_client.writeStream(bob_static.public, 9, protocol.kcp, "qq");
     try testing.expect(queued_direct_a == .queued);
     try testing.expect(queued_direct_b == .queued);
     try testing.expect(queued_stream == .queued);
@@ -246,13 +247,13 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
 
     var queued_buf: [16]u8 = undefined;
     const queued_read_a = try queued_server.read(alice_static.public, &queued_buf);
-    try testing.expectEqual(protocol.event, queued_read_a.protocol_byte);
+    try testing.expectEqual(direct_protocol, queued_read_a.protocol_byte);
     try testing.expectEqualStrings("one", queued_buf[0..queued_read_a.n]);
     const queued_read_b = try queued_server.read(alice_static.public, &queued_buf);
-    try testing.expectEqual(protocol.event, queued_read_b.protocol_byte);
+    try testing.expectEqual(direct_protocol, queued_read_b.protocol_byte);
     try testing.expectEqualStrings("two", queued_buf[0..queued_read_b.n]);
     try testing.expectEqual(@as(u64, 9), queued_stream_capture.service);
-    try testing.expectEqual(protocol.http, queued_stream_capture.protocol_byte);
+    try testing.expectEqual(protocol.kcp, queued_stream_capture.protocol_byte);
     try testing.expectEqualStrings("qq", queued_stream_capture.payload[0..queued_stream_capture.len]);
 
     var full_client_pc = LinkedPacketConn(UdpType).init(9);
@@ -266,8 +267,8 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     });
     defer full_client.deinit();
     try full_client.setPeerEndpoint(bob_static.public, @ptrCast(&queued_server_pc.local_addr), queued_server_pc.local_addr_len);
-    try testing.expect((try full_client.writeDirect(bob_static.public, protocol.event, "x")) == .queued);
-    try testing.expectError(errors.Error.QueueFull, full_client.writeDirect(bob_static.public, protocol.event, "y"));
+    try testing.expect((try full_client.writeDirect(bob_static.public, direct_protocol, "x")) == .queued);
+    try testing.expectError(errors.Error.QueueFull, full_client.writeDirect(bob_static.public, direct_protocol, "y"));
 
     var retry_client_pc = LinkedPacketConn(UdpType).init(3);
     retry_client_pc.drop_first = true;
@@ -358,9 +359,9 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
     try testing.expectError(errors.Error.Closed, closed_udp.registerPeer(bob_static.public));
     try testing.expectError(errors.Error.Closed, closed_udp.setPeerEndpoint(bob_static.public, @ptrCast(&closed_pc.local_addr), closed_pc.local_addr_len));
     try testing.expectError(errors.Error.Closed, closed_udp.read(bob_static.public, &closed_direct_buf));
-    try testing.expectError(errors.Error.Closed, closed_udp.readServiceProtocol(bob_static.public, 0, protocol.event, &closed_direct_buf));
-    try testing.expectError(errors.Error.Closed, closed_udp.writeDirect(bob_static.public, protocol.event, "x"));
-    try testing.expectError(errors.Error.Closed, closed_udp.writeStream(bob_static.public, 1, protocol.http, "x"));
+    try testing.expectError(errors.Error.Closed, closed_udp.readServiceProtocol(bob_static.public, 0, direct_protocol, &closed_direct_buf));
+    try testing.expectError(errors.Error.Closed, closed_udp.writeDirect(bob_static.public, direct_protocol, "x"));
+    try testing.expectError(errors.Error.Closed, closed_udp.writeStream(bob_static.public, 1, protocol.kcp, "x"));
     try testing.expectError(errors.Error.Closed, closed_udp.sendStreamData(bob_static.public, 1, 1, "x"));
     try testing.expectError(errors.Error.Closed, closed_udp.recvStreamData(bob_static.public, 1, 1, &closed_stream_buf));
     try testing.expectError(errors.Error.Closed, closed_udp.closeStream(bob_static.public, 1, 1));

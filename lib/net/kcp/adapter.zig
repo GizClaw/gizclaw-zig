@@ -214,7 +214,7 @@ pub fn make(comptime Core: type) type {
 
         fn emit(self: *Self, service: u64, data: []const u8) !void {
             const output = self.runtime.output orelse return Core.Error.NoSession;
-            output.write(output.ctx, self.runtime.peer, service, Core.protocol.rpc, data) catch |err| {
+            output.write(output.ctx, self.runtime.peer, service, Core.protocol.kcp, data) catch |err| {
                 if (self.runtime.on_output_error) |callback| callback(self.runtime.peer, service, err);
                 return err;
             };

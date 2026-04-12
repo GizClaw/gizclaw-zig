@@ -3,7 +3,7 @@ const net_pkg = @import("../../../../net.zig");
 
 const ListenerFile = @import("../../../http_transport/Listener.zig");
 const TransportFile = @import("../../../http_transport/Transport.zig");
-const PeerRealUdpFixtureFile = @import("../peer/peer_real_udp_fixture.zig");
+const PeerRealUdpFixtureFile = @import("../test_utils/peer_real_udp_fixture.zig");
 
 pub fn make(comptime lib: type) type {
     const Net = net_pkg.make(lib);

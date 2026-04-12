@@ -37,62 +37,36 @@ pub fn make(comptime lib: type) testing_api.TestRunner {
 fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Allocator) !void {
     const FixtureType = fixture.Fixture(lib);
     const Peer = peer.make(core.make(lib));
+    const direct_protocol: u8 = 0x03;
+    const rpc_service: u64 = 4;
+    const extra_service: u64 = 1;
 
     var invalid = Peer.Conn{ .remote_pk = noise.Key.zero };
-    try testing.expectError(peer.Error.NilConn, invalid.openRPC());
-    try testing.expectError(peer.Error.NilConn, invalid.acceptRPC());
-    try testing.expectError(peer.Error.NilConn, invalid.sendEvent(allocator, .{ .name = "x" }));
-    try testing.expectError(peer.Error.NilConn, invalid.readEvent(allocator));
-    try testing.expectError(peer.Error.NilConn, invalid.sendOpusFrame(.{}));
-    try testing.expectError(peer.Error.NilConn, invalid.readOpusFrame(allocator));
+    var invalid_buf: [8]u8 = undefined;
+    try testing.expectError(peer.Error.NilConn, invalid.openService(rpc_service));
+    try testing.expectError(peer.Error.NilConn, invalid.acceptService(rpc_service));
+    try testing.expectError(peer.Error.NilConn, invalid.write(direct_protocol, "x"));
+    try testing.expectError(peer.Error.NilConn, invalid.read(&invalid_buf));
     try testing.expectError(peer.Error.NilConn, invalid.close());
 
     {
         var pair = try FixtureType.init(allocator);
         defer pair.deinit();
 
-        try testing.expectError(peer.Error.MissingName, pair.client_conn.sendEvent(allocator, .{ .name = "   " }));
-        try testing.expectError(peer.Error.OpusFrameTooShort, pair.client_conn.sendOpusFrame(.{ .bytes = &[_]u8{ 1, 2, 3 } }));
-        try testing.expectError(
-            peer.Error.InvalidOpusFrameVersion,
-            pair.client_conn.sendOpusFrame(.{ .bytes = &[_]u8{ 2, 0, 0, 0, 0, 0, 0, 0, 0xff } }),
-        );
-
-        try pair.client_conn.sendEvent(allocator, .{
-            .name = "hello",
-            .data = "{\"n\":1}",
-        });
-        {
-            var got_event = try pair.server_conn.readEvent(allocator);
-            defer got_event.deinit(allocator);
-            try testing.expectEqualStrings("hello", got_event.name);
-            try testing.expectEqualStrings("{\"n\":1}", got_event.data.?);
-        }
-
-        try pair.client_conn.sendEvent(allocator, .{ .name = "event-as-opus" });
-        try testing.expectError(core.Error.QueueEmpty, pair.server_conn.readOpusFrame(allocator));
-
-        var sent_frame = try peer.stampOpusFrame(allocator, "pcm", 42);
-        defer sent_frame.deinit(allocator);
-        try pair.client_conn.sendOpusFrame(sent_frame);
-        var got_frame = try pair.server_conn.readOpusFrame(allocator);
-        defer got_frame.deinit(allocator);
-        try testing.expectEqual(@as(peer.EpochMillis, 42), got_frame.stamp());
-        try testing.expectEqualStrings("pcm", got_frame.frame());
-        {
-            var got_event = try pair.server_conn.readEvent(allocator);
-            defer got_event.deinit(allocator);
-            try testing.expectEqualStrings("event-as-opus", got_event.name);
-        }
+        _ = try pair.client_conn.write(direct_protocol, "hello");
+        var buf: [32]u8 = undefined;
+        const got = try pair.server_conn.read(&buf);
+        try testing.expectEqual(direct_protocol, got.protocol_byte);
+        try testing.expectEqualStrings("hello", buf[0..got.n]);
     }
 
     {
         var pair = try FixtureType.init(allocator);
         defer pair.deinit();
 
-        var client_stream = try pair.client_conn.openRPC();
+        var client_stream = try pair.client_conn.openService(rpc_service);
         defer client_stream.deinit();
-        var server_stream = try pair.server_conn.acceptRPC();
+        var server_stream = try pair.server_conn.acceptService(rpc_service);
         defer server_stream.deinit();
         _ = try client_stream.write("ping");
         try pair.drive(16);
@@ -109,9 +83,9 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
         var pair = try FixtureType.init(allocator);
         defer pair.deinit();
 
-        var client_admin = try pair.client_conn.openService(peer.ServiceAdmin);
+        var client_admin = try pair.client_conn.openService(extra_service);
         defer client_admin.deinit();
-        var server_admin = try pair.server_conn.acceptService(peer.ServiceAdmin);
+        var server_admin = try pair.server_conn.acceptService(extra_service);
         defer server_admin.deinit();
         _ = try client_admin.write("adm");
         try pair.drive(16);
@@ -124,8 +98,8 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
         var pair = try FixtureType.initWithServices(allocator, false);
         defer pair.deinit();
 
-        try testing.expectError(core.Error.ServiceRejected, pair.client_conn.openService(peer.ServiceAdmin));
-        try testing.expectError(core.Error.ServiceRejected, pair.server_conn.acceptService(peer.ServiceAdmin));
+        try testing.expectError(core.Error.ServiceRejected, pair.client_conn.openService(extra_service));
+        try testing.expectError(core.Error.ServiceRejected, pair.server_conn.acceptService(extra_service));
     }
 
     {
@@ -135,12 +109,13 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
         var second_handle = try pair.client_listener.peer(pair.server_key.public);
         defer second_handle.deinit();
         try pair.client_conn.close();
-        try testing.expectError(peer.Error.ConnClosed, pair.client_conn.openRPC());
-        try testing.expectError(peer.Error.ConnClosed, pair.client_conn.sendEvent(allocator, .{ .name = "x" }));
-        try second_handle.sendEvent(allocator, .{ .name = "still-open" });
-        var got_event = try pair.server_conn.readEvent(allocator);
-        defer got_event.deinit(allocator);
-        try testing.expectEqualStrings("still-open", got_event.name);
+        var still_open_buf: [32]u8 = undefined;
+        try testing.expectError(peer.Error.ConnClosed, pair.client_conn.openService(rpc_service));
+        try testing.expectError(peer.Error.ConnClosed, pair.client_conn.write(direct_protocol, "x"));
+        _ = try second_handle.write(direct_protocol, "still-open");
+        const still_open = try pair.server_conn.read(&still_open_buf);
+        try testing.expectEqual(direct_protocol, still_open.protocol_byte);
+        try testing.expectEqualStrings("still-open", still_open_buf[0..still_open.n]);
     }
 
     {
@@ -155,9 +130,9 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
         defer client_conn.deinit();
         var server_conn = try FakePeer.Conn.init(allocator, fakeShared(FakeSharedRef, &server_udp), noise.Key.zero, null);
         defer server_conn.deinit();
-        var held_stream = try client_conn.openRPC();
+        var held_stream = try client_conn.openService(rpc_service);
         defer held_stream.deinit();
-        var accepted_stream = try server_conn.acceptRPC();
+        var accepted_stream = try server_conn.acceptService(rpc_service);
         defer accepted_stream.deinit();
 
         _ = try held_stream.write("x");
@@ -176,10 +151,10 @@ fn runCases(comptime lib: type, testing: anytype, allocator: dep.embed.mem.Alloc
         defer pair.deinit();
 
         pair.client_udp.close();
-        try testing.expectError(core.Error.Closed, pair.client_conn.openRPC());
-        try testing.expectError(core.Error.Closed, pair.client_conn.sendEvent(allocator, .{ .name = "x" }));
+        try testing.expectError(core.Error.Closed, pair.client_conn.openService(rpc_service));
+        try testing.expectError(core.Error.Closed, pair.client_conn.write(direct_protocol, "x"));
         try pair.client_conn.close();
-        try testing.expectError(peer.Error.ConnClosed, pair.client_conn.openRPC());
+        try testing.expectError(peer.Error.ConnClosed, pair.client_conn.openService(rpc_service));
     }
 }
 
@@ -204,6 +179,11 @@ const FakeCore = struct {
     const FakeState = enum { established };
 
     pub const ServiceMux = struct {
+        pub const ReadResult = struct {
+            protocol_byte: u8,
+            n: usize,
+        };
+
         pub fn openStream(_: *ServiceMux, _: u64) !u64 {
             return 1;
         }
@@ -215,6 +195,14 @@ const FakeCore = struct {
         pub fn closeService(_: *ServiceMux, _: u64) !void {}
 
         pub fn stopAcceptingService(_: *ServiceMux, _: u64) !void {}
+
+        pub fn read(_: *ServiceMux, _: []u8) !ReadResult {
+            return error.QueueEmpty;
+        }
+
+        pub fn write(_: *ServiceMux, _: u8, payload: []const u8) !usize {
+            return payload.len;
+        }
     };
 
     pub const UDP = struct {
@@ -239,14 +227,6 @@ const FakeCore = struct {
 
         pub fn peerInfo(_: *UDP, _: noise.Key) ?PeerInfo {
             return .{ .state = .established };
-        }
-
-        pub fn writeDirect(_: *UDP, _: noise.Key, _: u8, payload: []const u8) !struct { sent: usize } {
-            return .{ .sent = payload.len };
-        }
-
-        pub fn readServiceProtocol(_: *UDP, _: noise.Key, _: u64, _: u8, _: []u8) !usize {
-            return error.QueueEmpty;
         }
 
         pub fn sendStreamData(self: *UDP, _: noise.Key, _: u64, _: u64, payload: []const u8) !usize {
