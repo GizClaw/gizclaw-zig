@@ -1,11 +1,9 @@
 const std = @import("std");
 const build_test = @import("build/test.zig");
 
-const lib_net = @import("build/lib/net.zig");
 const pkg_dep = @import("build/pkg/dep.zig");
 
 const Libraries = struct {
-    pub const net = lib_net;
 };
 
 const Packages = struct {
