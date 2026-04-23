@@ -5,7 +5,6 @@ pub fn createTestModule(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     comptime Libraries: type,
-    comptime Packages: type,
 ) void {
     const test_step = b.step("test", "Run all tests");
 
@@ -36,13 +35,13 @@ pub fn createTestModule(
     });
     b.modules.put("test", test_mod) catch @panic("OOM");
 
-    inline for (@typeInfo(Packages).@"struct".decls) |decl| {
-        const mod = b.modules.get(decl.name) orelse @panic("test dependency missing");
-        test_mod.addImport(decl.name, mod);
-    }
     inline for (@typeInfo(Libraries).@"struct".decls) |decl| {
         const mod = b.modules.get(decl.name) orelse @panic("test dependency missing");
         test_mod.addImport(decl.name, mod);
+    }
+    for ([_][]const u8{ "embed", "embed_std", "kcp" }) |name| {
+        const mod = b.modules.get(name) orelse @panic("test dependency missing");
+        test_mod.addImport(name, mod);
     }
 
     inline for (@typeInfo(Libraries).@"struct".decls) |decl| {

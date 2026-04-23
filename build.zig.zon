@@ -12,8 +12,8 @@
     },
     .dependencies = .{
         .embed = .{
-            .url = "https://codeload.github.com/embed-zig/embed-zig/tar.gz/d2a8c1106f4a446917008a80c4e58cdf646a0349",
-            .hash = "embed_zig-0.0.0-prAy_N9HPAA6dsEibgEFpvoAfqoa-uWI7tPDvsPSxbjq",
+            .url = "https://codeload.github.com/embed-zig/embed-zig/tar.gz/c7b94d91d66deacc70c5bf75fc67278ef345047c",
+            .hash = "embed_zig-1.1.1-prAy_N5wVgDW5vKmxSiW7-81T5yA2i3ugC5A4rShfOJn",
         },
         .zig_kcp = .{
             .url = "https://codeload.github.com/jinzhongjia/zig-kcp/tar.gz/fafdad53e0eb109e717d93e501849d547b6101e1",
