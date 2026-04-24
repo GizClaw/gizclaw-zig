@@ -1,9 +1,17 @@
 //! Package root for the `giznet` rewrite.
 
 const embed = @import("embed");
+const ConnFile = @import("giznet/Conn.zig");
+const DialOptionsFile = @import("giznet/DialOptions.zig");
+const GizNetFile = @import("giznet/GizNet.zig");
 const noise_ns = @import("giznet/noise.zig");
 
 pub const noise = noise_ns;
+pub const GizNet = GizNetFile;
+pub const Conn = ConnFile;
+pub const DialOptions = DialOptionsFile;
+pub const Key = noise_ns.Key;
+pub const KeyPair = noise_ns.KeyPair;
 pub const AddrPort = embed.net.netip.AddrPort;
 pub fn eqlAddrPort(lhs: AddrPort, rhs: AddrPort) bool {
     return @import("embed").std.meta.eql(lhs, rhs);
@@ -25,6 +33,11 @@ pub const test_runner = struct {
 
 pub fn make(comptime lib: type) type {
     return struct {
+        pub const GizNet = @import("giznet/GizNet.zig");
+        pub const Conn = @import("giznet/Conn.zig");
+        pub const DialOptions = @import("giznet/DialOptions.zig");
+        pub const Key = noise_ns.Key;
+        pub const KeyPair = noise_ns.KeyPair;
         pub const noise = noise_ns.make(lib, noise_ns.default_cipher_kind);
     };
 }

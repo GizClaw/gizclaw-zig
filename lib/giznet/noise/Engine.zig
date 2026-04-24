@@ -19,7 +19,9 @@ pub const default_rekey_after_time_ms: u64 = 120_000;
 pub const default_reject_after_time_ms: u64 = 180_000;
 pub const default_rekey_timeout_ms: u64 = 5_000;
 pub const default_keepalive_timeout_ms: u64 = 10_000;
+pub const default_keepalive_interval_ms: ?u64 = null;
 pub const default_handshake_attempt_ms: u64 = 90_000;
+pub const default_offline_timeout_ms: u64 = 180_000;
 pub const default_session_cleanup_ms: u64 = 180_000;
 pub const default_rekey_after_messages: u64 = 1 << 20;
 pub const default_reject_after_messages: u64 = (1 << 20) + (1 << 12);
@@ -31,7 +33,9 @@ pub const Config = struct {
     reject_after_time_ms: u64 = default_reject_after_time_ms,
     rekey_timeout_ms: u64 = default_rekey_timeout_ms,
     keepalive_timeout_ms: u64 = default_keepalive_timeout_ms,
+    keepalive_interval_ms: ?u64 = default_keepalive_interval_ms,
     handshake_attempt_ms: u64 = default_handshake_attempt_ms,
+    offline_timeout_ms: u64 = default_offline_timeout_ms,
     session_cleanup_ms: u64 = default_session_cleanup_ms,
     rekey_after_messages: u64 = default_rekey_after_messages,
     reject_after_messages: u64 = default_reject_after_messages,
@@ -41,6 +45,7 @@ pub const DriveOutput = union(enum) {
     outbound: *OutboundPacket,
     inbound: *InboundPacket,
     established: Key,
+    offline: Key,
     next_tick_ms: u64,
 };
 
@@ -153,9 +158,11 @@ pub fn make(
                 .config = config,
                 .peers = PeerTable.init(allocator, config.max_peers, .{
                     .keepalive_timeout_ms = config.keepalive_timeout_ms,
+                    .keepalive_interval_ms = config.keepalive_interval_ms,
                     .rekey_after_time_ms = config.rekey_after_time_ms,
                     .rekey_timeout_ms = config.rekey_timeout_ms,
                     .handshake_attempt_ms = config.handshake_attempt_ms,
+                    .offline_timeout_ms = config.offline_timeout_ms,
                     .session_cleanup_ms = config.session_cleanup_ms,
                     .rekey_after_messages = config.rekey_after_messages,
                 }),
@@ -412,6 +419,7 @@ pub fn make(
             try session.commitRecv(packet.counter, now_ms);
             peer.endpoint = packet.remote_endpoint;
             peer.last_received_ms = now_ms;
+            peer.markOnline(now_ms);
             if (peer.current) |*current| current.setEndpoint(peer.endpoint);
             if (peer.previous) |*previous| previous.setEndpoint(peer.endpoint);
             peer.updateTimers(now_ms, 1);
@@ -505,6 +513,7 @@ pub fn make(
             var begin_rekey = false;
             var retry_handshake: ?u32 = null;
             var expire_handshake: ?u32 = null;
+            var mark_offline = false;
 
             if (peer.current) |*current| {
                 if (current.sendNonce() >= self.config.reject_after_messages or current.recvMaxNonce() >= self.config.reject_after_messages) {
@@ -520,48 +529,58 @@ pub fn make(
             peer.updateTimers(now_ms, 0);
             while (peer.timers.nextDue(now_ms)) |kind| {
                 switch (kind) {
-                    .keepalive => {
-                        peer.timers.set(.keepalive, null);
+                    .keepalive_deadline => {
+                        peer.timers.set(.keepalive_deadline, null);
                         send_keepalive = true;
                     },
-                    .rekey => {
-                        peer.timers.set(.rekey, null);
+                    .rekey_deadline => {
+                        peer.timers.set(.rekey_deadline, null);
                         if (peer.pending_handshake == null and peer.current != null and peer.is_initiator) {
                             peer.rekey_triggered = true;
                             peer.rekey_requested = false;
                             begin_rekey = true;
                         }
                     },
-                    .handshake_retry => {
-                        peer.timers.set(.handshake_retry, null);
+                    .handshake_retry_deadline => {
+                        peer.timers.set(.handshake_retry_deadline, null);
                         if (peer.pending_handshake) |pending_handshake| {
                             retry_handshake = pending_handshake.local_session_index;
                         }
                     },
-                    .handshake_timeout => {
-                        peer.timers.set(.handshake_timeout, null);
+                    .handshake_deadline => {
+                        peer.timers.set(.handshake_deadline, null);
                         if (peer.pending_handshake) |pending_handshake| {
                             expire_handshake = pending_handshake.local_session_index;
                         }
                     },
-                    .cleanup => {
-                        peer.timers.set(.cleanup, null);
+                    .offline_deadline => {
+                        peer.timers.set(.offline_deadline, null);
+                        mark_offline = true;
+                    },
+                    .cleanup_deadline => {
+                        peer.timers.set(.cleanup_deadline, null);
                         peer.previous = null;
                     },
                 }
             }
 
-            if (send_keepalive) {
-                try self.emitKeepalive(peer.key, on_result);
-            }
-            if (begin_rekey) {
-                try self.emitBeginRekey(peer.key, on_result);
-            }
-            if (retry_handshake) |local_session_index| {
-                try self.emitRetryHandshake(local_session_index, on_result);
-            }
-            if (expire_handshake) |local_session_index| {
-                self.expirePendingHandshake(local_session_index);
+            if (mark_offline) {
+                peer.markOffline();
+                peer.updateTimers(now_ms, 0);
+                try self.emitEvent(on_result, .{ .offline = peer.key });
+            } else {
+                if (send_keepalive) {
+                    try self.emitKeepalive(peer.key, on_result);
+                }
+                if (begin_rekey) {
+                    try self.emitBeginRekey(peer.key, on_result);
+                }
+                if (retry_handshake) |local_session_index| {
+                    try self.emitRetryHandshake(local_session_index, on_result);
+                }
+                if (expire_handshake) |local_session_index| {
+                    self.expirePendingHandshake(local_session_index);
+                }
             }
 
             if (!self.removeIdlePeer(peer.key)) {
@@ -715,6 +734,7 @@ pub fn make(
                 },
                 .inbound => |_| {},
                 .established => {},
+                .offline => {},
                 .next_tick_ms => {},
             }
         }
@@ -735,6 +755,16 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
     const giznet = @import("../../giznet.zig");
 
     const Cases = struct {
+        fn offlineDeadlineMarksPeerOffline(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+            _ = allocator;
+            try runOfflineDeadlineFlow();
+        }
+
+        fn passiveKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+            _ = allocator;
+            try runPassiveKeepaliveFlow();
+        }
+
         fn chachaRekeyTransfer10KiB(_: *testing_api.T, allocator: std.mem.Allocator) !void {
             _ = allocator;
             try runRekeyAfterMessagesFlow(.chacha_poly);
@@ -748,6 +778,176 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
         fn plaintextRekeyTransfer10KiB(_: *testing_api.T, allocator: std.mem.Allocator) !void {
             _ = allocator;
             try runRekeyAfterMessagesFlow(.plaintext);
+        }
+
+        fn runOfflineDeadlineFlow() !void {
+            const any_lib = lib;
+            const packet_size = SessionType.legacy_packet_size_capacity;
+            const cipher_kind = Cipher.default_kind;
+            const EngineType = make(any_lib, packet_size, cipher_kind);
+            const Session = SessionType.make(any_lib, packet_size, cipher_kind);
+
+            const local_pair = giznet.noise.KeyPair.seed(any_lib, 2901);
+            const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2902);
+            const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52102);
+
+            var engine = try EngineType.init(any_lib.testing.allocator, local_pair, .{
+                .max_peers = 1,
+                .max_pending = 1,
+                .offline_timeout_ms = 0,
+            });
+            defer engine.deinit();
+
+            const now_ms = EngineType.nowMs();
+            const peer = try engine.peers.getOrCreate(remote_pair.public);
+            peer.establish(local_pair.public, remote_endpoint, makeSession(
+                Session,
+                remote_pair.public,
+                remote_endpoint,
+                11,
+                12,
+                0x11,
+                0x22,
+                engine.config.reject_after_time_ms,
+                now_ms,
+            ), true, now_ms);
+            peer.last_sent_ms = now_ms;
+            peer.last_received_ms = now_ms;
+            peer.updateTimers(now_ms, 0);
+            try engine.syncPeerTimerEntry(peer);
+
+            const CallbackState = struct {
+                expected_remote_key: Key,
+                offline_count: usize = 0,
+                next_tick_events: usize = 0,
+
+                fn callback(self: *@This()) Engine.Callback {
+                    return .{
+                        .ctx = self,
+                        .call = callbackFn,
+                    };
+                }
+
+                fn callbackFn(ctx: *anyopaque, result: Engine.DriveOutput) anyerror!void {
+                    const self: *@This() = @ptrCast(@alignCast(ctx));
+                    switch (result) {
+                        .offline => |remote_key| {
+                            try any_lib.testing.expect(remote_key.eql(self.expected_remote_key));
+                            self.offline_count += 1;
+                        },
+                        .outbound => |packet| {
+                            packet.deinit();
+                            return error.UnexpectedOutbound;
+                        },
+                        .inbound => |packet| {
+                            packet.deinit();
+                            return error.UnexpectedInbound;
+                        },
+                        .established => return error.UnexpectedEstablished,
+                        .next_tick_ms => |_| self.next_tick_events += 1,
+                    }
+                }
+            };
+
+            var callback_state: CallbackState = .{
+                .expected_remote_key = remote_pair.public,
+            };
+            try engine.drive(.{ .tick = {} }, callback_state.callback());
+
+            try any_lib.testing.expectEqual(@as(usize, 1), callback_state.offline_count);
+            try any_lib.testing.expect(peer.is_offline);
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.offline_deadline_ms);
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.offline_deadline));
+        }
+
+        fn runPassiveKeepaliveFlow() !void {
+            const any_lib = lib;
+            const packet_size = SessionType.legacy_packet_size_capacity;
+            const cipher_kind = Cipher.default_kind;
+            const EngineType = make(any_lib, packet_size, cipher_kind);
+            const Session = SessionType.make(any_lib, packet_size, cipher_kind);
+
+            const local_pair = giznet.noise.KeyPair.seed(any_lib, 2911);
+            const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2912);
+            const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52112);
+
+            var engine = try EngineType.init(any_lib.testing.allocator, local_pair, .{
+                .max_peers = 1,
+                .max_pending = 1,
+                .keepalive_timeout_ms = 0,
+                .offline_timeout_ms = 10_000,
+            });
+            defer engine.deinit();
+
+            const receive_now = blk: {
+                const start_now = EngineType.nowMs();
+                var current_now = start_now;
+                while (current_now == start_now) {
+                    current_now = EngineType.nowMs();
+                }
+                break :blk current_now;
+            };
+
+            const peer = try engine.peers.getOrCreate(remote_pair.public);
+            peer.establish(local_pair.public, remote_endpoint, makeSession(
+                Session,
+                remote_pair.public,
+                remote_endpoint,
+                21,
+                22,
+                0x33,
+                0x44,
+                engine.config.reject_after_time_ms,
+                receive_now,
+            ), false, receive_now);
+            peer.last_sent_ms = receive_now - 1;
+            peer.last_received_ms = receive_now;
+            peer.updateTimers(receive_now, 0);
+            try engine.syncPeerTimerEntry(peer);
+
+            const CallbackState = struct {
+                keepalive_packet: ?*OutboundPacket = null,
+                next_tick_events: usize = 0,
+
+                fn callback(self: *@This()) Engine.Callback {
+                    return .{
+                        .ctx = self,
+                        .call = callbackFn,
+                    };
+                }
+
+                fn callbackFn(ctx: *anyopaque, result: Engine.DriveOutput) anyerror!void {
+                    const self: *@This() = @ptrCast(@alignCast(ctx));
+                    switch (result) {
+                        .outbound => |packet| {
+                            if (self.keepalive_packet != null) {
+                                packet.deinit();
+                                return error.UnexpectedMultipleOutbounds;
+                            }
+                            self.keepalive_packet = packet;
+                        },
+                        .inbound => |packet| {
+                            packet.deinit();
+                            return error.UnexpectedInbound;
+                        },
+                        .established => return error.UnexpectedEstablished,
+                        .offline => return error.UnexpectedOffline,
+                        .next_tick_ms => |_| self.next_tick_events += 1,
+                    }
+                }
+            };
+
+            var callback_state: CallbackState = .{};
+            try engine.drive(.{ .tick = {} }, callback_state.callback());
+
+            const packet = callback_state.keepalive_packet orelse return error.MissingKeepalivePacket;
+            defer packet.deinit();
+
+            try any_lib.testing.expectEqual(OutboundPacket.Kind.transport, packet.kind);
+            try any_lib.testing.expectEqual(OutboundPacket.State.prepared, packet.state);
+            try any_lib.testing.expectEqual(@as(usize, 0), packet.len);
+            try any_lib.testing.expect(packet.remote_static.eql(remote_pair.public));
+            try any_lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
         }
 
         fn runRekeyAfterMessagesFlow(comptime cipher_kind: Cipher.Kind) !void {
@@ -803,6 +1003,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                 received_packets: usize = 0,
                 received_bytes: usize = 0,
                 established_events: usize = 0,
+                offline_events: usize = 0,
                 next_tick_events: usize = 0,
                 initiator_callback_ctx: ?*CallbackCtx = null,
                 responder_callback_ctx: ?*CallbackCtx = null,
@@ -829,6 +1030,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                         .outbound => |packet| try self.handleOutbound(side, packet),
                         .inbound => |packet| try self.handleInbound(side, packet),
                         .established => |remote_key| try self.handleEstablished(side, remote_key),
+                        .offline => |remote_key| try self.handleOffline(side, remote_key),
                         .next_tick_ms => |_| self.next_tick_events += 1,
                     }
                 }
@@ -876,6 +1078,12 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                         .initiator => try any_lib.testing.expect(remote_key.eql(self.responder_key)),
                         .responder => try any_lib.testing.expect(remote_key.eql(self.initiator_key)),
                     }
+                }
+
+                fn handleOffline(self: *@This(), side: Side, remote_key: Key) !void {
+                    _ = side;
+                    _ = remote_key;
+                    self.offline_events += 1;
                 }
 
                 fn verifyConsumedInbound(self: *@This(), side: Side, packet: *InboundPacket) !void {
@@ -1006,6 +1214,29 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             try any_lib.testing.expectEqual(total_transfer_bytes, harness.received_bytes);
             try any_lib.testing.expect(harness.established_events >= 4);
         }
+
+        fn makeSession(
+            Session: type,
+            peer_key: Key,
+            endpoint: AddrPort,
+            local_index: u32,
+            remote_index: u32,
+            send_fill: u8,
+            recv_fill: u8,
+            timeout_ms: u64,
+            now_ms: u64,
+        ) Session {
+            return Session.init(.{
+                .local_index = local_index,
+                .remote_index = remote_index,
+                .peer_key = peer_key,
+                .endpoint = endpoint,
+                .send_key = giznet.noise.Key{ .bytes = [_]u8{send_fill} ** 32 },
+                .recv_key = giznet.noise.Key{ .bytes = [_]u8{recv_fill} ** 32 },
+                .timeout_ms = timeout_ms,
+                .now_ms = now_ms,
+            });
+        }
     };
 
     const Runner = struct {
@@ -1018,6 +1249,14 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             _ = self;
             _ = allocator;
 
+            t.run(
+                "offline_deadline_marks_peer_offline",
+                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.offlineDeadlineMarksPeerOffline),
+            );
+            t.run(
+                "passive_keepalive_emits_empty_transport",
+                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.passiveKeepaliveEmitsEmptyTransport),
+            );
             t.run(
                 "chacha_poly_rekey_transfer_10KiB",
                 testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.chachaRekeyTransfer10KiB),

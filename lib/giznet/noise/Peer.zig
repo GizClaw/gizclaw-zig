@@ -11,9 +11,11 @@ const root = @This();
 
 pub const PeerTimerConfig = struct {
     keepalive_timeout_ms: u64,
+    keepalive_interval_ms: ?u64 = null,
     rekey_after_time_ms: u64,
     rekey_timeout_ms: u64,
     handshake_attempt_ms: u64,
+    offline_timeout_ms: u64,
     session_cleanup_ms: u64,
     rekey_after_messages: u64,
 };
@@ -42,12 +44,16 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
         current: ?Session = null,
         previous: ?Session = null,
         pending_handshake: ?PendingHandshake = null,
+        is_offline: bool = false,
+        persistent_keepalive: bool = false,
+        keepalive_interval_ms: ?u64 = null,
         is_initiator: bool = false,
         rekey_triggered: bool = false,
         rekey_requested: bool = false,
         session_created_ms: u64 = 0,
         last_sent_ms: u64 = 0,
         last_received_ms: u64 = 0,
+        offline_deadline_ms: ?u64 = null,
         timers: TimerState = .{},
 
         const Self = @This();
@@ -56,6 +62,8 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
             return .{
                 .key = key,
                 .timer_config = timer_config,
+                .persistent_keepalive = timer_config.keepalive_interval_ms != null,
+                .keepalive_interval_ms = timer_config.keepalive_interval_ms,
             };
         }
 
@@ -81,8 +89,24 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
 
         pub fn clearPendingHandshake(self: *Self) void {
             self.pending_handshake = null;
-            self.timers.set(.handshake_retry, null);
-            self.timers.set(.handshake_timeout, null);
+            self.timers.set(.handshake_retry_deadline, null);
+            self.timers.set(.handshake_deadline, null);
+        }
+
+        pub fn markOnline(self: *Self, now_ms: u64) void {
+            self.is_offline = false;
+            self.offline_deadline_ms = if (self.current != null)
+                now_ms + self.timer_config.offline_timeout_ms
+            else
+                null;
+        }
+
+        pub fn markOffline(self: *Self) void {
+            self.is_offline = true;
+            self.offline_deadline_ms = null;
+            self.timers.set(.keepalive_deadline, null);
+            self.timers.set(.rekey_deadline, null);
+            self.timers.set(.offline_deadline, null);
         }
 
         pub fn establish(
@@ -104,6 +128,7 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
             self.clearPendingHandshake();
             self.previous = self.current;
             self.current = session;
+            self.markOnline(now_ms);
             if (self.current) |*current| current.setEndpoint(endpoint);
         }
 
@@ -126,6 +151,7 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
                 self.timer_config.rekey_after_time_ms,
                 self.timer_config.rekey_timeout_ms,
                 self.timer_config.handshake_attempt_ms,
+                self.timer_config.offline_timeout_ms,
                 self.timer_config.session_cleanup_ms,
             );
         }
@@ -150,39 +176,49 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
             rekey_after_time_ms: u64,
             rekey_timeout_ms: u64,
             handshake_attempt_ms: u64,
+            offline_timeout_ms: u64,
             session_cleanup_ms: u64,
         ) void {
-            if (self.current != null and self.last_received_ms > self.last_sent_ms) {
-                self.timers.set(.keepalive, self.last_received_ms + keepalive_timeout_ms);
+            if (self.current != null and !self.is_offline and self.last_received_ms > self.last_sent_ms) {
+                self.timers.set(.keepalive_deadline, self.last_received_ms + keepalive_timeout_ms);
             } else {
-                self.timers.set(.keepalive, null);
+                self.timers.set(.keepalive_deadline, null);
             }
 
-            if (self.current != null and self.is_initiator and !self.rekey_triggered) {
+            if (self.current != null and !self.is_offline and self.is_initiator and !self.rekey_triggered) {
                 if (self.rekey_requested) {
-                    self.timers.set(.rekey, @max(self.last_received_ms, self.last_sent_ms));
+                    self.timers.set(.rekey_deadline, @max(self.last_received_ms, self.last_sent_ms));
                 } else {
-                    self.timers.set(.rekey, self.session_created_ms + rekey_after_time_ms);
+                    self.timers.set(.rekey_deadline, self.session_created_ms + rekey_after_time_ms);
                 }
             } else {
-                self.timers.set(.rekey, null);
+                self.timers.set(.rekey_deadline, null);
+            }
+
+            if (self.current != null and !self.is_offline) {
+                const deadline_ms = self.last_received_ms + offline_timeout_ms;
+                self.offline_deadline_ms = deadline_ms;
+                self.timers.set(.offline_deadline, deadline_ms);
+            } else {
+                self.offline_deadline_ms = null;
+                self.timers.set(.offline_deadline, null);
             }
 
             if (self.pending_handshake) |pending_handshake| {
-                self.timers.set(.handshake_retry, pending_handshake.last_sent_ms + rekey_timeout_ms);
-                self.timers.set(.handshake_timeout, pending_handshake.attempt_started_ms + handshake_attempt_ms);
+                self.timers.set(.handshake_retry_deadline, pending_handshake.last_sent_ms + rekey_timeout_ms);
+                self.timers.set(.handshake_deadline, pending_handshake.attempt_started_ms + handshake_attempt_ms);
             } else {
-                self.timers.set(.handshake_retry, null);
-                self.timers.set(.handshake_timeout, null);
+                self.timers.set(.handshake_retry_deadline, null);
+                self.timers.set(.handshake_deadline, null);
             }
 
             if (self.previous) |previous| {
                 self.timers.set(
-                    .cleanup,
+                    .cleanup_deadline,
                     @max(previous.lastReceivedMs(), previous.lastSentMs()) + session_cleanup_ms,
                 );
             } else {
-                self.timers.set(.cleanup, null);
+                self.timers.set(.cleanup_deadline, null);
             }
         }
     };
@@ -229,6 +265,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
                 .rekey_after_time_ms = 50,
                 .rekey_timeout_ms = 5,
                 .handshake_attempt_ms = 20,
+                .offline_timeout_ms = 60,
                 .session_cleanup_ms = 40,
                 .rekey_after_messages = 8,
             };
@@ -247,13 +284,13 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
 
             peer.pending_handshake.?.last_sent_ms = 111;
             peer.updateTimers(111, 0);
-            try any_lib.testing.expectEqual(@as(?u64, 116), peer.timers.get(.handshake_retry));
-            try any_lib.testing.expectEqual(@as(?u64, 120), peer.timers.get(.handshake_timeout));
+            try any_lib.testing.expectEqual(@as(?u64, 116), peer.timers.get(.handshake_retry_deadline));
+            try any_lib.testing.expectEqual(@as(?u64, 120), peer.timers.get(.handshake_deadline));
 
             peer.clearPendingHandshake();
             try any_lib.testing.expect(peer.pending_handshake == null);
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_retry));
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_timeout));
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_retry_deadline));
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_deadline));
 
             const session_one = makeSession(Session, responder_pair.public, endpoint_one, 1, 2, 0x11, 0x22);
             peer.establish(initiator_pair.public, endpoint_one, session_one, true, 200);
@@ -261,6 +298,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             try any_lib.testing.expect(peer.previous == null);
             try any_lib.testing.expectEqual(@as(u32, 1), peer.current.?.localIndex());
             try any_lib.testing.expect(peer.current != null and peer.current.?.canSend());
+            try any_lib.testing.expect(!peer.is_offline);
 
             const session_two = makeSession(Session, responder_pair.public, endpoint_two, 3, 4, 0x33, 0x44);
             peer.establish(initiator_pair.public, endpoint_two, session_two, true, 300);
@@ -276,15 +314,24 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             try any_lib.testing.expect(giznet.eqlAddrPort(peer.endpoint, endpoint_three));
             try any_lib.testing.expect(giznet.eqlAddrPort(peer.current.?.endpointValue(), endpoint_three));
             try any_lib.testing.expect(giznet.eqlAddrPort(peer.previous.?.endpointValue(), endpoint_three));
-            try any_lib.testing.expectEqual(@as(?u64, 320), peer.timers.get(.keepalive));
-            try any_lib.testing.expectEqual(@as(?u64, 350), peer.timers.get(.rekey));
+            try any_lib.testing.expectEqual(@as(?u64, 320), peer.timers.get(.keepalive_deadline));
+            try any_lib.testing.expectEqual(@as(?u64, 350), peer.timers.get(.rekey_deadline));
+            try any_lib.testing.expectEqual(@as(?u64, 370), peer.timers.get(.offline_deadline));
+            try any_lib.testing.expectEqual(@as(?u64, 370), peer.offline_deadline_ms);
 
             peer.rekey_triggered = true;
             peer.rekey_requested = false;
             peer.updateTimers(310, 0);
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.rekey));
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.rekey_deadline));
             peer.rekey_triggered = false;
             peer.rekey_requested = false;
+
+            peer.markOffline();
+            peer.updateTimers(310, 0);
+            try any_lib.testing.expect(peer.is_offline);
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.offline_deadline));
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.keepalive_deadline));
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.offline_deadline_ms);
 
             peer.current = peer.previous;
             peer.previous = null;

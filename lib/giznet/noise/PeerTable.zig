@@ -162,6 +162,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
                 .rekey_after_time_ms = 50,
                 .rekey_timeout_ms = 5,
                 .handshake_attempt_ms = 20,
+                .offline_timeout_ms = 60,
                 .session_cleanup_ms = 40,
                 .rekey_after_messages = 8,
             });

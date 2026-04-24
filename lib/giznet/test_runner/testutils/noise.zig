@@ -106,6 +106,7 @@ pub fn runSinglePeerTransfer(
                 .outbound => |packet| try self.handleOutbound(side, packet),
                 .inbound => |packet| try self.handleInbound(side, packet),
                 .established => |remote_key| try self.handleEstablished(side, remote_key),
+                .offline => return error.UnexpectedOffline,
                 .next_tick_ms => |_| self.next_tick_events += 1,
             }
         }
@@ -377,6 +378,7 @@ pub fn runMultiPeerBidirectionalRekey(
                 .outbound => |packet| try self.handleOutbound(source, packet),
                 .inbound => |packet| try self.handleInbound(source, packet),
                 .established => |remote_key| try self.handleEstablished(source, remote_key),
+                .offline => return error.UnexpectedOffline,
                 .next_tick_ms => |_| self.next_tick_events += 1,
             }
         }

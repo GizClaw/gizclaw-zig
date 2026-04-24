@@ -4,18 +4,20 @@ const std = embed.std;
 const TimerState = @This();
 
 pub const Kind = enum {
-    keepalive,
-    rekey,
-    handshake_retry,
-    handshake_timeout,
-    cleanup,
+    keepalive_deadline,
+    rekey_deadline,
+    handshake_retry_deadline,
+    handshake_deadline,
+    offline_deadline,
+    cleanup_deadline,
 };
 
-keepalive_ms: ?u64 = null,
-rekey_ms: ?u64 = null,
-handshake_retry_ms: ?u64 = null,
-handshake_timeout_ms: ?u64 = null,
-cleanup_ms: ?u64 = null,
+keepalive_deadline_ms: ?u64 = null,
+rekey_deadline_ms: ?u64 = null,
+handshake_retry_deadline_ms: ?u64 = null,
+handshake_deadline_ms: ?u64 = null,
+offline_deadline_ms: ?u64 = null,
+cleanup_deadline_ms: ?u64 = null,
 
 pub fn clear(self: *TimerState) void {
     self.* = .{};
@@ -23,43 +25,47 @@ pub fn clear(self: *TimerState) void {
 
 pub fn set(self: *TimerState, kind: Kind, due_ms: ?u64) void {
     switch (kind) {
-        .keepalive => self.keepalive_ms = due_ms,
-        .rekey => self.rekey_ms = due_ms,
-        .handshake_retry => self.handshake_retry_ms = due_ms,
-        .handshake_timeout => self.handshake_timeout_ms = due_ms,
-        .cleanup => self.cleanup_ms = due_ms,
+        .keepalive_deadline => self.keepalive_deadline_ms = due_ms,
+        .rekey_deadline => self.rekey_deadline_ms = due_ms,
+        .handshake_retry_deadline => self.handshake_retry_deadline_ms = due_ms,
+        .handshake_deadline => self.handshake_deadline_ms = due_ms,
+        .offline_deadline => self.offline_deadline_ms = due_ms,
+        .cleanup_deadline => self.cleanup_deadline_ms = due_ms,
     }
 }
 
 pub fn get(self: TimerState, kind: Kind) ?u64 {
     return switch (kind) {
-        .keepalive => self.keepalive_ms,
-        .rekey => self.rekey_ms,
-        .handshake_retry => self.handshake_retry_ms,
-        .handshake_timeout => self.handshake_timeout_ms,
-        .cleanup => self.cleanup_ms,
+        .keepalive_deadline => self.keepalive_deadline_ms,
+        .rekey_deadline => self.rekey_deadline_ms,
+        .handshake_retry_deadline => self.handshake_retry_deadline_ms,
+        .handshake_deadline => self.handshake_deadline_ms,
+        .offline_deadline => self.offline_deadline_ms,
+        .cleanup_deadline => self.cleanup_deadline_ms,
     };
 }
 
 pub fn nextDue(self: TimerState, now_ms: u64) ?Kind {
     var best_kind: ?Kind = null;
     var best_due: ?u64 = null;
-    self.considerDue(.keepalive, now_ms, &best_kind, &best_due);
-    self.considerDue(.rekey, now_ms, &best_kind, &best_due);
-    self.considerDue(.handshake_retry, now_ms, &best_kind, &best_due);
-    self.considerDue(.handshake_timeout, now_ms, &best_kind, &best_due);
-    self.considerDue(.cleanup, now_ms, &best_kind, &best_due);
+    self.considerDue(.keepalive_deadline, now_ms, &best_kind, &best_due);
+    self.considerDue(.rekey_deadline, now_ms, &best_kind, &best_due);
+    self.considerDue(.handshake_retry_deadline, now_ms, &best_kind, &best_due);
+    self.considerDue(.handshake_deadline, now_ms, &best_kind, &best_due);
+    self.considerDue(.offline_deadline, now_ms, &best_kind, &best_due);
+    self.considerDue(.cleanup_deadline, now_ms, &best_kind, &best_due);
 
     return best_kind;
 }
 
 pub fn earliest(self: TimerState) ?u64 {
     var best_due: ?u64 = null;
-    self.considerEarliest(.keepalive, &best_due);
-    self.considerEarliest(.rekey, &best_due);
-    self.considerEarliest(.handshake_retry, &best_due);
-    self.considerEarliest(.handshake_timeout, &best_due);
-    self.considerEarliest(.cleanup, &best_due);
+    self.considerEarliest(.keepalive_deadline, &best_due);
+    self.considerEarliest(.rekey_deadline, &best_due);
+    self.considerEarliest(.handshake_retry_deadline, &best_due);
+    self.considerEarliest(.handshake_deadline, &best_due);
+    self.considerEarliest(.offline_deadline, &best_due);
+    self.considerEarliest(.cleanup_deadline, &best_due);
 
     return best_due;
 }
@@ -114,20 +120,21 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             try any_lib.testing.expectEqual(@as(?u64, null), timers.earliest());
             try any_lib.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(0));
 
-            timers.set(.rekey, 20);
-            timers.set(.cleanup, 30);
-            timers.set(.keepalive, 10);
-            timers.set(.handshake_retry, 12);
-            timers.set(.handshake_timeout, 18);
+            timers.set(.rekey_deadline, 20);
+            timers.set(.cleanup_deadline, 30);
+            timers.set(.keepalive_deadline, 10);
+            timers.set(.handshake_retry_deadline, 12);
+            timers.set(.handshake_deadline, 18);
+            timers.set(.offline_deadline, 25);
 
-            try any_lib.testing.expectEqual(@as(?u64, 20), timers.get(.rekey));
+            try any_lib.testing.expectEqual(@as(?u64, 20), timers.get(.rekey_deadline));
             try any_lib.testing.expectEqual(@as(?u64, 10), timers.earliest());
             try any_lib.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(9));
-            try any_lib.testing.expectEqual(@as(?TimerState.Kind, .keepalive), timers.nextDue(10));
+            try any_lib.testing.expectEqual(@as(?TimerState.Kind, .keepalive_deadline), timers.nextDue(10));
 
-            timers.set(.keepalive, null);
+            timers.set(.keepalive_deadline, null);
             try any_lib.testing.expectEqual(@as(?u64, 12), timers.earliest());
-            try any_lib.testing.expectEqual(@as(?TimerState.Kind, .handshake_retry), timers.nextDue(12));
+            try any_lib.testing.expectEqual(@as(?TimerState.Kind, .handshake_retry_deadline), timers.nextDue(12));
 
             timers.clear();
             try any_lib.testing.expectEqual(@as(?u64, null), timers.earliest());
