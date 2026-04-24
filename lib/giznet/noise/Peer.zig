@@ -11,7 +11,6 @@ const root = @This();
 
 pub const PeerTimerConfig = struct {
     keepalive_timeout_ms: u64,
-    keepalive_interval_ms: ?u64 = null,
     rekey_after_time_ms: u64,
     rekey_timeout_ms: u64,
     handshake_attempt_ms: u64,
@@ -62,8 +61,6 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
             return .{
                 .key = key,
                 .timer_config = timer_config,
-                .persistent_keepalive = timer_config.keepalive_interval_ms != null,
-                .keepalive_interval_ms = timer_config.keepalive_interval_ms,
             };
         }
 
@@ -73,10 +70,13 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
             endpoint: AddrPort,
             local_session_index: u32,
             handshake: Handshake,
+            keepalive_interval_ms: ?u64,
             now_ms: u64,
         ) void {
             self.local_static = local_static;
             self.endpoint = endpoint;
+            self.persistent_keepalive = keepalive_interval_ms != null;
+            self.keepalive_interval_ms = keepalive_interval_ms;
             self.pending_handshake = .{
                 .local_static = local_static,
                 .endpoint = endpoint,
@@ -105,6 +105,7 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
             self.is_offline = true;
             self.offline_deadline_ms = null;
             self.timers.set(.keepalive_deadline, null);
+            self.timers.set(.persistent_keepalive_deadline, null);
             self.timers.set(.rekey_deadline, null);
             self.timers.set(.offline_deadline, null);
         }
@@ -183,6 +184,14 @@ pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
                 self.timers.set(.keepalive_deadline, self.last_received_ms + keepalive_timeout_ms);
             } else {
                 self.timers.set(.keepalive_deadline, null);
+            }
+
+            if (self.current != null and !self.is_offline and self.persistent_keepalive and self.keepalive_interval_ms != null) {
+                const interval_ms = self.keepalive_interval_ms.?;
+                const safe_interval_ms: u64 = if (interval_ms == 0) 1 else interval_ms;
+                self.timers.set(.persistent_keepalive_deadline, self.last_sent_ms + safe_interval_ms);
+            } else {
+                self.timers.set(.persistent_keepalive_deadline, null);
             }
 
             if (self.current != null and !self.is_offline and self.is_initiator and !self.rekey_triggered) {
@@ -273,11 +282,15 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             var peer = Peer.init(responder_pair.public, timer_config);
             try any_lib.testing.expect(peer.key.eql(responder_pair.public));
             try any_lib.testing.expect(peer.isCompletelyIdle());
+            try any_lib.testing.expect(!peer.persistent_keepalive);
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.keepalive_interval_ms);
 
             const handshake = try Handshake.initInitiator(initiator_pair, responder_pair.public, 77);
-            peer.startPendingHandshake(initiator_pair.public, endpoint_one, 77, handshake, 100);
+            peer.startPendingHandshake(initiator_pair.public, endpoint_one, 77, handshake, 15, 100);
             try any_lib.testing.expect(peer.pending_handshake != null);
             try any_lib.testing.expect(peer.local_static.eql(initiator_pair.public));
+            try any_lib.testing.expect(peer.persistent_keepalive);
+            try any_lib.testing.expectEqual(@as(?u64, 15), peer.keepalive_interval_ms);
             try any_lib.testing.expect(giznet.eqlAddrPort(peer.pending_handshake.?.endpoint, endpoint_one));
             try any_lib.testing.expectEqual(@as(?u32, 77), if (peer.pending_handshake) |pending_handshake| pending_handshake.local_session_index else null);
             try any_lib.testing.expect(peer.pending_handshake != null);
@@ -315,6 +328,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             try any_lib.testing.expect(giznet.eqlAddrPort(peer.current.?.endpointValue(), endpoint_three));
             try any_lib.testing.expect(giznet.eqlAddrPort(peer.previous.?.endpointValue(), endpoint_three));
             try any_lib.testing.expectEqual(@as(?u64, 320), peer.timers.get(.keepalive_deadline));
+            try any_lib.testing.expectEqual(@as(?u64, 315), peer.timers.get(.persistent_keepalive_deadline));
             try any_lib.testing.expectEqual(@as(?u64, 350), peer.timers.get(.rekey_deadline));
             try any_lib.testing.expectEqual(@as(?u64, 370), peer.timers.get(.offline_deadline));
             try any_lib.testing.expectEqual(@as(?u64, 370), peer.offline_deadline_ms);
@@ -331,6 +345,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             try any_lib.testing.expect(peer.is_offline);
             try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.offline_deadline));
             try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.keepalive_deadline));
+            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.persistent_keepalive_deadline));
             try any_lib.testing.expectEqual(@as(?u64, null), peer.offline_deadline_ms);
 
             peer.current = peer.previous;

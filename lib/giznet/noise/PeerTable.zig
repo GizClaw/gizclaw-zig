@@ -179,7 +179,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             try any_lib.testing.expectError(error.PeerLimitReached, table.getOrCreate(key_c.public));
 
             const handshake = try Handshake.initInitiator(listener_pair, key_a.public, 91);
-            peer_a.startPendingHandshake(listener_pair.public, endpoint, 91, handshake, 100);
+            peer_a.startPendingHandshake(listener_pair.public, endpoint, 91, handshake, null, 100);
             try any_lib.testing.expectEqual(@as(usize, 1), table.pendingCount());
             try any_lib.testing.expect(table.findPendingHandshakeByLocalSessionIndex(91) != null);
             try any_lib.testing.expect(!table.removeIdle(key_a.public));

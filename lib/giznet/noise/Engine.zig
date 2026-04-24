@@ -19,7 +19,6 @@ pub const default_rekey_after_time_ms: u64 = 120_000;
 pub const default_reject_after_time_ms: u64 = 180_000;
 pub const default_rekey_timeout_ms: u64 = 5_000;
 pub const default_keepalive_timeout_ms: u64 = 10_000;
-pub const default_keepalive_interval_ms: ?u64 = null;
 pub const default_handshake_attempt_ms: u64 = 90_000;
 pub const default_offline_timeout_ms: u64 = 180_000;
 pub const default_session_cleanup_ms: u64 = 180_000;
@@ -33,7 +32,6 @@ pub const Config = struct {
     reject_after_time_ms: u64 = default_reject_after_time_ms,
     rekey_timeout_ms: u64 = default_rekey_timeout_ms,
     keepalive_timeout_ms: u64 = default_keepalive_timeout_ms,
-    keepalive_interval_ms: ?u64 = default_keepalive_interval_ms,
     handshake_attempt_ms: u64 = default_handshake_attempt_ms,
     offline_timeout_ms: u64 = default_offline_timeout_ms,
     session_cleanup_ms: u64 = default_session_cleanup_ms,
@@ -52,6 +50,7 @@ pub const DriveOutput = union(enum) {
 pub const InitiateHandshake = struct {
     remote_key: Key,
     remote_endpoint: AddrPort,
+    keepalive_interval_ms: ?u64 = null,
 };
 
 pub const SendData = struct {
@@ -158,7 +157,6 @@ pub fn make(
                 .config = config,
                 .peers = PeerTable.init(allocator, config.max_peers, .{
                     .keepalive_timeout_ms = config.keepalive_timeout_ms,
-                    .keepalive_interval_ms = config.keepalive_interval_ms,
                     .rekey_after_time_ms = config.rekey_after_time_ms,
                     .rekey_timeout_ms = config.rekey_timeout_ms,
                     .handshake_attempt_ms = config.handshake_attempt_ms,
@@ -494,7 +492,7 @@ pub fn make(
 
             const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer packet.deinit();
-            try self.startPendingHandshake(peer, request.remote_endpoint, nowMs(), packet);
+            try self.startPendingHandshake(peer, request.remote_endpoint, request.keepalive_interval_ms, nowMs(), packet);
             try self.emitEvent(on_result, .{ .outbound = packet });
         }
 
@@ -531,6 +529,10 @@ pub fn make(
                 switch (kind) {
                     .keepalive_deadline => {
                         peer.timers.set(.keepalive_deadline, null);
+                        send_keepalive = true;
+                    },
+                    .persistent_keepalive_deadline => {
+                        peer.timers.set(.persistent_keepalive_deadline, null);
                         send_keepalive = true;
                     },
                     .rekey_deadline => {
@@ -613,6 +615,7 @@ pub fn make(
             self: *Self,
             peer: *Peer,
             endpoint: AddrPort,
+            keepalive_interval_ms: ?u64,
             now_ms: u64,
             packet: *OutboundPacket,
         ) !void {
@@ -620,7 +623,7 @@ pub fn make(
             var handshake = try Handshake.initInitiator(self.local_static, peer.key, local_session_index);
             const written = try handshake.writeInit(packet.bufRef());
 
-            peer.startPendingHandshake(self.local_static.public, endpoint, local_session_index, handshake, now_ms);
+            peer.startPendingHandshake(self.local_static.public, endpoint, local_session_index, handshake, keepalive_interval_ms, now_ms);
             peer.updateTimers(now_ms, 0);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
             packet.len = written;
@@ -636,7 +639,7 @@ pub fn make(
 
             const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer packet.deinit();
-            try self.startPendingHandshake(peer, peer.endpoint, nowMs(), packet);
+            try self.startPendingHandshake(peer, peer.endpoint, peer.keepalive_interval_ms, nowMs(), packet);
             try self.emitEvent(on_result, .{ .outbound = packet });
         }
 
@@ -647,7 +650,7 @@ pub fn make(
             const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer packet.deinit();
             peer.clearPendingHandshake();
-            try self.startPendingHandshake(peer, pending_handshake.endpoint, nowMs(), packet);
+            try self.startPendingHandshake(peer, pending_handshake.endpoint, peer.keepalive_interval_ms, nowMs(), packet);
             try self.emitEvent(on_result, .{ .outbound = packet });
         }
 
@@ -763,6 +766,16 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
         fn passiveKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: std.mem.Allocator) !void {
             _ = allocator;
             try runPassiveKeepaliveFlow();
+        }
+
+        fn initiateHandshakeConfiguresPersistentKeepalive(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+            _ = allocator;
+            try runInitiateHandshakeKeepaliveConfigFlow();
+        }
+
+        fn persistentKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+            _ = allocator;
+            try runPersistentKeepaliveFlow();
         }
 
         fn chachaRekeyTransfer10KiB(_: *testing_api.T, allocator: std.mem.Allocator) !void {
@@ -939,6 +952,168 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
 
             var callback_state: CallbackState = .{};
             try engine.drive(.{ .tick = {} }, callback_state.callback());
+
+            const packet = callback_state.keepalive_packet orelse return error.MissingKeepalivePacket;
+            defer packet.deinit();
+
+            try any_lib.testing.expectEqual(OutboundPacket.Kind.transport, packet.kind);
+            try any_lib.testing.expectEqual(OutboundPacket.State.prepared, packet.state);
+            try any_lib.testing.expectEqual(@as(usize, 0), packet.len);
+            try any_lib.testing.expect(packet.remote_static.eql(remote_pair.public));
+            try any_lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
+        }
+
+        fn runInitiateHandshakeKeepaliveConfigFlow() !void {
+            const any_lib = lib;
+            const packet_size = SessionType.legacy_packet_size_capacity;
+            const cipher_kind = Cipher.default_kind;
+            const EngineType = make(any_lib, packet_size, cipher_kind);
+
+            const local_pair = giznet.noise.KeyPair.seed(any_lib, 2916);
+            const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2917);
+            const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52116);
+
+            var engine = try EngineType.init(any_lib.testing.allocator, local_pair, .{
+                .max_peers = 1,
+                .max_pending = 1,
+            });
+            defer engine.deinit();
+
+            const CallbackState = struct {
+                outbound_packet: ?*OutboundPacket = null,
+
+                fn callback(self: *@This()) Engine.Callback {
+                    return .{
+                        .ctx = self,
+                        .call = callbackFn,
+                    };
+                }
+
+                fn callbackFn(ctx: *anyopaque, result: Engine.DriveOutput) anyerror!void {
+                    const self: *@This() = @ptrCast(@alignCast(ctx));
+                    switch (result) {
+                        .outbound => |packet| {
+                            if (self.outbound_packet != null) {
+                                packet.deinit();
+                                return error.UnexpectedMultipleOutbounds;
+                            }
+                            self.outbound_packet = packet;
+                        },
+                        .inbound => |packet| {
+                            packet.deinit();
+                            return error.UnexpectedInbound;
+                        },
+                        .established => return error.UnexpectedEstablished,
+                        .offline => return error.UnexpectedOffline,
+                        .next_tick_ms => |_| {},
+                    }
+                }
+            };
+
+            var callback_state: CallbackState = .{};
+            try engine.drive(.{
+                .initiate_handshake = .{
+                    .remote_key = remote_pair.public,
+                    .remote_endpoint = remote_endpoint,
+                    .keepalive_interval_ms = 17,
+                },
+            }, callback_state.callback());
+
+            const packet = callback_state.outbound_packet orelse return error.MissingHandshakePacket;
+            defer packet.deinit();
+
+            const peer = engine.peers.get(remote_pair.public) orelse return error.MissingPeer;
+            try any_lib.testing.expect(peer.pending_handshake != null);
+            try any_lib.testing.expect(peer.persistent_keepalive);
+            try any_lib.testing.expectEqual(@as(?u64, 17), peer.keepalive_interval_ms);
+            try any_lib.testing.expectEqual(OutboundPacket.Kind.handshake, packet.kind);
+            try any_lib.testing.expectEqual(OutboundPacket.State.ready_to_send, packet.state);
+            try any_lib.testing.expect(packet.remote_static.eql(remote_pair.public));
+            try any_lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
+        }
+
+        fn runPersistentKeepaliveFlow() !void {
+            const any_lib = lib;
+            const packet_size = SessionType.legacy_packet_size_capacity;
+            const cipher_kind = Cipher.default_kind;
+            const EngineType = make(any_lib, packet_size, cipher_kind);
+            const Session = SessionType.make(any_lib, packet_size, cipher_kind);
+
+            const local_pair = giznet.noise.KeyPair.seed(any_lib, 2921);
+            const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2922);
+            const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52122);
+
+            var engine = try EngineType.init(any_lib.testing.allocator, local_pair, .{
+                .max_peers = 1,
+                .max_pending = 1,
+                .offline_timeout_ms = 10_000,
+            });
+            defer engine.deinit();
+
+            const sent_now = blk: {
+                const start_now = EngineType.nowMs();
+                var current_now = start_now;
+                while (current_now == start_now) {
+                    current_now = EngineType.nowMs();
+                }
+                break :blk current_now;
+            };
+
+            const peer = try engine.peers.getOrCreate(remote_pair.public);
+            peer.establish(local_pair.public, remote_endpoint, makeSession(
+                Session,
+                remote_pair.public,
+                remote_endpoint,
+                31,
+                32,
+                0x55,
+                0x66,
+                engine.config.reject_after_time_ms,
+                sent_now,
+            ), true, sent_now);
+            peer.last_sent_ms = sent_now;
+            peer.last_received_ms = sent_now;
+            peer.persistent_keepalive = true;
+            peer.keepalive_interval_ms = 1;
+            peer.updateTimers(sent_now, 0);
+            try engine.syncPeerTimerEntry(peer);
+
+            const CallbackState = struct {
+                keepalive_packet: ?*OutboundPacket = null,
+                next_tick_events: usize = 0,
+
+                fn callback(self: *@This()) Engine.Callback {
+                    return .{
+                        .ctx = self,
+                        .call = callbackFn,
+                    };
+                }
+
+                fn callbackFn(ctx: *anyopaque, result: Engine.DriveOutput) anyerror!void {
+                    const self: *@This() = @ptrCast(@alignCast(ctx));
+                    switch (result) {
+                        .outbound => |packet| {
+                            if (self.keepalive_packet != null) {
+                                packet.deinit();
+                                return error.UnexpectedMultipleOutbounds;
+                            }
+                            self.keepalive_packet = packet;
+                        },
+                        .inbound => |packet| {
+                            packet.deinit();
+                            return error.UnexpectedInbound;
+                        },
+                        .established => return error.UnexpectedEstablished,
+                        .offline => return error.UnexpectedOffline,
+                        .next_tick_ms => |_| self.next_tick_events += 1,
+                    }
+                }
+            };
+
+            var callback_state: CallbackState = .{};
+            while (callback_state.keepalive_packet == null) {
+                try engine.drive(.{ .tick = {} }, callback_state.callback());
+            }
 
             const packet = callback_state.keepalive_packet orelse return error.MissingKeepalivePacket;
             defer packet.deinit();
@@ -1256,6 +1431,14 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             t.run(
                 "passive_keepalive_emits_empty_transport",
                 testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.passiveKeepaliveEmitsEmptyTransport),
+            );
+            t.run(
+                "initiate_handshake_configures_persistent_keepalive",
+                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.initiateHandshakeConfiguresPersistentKeepalive),
+            );
+            t.run(
+                "persistent_keepalive_emits_empty_transport",
+                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.persistentKeepaliveEmitsEmptyTransport),
             );
             t.run(
                 "chacha_poly_rekey_transfer_10KiB",
