@@ -1,5 +1,5 @@
 const embed = @import("embed");
-const std = embed.std;
+const mem = embed.std.mem;
 const AddrPort = embed.net.netip.AddrPort;
 
 const Cipher = @import("Cipher.zig");
@@ -84,15 +84,15 @@ pub const Callback = struct {
 };
 
 pub fn make(
-    comptime lib: type,
+    comptime std: type,
     comptime packet_size_capacity: usize,
     comptime cipher_kind: Cipher.Kind,
 ) type {
     const Order = std.math.Order;
-    const Handshake = HandshakeType.make(lib, cipher_kind);
-    const Peer = PeerType.make(lib, cipher_kind);
-    const PeerTable = PeerTableType.make(lib, cipher_kind);
-    const Session = SessionType.make(lib, packet_size_capacity, cipher_kind);
+    const Handshake = HandshakeType.make(std, cipher_kind);
+    const Peer = PeerType.make(std, cipher_kind);
+    const PeerTable = PeerTableType.make(std, cipher_kind);
+    const Session = SessionType.make(std, packet_size_capacity, cipher_kind);
     const TimerTreapKey = struct {
         due_ms: u64,
         peer_key: Key,
@@ -112,7 +112,7 @@ pub fn make(
     }.compare);
 
     return struct {
-        var started: ?lib.time.Instant = null;
+        var started: ?std.time.Instant = null;
 
         allocator: std.mem.Allocator,
         local_static: KeyPair,
@@ -145,10 +145,10 @@ pub fn make(
             errdefer if (timer_slots.len != 0) allocator.free(timer_slots);
             for (timer_slots) |*slot| slot.* = .{};
 
-            const inbound_pool = try InboundPacket.initPool(lib, allocator, packet_size_capacity);
+            const inbound_pool = try InboundPacket.initPool(std, allocator, packet_size_capacity);
             errdefer inbound_pool.deinit();
 
-            const outbound_pool = try OutboundPacket.initPool(lib, allocator, packet_size_capacity);
+            const outbound_pool = try OutboundPacket.initPool(std, allocator, packet_size_capacity);
             errdefer outbound_pool.deinit();
 
             return .{
@@ -743,12 +743,12 @@ pub fn make(
         }
 
         fn nowMs() u64 {
-            const now = lib.time.Instant.now() catch @panic("noise.Engine requires lib.time.Instant");
+            const now = std.time.Instant.now() catch @panic("noise.Engine requires std.time.Instant");
             if (started == null) {
                 started = now;
                 return 0;
             }
-            return now.since(started.?) / lib.time.ns_per_ms;
+            return now.since(started.?) / std.time.ns_per_ms;
         }
     };
 }
@@ -758,37 +758,37 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
     const giznet = @import("../../giznet.zig");
 
     const Cases = struct {
-        fn offlineDeadlineMarksPeerOffline(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn offlineDeadlineMarksPeerOffline(_: *testing_api.T, allocator: mem.Allocator) !void {
             _ = allocator;
             try runOfflineDeadlineFlow();
         }
 
-        fn passiveKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn passiveKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: mem.Allocator) !void {
             _ = allocator;
             try runPassiveKeepaliveFlow();
         }
 
-        fn initiateHandshakeConfiguresPersistentKeepalive(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn initiateHandshakeConfiguresPersistentKeepalive(_: *testing_api.T, allocator: mem.Allocator) !void {
             _ = allocator;
             try runInitiateHandshakeKeepaliveConfigFlow();
         }
 
-        fn persistentKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn persistentKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: mem.Allocator) !void {
             _ = allocator;
             try runPersistentKeepaliveFlow();
         }
 
-        fn chachaRekeyTransfer10KiB(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn chachaRekeyTransfer10KiB(_: *testing_api.T, allocator: mem.Allocator) !void {
             _ = allocator;
             try runRekeyAfterMessagesFlow(.chacha_poly);
         }
 
-        fn aesRekeyTransfer10KiB(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn aesRekeyTransfer10KiB(_: *testing_api.T, allocator: mem.Allocator) !void {
             _ = allocator;
             try runRekeyAfterMessagesFlow(.aes_256_gcm);
         }
 
-        fn plaintextRekeyTransfer10KiB(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn plaintextRekeyTransfer10KiB(_: *testing_api.T, allocator: mem.Allocator) !void {
             _ = allocator;
             try runRekeyAfterMessagesFlow(.plaintext);
         }
@@ -1270,7 +1270,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                     try any_lib.testing.expectEqual(@as(usize, payload_size), packet.len);
                     try any_lib.testing.expect(packet.remote_static.eql(self.initiator_key));
                     try any_lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.initiator_endpoint));
-                    try any_lib.testing.expect(std.mem.eql(u8, expected_payload[0..], packet.bytes()));
+                    try any_lib.testing.expect(mem.eql(u8, expected_payload[0..], packet.bytes()));
 
                     self.received_packets += 1;
                     self.received_bytes += packet.len;
@@ -1415,12 +1415,12 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
     };
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: std.mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: std.mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
@@ -1455,7 +1455,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = allocator;
             lib.testing.allocator.destroy(self);
         }

@@ -1,12 +1,12 @@
 const embed = @import("embed");
-const std = embed.std;
+const mem = embed.std.mem;
 
 const Cipher = @import("Cipher.zig");
 const Key = @import("Key.zig");
 const PeerType = @import("Peer.zig");
 
-pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
-    const Peer = PeerType.make(lib, cipher_kind);
+pub fn make(comptime std: type, comptime cipher_kind: Cipher.Kind) type {
+    const Peer = PeerType.make(std, cipher_kind);
 
     return struct {
         allocator: std.mem.Allocator,
@@ -122,12 +122,12 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
     const giznet = @import("../../giznet.zig");
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: std.mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: std.mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
@@ -138,7 +138,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = allocator;
             lib.testing.allocator.destroy(self);
         }

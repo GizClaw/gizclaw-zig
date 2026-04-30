@@ -1,15 +1,14 @@
 const embed = @import("embed");
-const std = embed.std;
-const mem = std.mem;
+const mem = embed.std.mem;
 
 const Cipher = @import("Cipher.zig");
 const Key = @import("Key.zig");
 const KeyPair = @import("KeyPair.zig");
 const Message = @import("Message.zig");
 
-pub fn make(comptime lib: type, comptime cipher_kind_value: Cipher.Kind) type {
-    const X25519 = lib.crypto.dh.X25519;
-    const CipherSuite = Cipher.make(lib, cipher_kind_value);
+pub fn make(comptime std: type, comptime cipher_kind_value: Cipher.Kind) type {
+    const X25519 = std.crypto.dh.X25519;
+    const CipherSuite = Cipher.make(std, cipher_kind_value);
     const protocol_name = switch (cipher_kind_value) {
         .chacha_poly => "Noise_IK_25519_ChaChaPoly_BLAKE2s",
         .aes_256_gcm => "Noise_IK_25519_AESGCM_BLAKE2s",
@@ -324,12 +323,12 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
     const giznet = @import("../../giznet.zig");
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: std.mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: std.mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
@@ -340,7 +339,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = allocator;
             lib.testing.allocator.destroy(self);
         }

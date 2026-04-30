@@ -1,5 +1,6 @@
 const embed = @import("embed");
-const std = embed.std;
+const mem = embed.std.mem;
+const fmt = embed.std.fmt;
 
 const Key = @import("Key.zig");
 const AddrPort = embed.net.netip.AddrPort;
@@ -14,21 +15,21 @@ pub const min_packet_size_capacity: usize = Message.TransportHeaderSize + Messag
 pub const legacy_packet_size_capacity: usize = min_packet_size_capacity + 1024;
 
 pub fn make(
-    comptime lib: type,
+    comptime std: type,
     comptime packet_size_capacity_value: usize,
     comptime cipher_kind_value: Cipher.Kind,
 ) type {
     const capacity = packet_size_capacity_value;
-    const CipherSuite = Cipher.make(lib, cipher_kind_value);
+    const CipherSuite = Cipher.make(std, cipher_kind_value);
     if (capacity < min_packet_size_capacity) {
-        @compileError(std.fmt.comptimePrint(
+        @compileError(fmt.comptimePrint(
             "noise.Session packet_size_capacity {} is smaller than minimum {}",
             .{ capacity, min_packet_size_capacity },
         ));
     }
 
     return struct {
-        var started: ?lib.time.Instant = null;
+        var started: ?std.time.Instant = null;
 
         pub const State = enum(u8) {
             established,
@@ -319,12 +320,12 @@ pub fn make(
         }
 
         fn nowMs() u64 {
-            const now = lib.time.Instant.now() catch @panic("noise.Session requires lib.time.Instant");
+            const now = std.time.Instant.now() catch @panic("noise.Session requires std.time.Instant");
             if (started == null) {
                 started = now;
                 return 0;
             }
-            return now.since(started.?) / lib.time.ns_per_ms;
+            return now.since(started.?) / std.time.ns_per_ms;
         }
     };
 }
@@ -334,12 +335,12 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
     const giznet = @import("../../giznet.zig");
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: std.mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: std.mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
@@ -350,7 +351,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = allocator;
             lib.testing.allocator.destroy(self);
         }

@@ -1,5 +1,5 @@
 const embed = @import("embed");
-const std = embed.std;
+const mem = embed.std.mem;
 
 const Key = @import("Key.zig");
 const AddrPort = embed.net.netip.AddrPort;
@@ -19,10 +19,10 @@ pub const PeerTimerConfig = struct {
     rekey_after_messages: u64,
 };
 
-pub fn make(comptime lib: type, comptime cipher_kind: Cipher.Kind) type {
+pub fn make(comptime std: type, comptime cipher_kind: Cipher.Kind) type {
     const packet_size_capacity = SessionType.legacy_packet_size_capacity;
-    const Handshake = HandshakeType.make(lib, cipher_kind);
-    const Session = SessionType.make(lib, packet_size_capacity, cipher_kind);
+    const Handshake = HandshakeType.make(std, cipher_kind);
+    const Session = SessionType.make(std, packet_size_capacity, cipher_kind);
 
     return struct {
         pub const TimerConfig = root.PeerTimerConfig;
@@ -238,12 +238,12 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
     const giznet = @import("../../giznet.zig");
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: std.mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: std.mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
@@ -254,7 +254,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = allocator;
             lib.testing.allocator.destroy(self);
         }
