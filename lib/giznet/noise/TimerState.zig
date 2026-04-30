@@ -1,5 +1,4 @@
-const embed = @import("embed");
-const std = embed.std;
+const glib = @import("glib");
 
 const TimerState = @This();
 
@@ -96,35 +95,36 @@ fn considerEarliest(self: TimerState, kind: Kind, best_due: *?u64) void {
     if (best_due.* == null or due < best_due.*.?) best_due.* = due;
 }
 
-pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
-    const testing_api = embed.testing;
+pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
+    const testing_api = glib.testing;
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: std.mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: glib.std.mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: std.mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: glib.std.mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
-            tryCase(lib) catch |err| {
+            tryCase(grt) catch |err| {
                 t.logErrorf("giznet/noise TimerState unit failed: {}", .{err});
                 return false;
             };
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: glib.std.mem.Allocator) void {
             _ = allocator;
-            lib.testing.allocator.destroy(self);
+            grt.std.testing.allocator.destroy(self);
         }
 
         fn tryCase(comptime any_lib: type) !void {
+            _ = any_lib;
             var timers: TimerState = .{};
-            try any_lib.testing.expectEqual(@as(?u64, null), timers.earliest());
-            try any_lib.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(0));
+            try grt.std.testing.expectEqual(@as(?u64, null), timers.earliest());
+            try grt.std.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(0));
 
             timers.set(.rekey_deadline, 20);
             timers.set(.cleanup_deadline, 30);
@@ -134,22 +134,22 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             timers.set(.handshake_deadline, 18);
             timers.set(.offline_deadline, 25);
 
-            try any_lib.testing.expectEqual(@as(?u64, 20), timers.get(.rekey_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, 10), timers.earliest());
-            try any_lib.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(9));
-            try any_lib.testing.expectEqual(@as(?TimerState.Kind, .keepalive_deadline), timers.nextDue(10));
+            try grt.std.testing.expectEqual(@as(?u64, 20), timers.get(.rekey_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, 10), timers.earliest());
+            try grt.std.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(9));
+            try grt.std.testing.expectEqual(@as(?TimerState.Kind, .keepalive_deadline), timers.nextDue(10));
 
             timers.set(.keepalive_deadline, null);
-            try any_lib.testing.expectEqual(@as(?u64, 11), timers.earliest());
-            try any_lib.testing.expectEqual(@as(?TimerState.Kind, .persistent_keepalive_deadline), timers.nextDue(11));
+            try grt.std.testing.expectEqual(@as(?u64, 11), timers.earliest());
+            try grt.std.testing.expectEqual(@as(?TimerState.Kind, .persistent_keepalive_deadline), timers.nextDue(11));
 
             timers.clear();
-            try any_lib.testing.expectEqual(@as(?u64, null), timers.earliest());
-            try any_lib.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(100));
+            try grt.std.testing.expectEqual(@as(?u64, null), timers.earliest());
+            try grt.std.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(100));
         }
     };
 
-    const value = lib.testing.allocator.create(Runner) catch @panic("OOM");
+    const value = grt.std.testing.allocator.create(Runner) catch @panic("OOM");
     value.* = .{};
     return testing_api.TestRunner.make(Runner).new(value);
 }

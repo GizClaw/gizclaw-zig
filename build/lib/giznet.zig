@@ -14,12 +14,10 @@ pub fn create(
 }
 
 pub fn link(b: *std.Build) void {
-    const embed = b.modules.get("embed") orelse @panic("missing module: embed");
-    const embed_std = b.modules.get("embed_std") orelse @panic("missing module: embed_std");
+    const glib = b.modules.get("glib") orelse @panic("missing module: glib");
     const kcp = b.modules.get("kcp") orelse @panic("missing module: kcp");
     const giznet = b.modules.get("giznet") orelse @panic("missing module: giznet");
 
-    giznet.addImport("embed", embed);
-    giznet.addImport("embed_std", embed_std);
+    giznet.addImport("glib", glib);
     giznet.addImport("kcp", kcp);
 }

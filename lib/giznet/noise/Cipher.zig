@@ -1,6 +1,4 @@
-const embed = @import("embed");
-const mem = embed.std.mem;
-const debug = embed.std.debug;
+const glib = @import("glib");
 
 const Blake2s = @import("Blake2s.zig");
 const Key = @import("Key.zig");
@@ -74,32 +72,32 @@ pub fn kdf2(chaining_key: *const Key, input: []const u8) struct { Key, Key } {
     return .{ keys[0], keys[1] };
 }
 
-pub fn make(comptime std: type, comptime kind: Kind) type {
+pub fn make(comptime grt: type, comptime kind: Kind) type {
     return switch (kind) {
-        .chacha_poly => ChaChaPoly(std),
-        .aes_256_gcm => Aes256Gcm(std),
-        .plaintext => Plaintext(std),
+        .chacha_poly => ChaChaPoly(grt),
+        .aes_256_gcm => Aes256Gcm(grt),
+        .plaintext => Plaintext(grt),
     };
 }
 
-pub fn encrypt(comptime lib: type, key: *const Key, nonce: u64, plaintext: []const u8, ad: []const u8, out: []u8) usize {
-    return make(lib, default_kind).encrypt(key, nonce, plaintext, ad, out);
+pub fn encrypt(comptime grt: type, key: *const Key, nonce: u64, plaintext: []const u8, ad: []const u8, out: []u8) usize {
+    return make(grt, default_kind).encrypt(key, nonce, plaintext, ad, out);
 }
 
-pub fn decrypt(comptime lib: type, key: *const Key, nonce: u64, ciphertext: []const u8, ad: []const u8, out: []u8) Error!usize {
-    return make(lib, default_kind).decrypt(key, nonce, ciphertext, ad, out);
+pub fn decrypt(comptime grt: type, key: *const Key, nonce: u64, ciphertext: []const u8, ad: []const u8, out: []u8) Error!usize {
+    return make(grt, default_kind).decrypt(key, nonce, ciphertext, ad, out);
 }
 
-pub fn encryptWithAd(comptime lib: type, key: *const Key, ad: []const u8, plaintext: []const u8, out: []u8) usize {
-    return make(lib, default_kind).encryptWithAd(key, ad, plaintext, out);
+pub fn encryptWithAd(comptime grt: type, key: *const Key, ad: []const u8, plaintext: []const u8, out: []u8) usize {
+    return make(grt, default_kind).encryptWithAd(key, ad, plaintext, out);
 }
 
-pub fn decryptWithAd(comptime lib: type, key: *const Key, ad: []const u8, ciphertext: []const u8, out: []u8) Error!usize {
-    return make(lib, default_kind).decryptWithAd(key, ad, ciphertext, out);
+pub fn decryptWithAd(comptime grt: type, key: *const Key, ad: []const u8, ciphertext: []const u8, out: []u8) Error!usize {
+    return make(grt, default_kind).decryptWithAd(key, ad, ciphertext, out);
 }
 
-fn ChaChaPoly(comptime std: type) type {
-    const Aead = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
+fn ChaChaPoly(comptime grt: type) type {
+    const Aead = grt.std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 
     return struct {
         pub const tag_size: usize = Aead.tag_length;
@@ -122,8 +120,8 @@ fn ChaChaPoly(comptime std: type) type {
     };
 }
 
-fn Aes256Gcm(comptime std: type) type {
-    const Aead = std.crypto.aead.aes_gcm.Aes256Gcm;
+fn Aes256Gcm(comptime grt: type) type {
+    const Aead = grt.std.crypto.aead.aes_gcm.Aes256Gcm;
 
     return struct {
         pub const tag_size: usize = Aead.tag_length;
@@ -146,8 +144,8 @@ fn Aes256Gcm(comptime std: type) type {
     };
 }
 
-fn Plaintext(comptime std: type) type {
-    _ = std;
+fn Plaintext(comptime grt: type) type {
+    _ = grt;
 
     return struct {
         pub const tag_size: usize = 16;
@@ -156,8 +154,8 @@ fn Plaintext(comptime std: type) type {
             _ = key;
             _ = nonce;
             _ = ad;
-            debug.assert(out.len >= plaintext.len + @This().tag_size);
-            mem.copyForwards(u8, out[0..plaintext.len], plaintext);
+            glib.std.debug.assert(out.len >= plaintext.len + @This().tag_size);
+            glib.std.mem.copyForwards(u8, out[0..plaintext.len], plaintext);
             @memset(out[plaintext.len .. plaintext.len + @This().tag_size], 0);
             return plaintext.len + @This().tag_size;
         }
@@ -168,8 +166,8 @@ fn Plaintext(comptime std: type) type {
             _ = ad;
             if (ciphertext.len < @This().tag_size) return error.InvalidCiphertext;
             const plaintext_len = ciphertext.len - @This().tag_size;
-            debug.assert(out.len >= plaintext_len);
-            mem.copyForwards(u8, out[0..plaintext_len], ciphertext[0..plaintext_len]);
+            glib.std.debug.assert(out.len >= plaintext_len);
+            glib.std.mem.copyForwards(u8, out[0..plaintext_len], ciphertext[0..plaintext_len]);
             return plaintext_len;
         }
 
@@ -191,7 +189,7 @@ fn encryptWithAead(
     ad: []const u8,
     out: []u8,
 ) usize {
-    debug.assert(out.len >= plaintext.len + Aead.tag_length);
+    glib.std.debug.assert(out.len >= plaintext.len + Aead.tag_length);
     const nonce_bytes = buildNonce(Aead, nonce);
 
     var tag: [Aead.tag_length]u8 = undefined;
@@ -211,7 +209,7 @@ fn decryptWithAead(
     if (ciphertext.len < Aead.tag_length) return error.InvalidCiphertext;
 
     const plaintext_len = ciphertext.len - Aead.tag_length;
-    debug.assert(out.len >= plaintext_len);
+    glib.std.debug.assert(out.len >= plaintext_len);
     const tag = ciphertext[plaintext_len..][0..Aead.tag_length].*;
     const nonce_bytes = buildNonce(Aead, nonce);
 
@@ -224,6 +222,6 @@ fn decryptWithAead(
 
 fn buildNonce(comptime Aead: type, nonce: u64) [Aead.nonce_length]u8 {
     var nonce_bytes: [Aead.nonce_length]u8 = [_]u8{0} ** Aead.nonce_length;
-    mem.writeInt(u64, nonce_bytes[0..8], nonce, .little);
+    glib.std.mem.writeInt(u64, nonce_bytes[0..8], nonce, .little);
     return nonce_bytes;
 }

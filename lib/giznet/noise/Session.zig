@@ -1,9 +1,7 @@
-const embed = @import("embed");
-const mem = embed.std.mem;
-const fmt = embed.std.fmt;
+const glib = @import("glib");
 
 const Key = @import("Key.zig");
-const AddrPort = embed.net.netip.AddrPort;
+const AddrPort = glib.net.netip.AddrPort;
 
 const Message = @import("Message.zig");
 const Cipher = @import("Cipher.zig");
@@ -15,21 +13,21 @@ pub const min_packet_size_capacity: usize = Message.TransportHeaderSize + Messag
 pub const legacy_packet_size_capacity: usize = min_packet_size_capacity + 1024;
 
 pub fn make(
-    comptime std: type,
+    comptime grt: type,
     comptime packet_size_capacity_value: usize,
     comptime cipher_kind_value: Cipher.Kind,
 ) type {
     const capacity = packet_size_capacity_value;
-    const CipherSuite = Cipher.make(std, cipher_kind_value);
+    const CipherSuite = Cipher.make(grt, cipher_kind_value);
     if (capacity < min_packet_size_capacity) {
-        @compileError(fmt.comptimePrint(
+        @compileError(glib.std.fmt.comptimePrint(
             "noise.Session packet_size_capacity {} is smaller than minimum {}",
             .{ capacity, min_packet_size_capacity },
         ));
     }
 
     return struct {
-        var started: ?std.time.Instant = null;
+        var started: ?grt.time.instant.Time = null;
 
         pub const State = enum(u8) {
             established,
@@ -242,7 +240,7 @@ pub fn make(
         ) !void {
             const transport = Message.parseTransportMessage(buffer[0..len.*]) catch return error.InvalidTransportPacket;
             if (transport.receiver_index != self.local_index) return error.SessionIndexMismatch;
-            if (transport.counter == std.math.maxInt(u64)) return error.InvalidTransportPacket;
+            if (transport.counter == grt.std.math.maxInt(u64)) return error.InvalidTransportPacket;
 
             var scratch: [max_plaintext_len]u8 = undefined;
             const plaintext_len = transport.ciphertext.len - tag_len;
@@ -320,40 +318,40 @@ pub fn make(
         }
 
         fn nowMs() u64 {
-            const now = std.time.Instant.now() catch @panic("noise.Session requires std.time.Instant");
+            const now = grt.time.instant.now();
             if (started == null) {
                 started = now;
                 return 0;
             }
-            return now.since(started.?) / std.time.ns_per_ms;
+            return @intCast(@divTrunc(grt.time.instant.sub(now, started.?), grt.time.duration.MilliSecond));
         }
     };
 }
 
-pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
-    const testing_api = embed.testing;
+pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
+    const testing_api = glib.testing;
     const giznet = @import("../../giznet.zig");
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: glib.std.mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: glib.std.mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
-            tryCase(lib) catch |err| {
+            tryCase(grt) catch |err| {
                 t.logErrorf("giznet/noise Session unit failed: {}", .{err});
                 return false;
             };
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: glib.std.mem.Allocator) void {
             _ = allocator;
-            lib.testing.allocator.destroy(self);
+            grt.std.testing.allocator.destroy(self);
         }
 
         fn tryCase(comptime any_lib: type) !void {
@@ -378,21 +376,21 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
                 .recv_key = send_key,
             });
 
-            try any_lib.testing.expectEqual(@as(u64, 0), sender.sendNonce());
-            try any_lib.testing.expectEqual(@as(u64, 0), try sender.claimSendCounter(0));
-            try any_lib.testing.expectEqual(@as(u64, 1), sender.sendNonce());
-            try any_lib.testing.expectEqual(@as(u64, 1), try sender.claimSendCounter(1));
-            try any_lib.testing.expectEqual(@as(u64, 2), sender.sendNonce());
+            try grt.std.testing.expectEqual(@as(u64, 0), sender.sendNonce());
+            try grt.std.testing.expectEqual(@as(u64, 0), try sender.claimSendCounter(0));
+            try grt.std.testing.expectEqual(@as(u64, 1), sender.sendNonce());
+            try grt.std.testing.expectEqual(@as(u64, 1), try sender.claimSendCounter(1));
+            try grt.std.testing.expectEqual(@as(u64, 2), sender.sendNonce());
 
             try receiver.commitRecv(0, 100);
-            try any_lib.testing.expectEqual(@as(u64, 0), receiver.recvMaxNonce());
-            try any_lib.testing.expectEqual(@as(u64, 100), receiver.lastReceivedMs());
-            try any_lib.testing.expectError(error.ReplayDetected, receiver.commitRecv(0, 101));
+            try grt.std.testing.expectEqual(@as(u64, 0), receiver.recvMaxNonce());
+            try grt.std.testing.expectEqual(@as(u64, 100), receiver.lastReceivedMs());
+            try grt.std.testing.expectError(error.ReplayDetected, receiver.commitRecv(0, 101));
             try receiver.commitRecv(2, 102);
-            try any_lib.testing.expectEqual(@as(u64, 2), receiver.recvMaxNonce());
+            try grt.std.testing.expectEqual(@as(u64, 2), receiver.recvMaxNonce());
             try receiver.commitRecv(1, 103);
-            try any_lib.testing.expectEqual(@as(u64, 103), receiver.lastReceivedMs());
-            try any_lib.testing.expectError(error.ReplayDetected, receiver.commitRecv(1, 104));
+            try grt.std.testing.expectEqual(@as(u64, 103), receiver.lastReceivedMs());
+            try grt.std.testing.expectError(error.ReplayDetected, receiver.commitRecv(1, 104));
 
             var timeout_sender = Session.init(.{
                 .local_index = 1,
@@ -403,12 +401,12 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
                 .recv_key = recv_key,
                 .timeout_ms = 0,
             });
-            try any_lib.testing.expect(!timeout_sender.canSend());
-            try any_lib.testing.expectError(error.SessionExpired, timeout_sender.claimSendCounter(1));
+            try grt.std.testing.expect(!timeout_sender.canSend());
+            try grt.std.testing.expectError(error.SessionExpired, timeout_sender.claimSendCounter(1));
 
             receiver.markExpired();
-            try any_lib.testing.expect(!receiver.canRecv());
-            try any_lib.testing.expectError(error.SessionExpired, receiver.commitRecv(3, 105));
+            try grt.std.testing.expect(!receiver.canRecv());
+            try grt.std.testing.expectError(error.SessionExpired, receiver.commitRecv(3, 105));
 
             // Transport AEAD helpers (single-threaded runtime path).
             var wire_buf: [Session.packet_size_capacity]u8 = undefined;
@@ -419,11 +417,11 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             var rx_buf: [Session.packet_size_capacity]u8 = undefined;
             @memcpy(rx_buf[0..rx_len], wire_buf[0..written]);
             try receiver.decryptTransportBuffer(any_lib, &rx_buf, &rx_len);
-            try any_lib.testing.expectEqualStrings(payload, rx_buf[0..rx_len]);
+            try grt.std.testing.expectEqualStrings(payload, rx_buf[0..rx_len]);
         }
     };
 
-    const value = lib.testing.allocator.create(Runner) catch @panic("OOM");
+    const value = grt.std.testing.allocator.create(Runner) catch @panic("OOM");
     value.* = .{};
     return testing_api.TestRunner.make(Runner).new(value);
 }

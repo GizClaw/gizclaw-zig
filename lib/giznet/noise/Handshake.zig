@@ -1,14 +1,13 @@
-const embed = @import("embed");
-const mem = embed.std.mem;
+const glib = @import("glib");
 
 const Cipher = @import("Cipher.zig");
 const Key = @import("Key.zig");
 const KeyPair = @import("KeyPair.zig");
 const Message = @import("Message.zig");
 
-pub fn make(comptime std: type, comptime cipher_kind_value: Cipher.Kind) type {
-    const X25519 = std.crypto.dh.X25519;
-    const CipherSuite = Cipher.make(std, cipher_kind_value);
+pub fn make(comptime grt: type, comptime cipher_kind_value: Cipher.Kind) type {
+    const X25519 = grt.std.crypto.dh.X25519;
+    const CipherSuite = Cipher.make(grt, cipher_kind_value);
     const protocol_name = switch (cipher_kind_value) {
         .chacha_poly => "Noise_IK_25519_ChaChaPoly_BLAKE2s",
         .aes_256_gcm => "Noise_IK_25519_AESGCM_BLAKE2s",
@@ -313,35 +312,35 @@ pub fn make(comptime std: type, comptime cipher_kind_value: Cipher.Kind) type {
         }
 
         fn isZero(bytes: *const [32]u8) bool {
-            return mem.eql(u8, bytes, &([_]u8{0} ** 32));
+            return glib.std.mem.eql(u8, bytes, &([_]u8{0} ** 32));
         }
     };
 }
 
-pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
-    const testing_api = embed.testing;
+pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
+    const testing_api = glib.testing;
     const giznet = @import("../../giznet.zig");
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: glib.std.mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: glib.std.mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
-            tryCase(lib) catch |err| {
+            tryCase(grt) catch |err| {
                 t.logErrorf("giznet/noise Handshake unit failed: {}", .{err});
                 return false;
             };
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: glib.std.mem.Allocator) void {
             _ = allocator;
-            lib.testing.allocator.destroy(self);
+            grt.std.testing.allocator.destroy(self);
         }
 
         fn tryCase(comptime any_lib: type) !void {
@@ -362,42 +361,42 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
 
             const initiator_material = try initiator.sessionMaterial();
             const responder_material = try responder.sessionMaterial();
-            try any_lib.testing.expect(initiator.peerKey().eql(responder_pair.public));
-            try any_lib.testing.expect(responder.peerKey().eql(initiator_pair.public));
-            try any_lib.testing.expect(initiator_material.client_to_server.eql(responder_material.client_to_server));
-            try any_lib.testing.expect(initiator_material.server_to_client.eql(responder_material.server_to_client));
-            try any_lib.testing.expectEqualSlices(u8, &initiator_material.response_tag, &responder_material.response_tag);
+            try grt.std.testing.expect(initiator.peerKey().eql(responder_pair.public));
+            try grt.std.testing.expect(responder.peerKey().eql(initiator_pair.public));
+            try grt.std.testing.expect(initiator_material.client_to_server.eql(responder_material.client_to_server));
+            try grt.std.testing.expect(initiator_material.server_to_client.eql(responder_material.server_to_client));
+            try grt.std.testing.expectEqualSlices(u8, &initiator_material.response_tag, &responder_material.response_tag);
 
             response_buffer[9] ^= 0xff;
             var bad_initiator = try Handshake.initInitiator(initiator_pair, responder_pair.public, 11);
             _ = try bad_initiator.writeInit(init_buffer[0..]);
-            try any_lib.testing.expectError(
+            try grt.std.testing.expectError(
                 error.InvalidResponseTag,
                 bad_initiator.readResponse(response_buffer[0..response_len]),
             );
 
-            try any_lib.testing.expectError(error.InvalidPacket, Handshake.parseMessageType(&.{}));
-            try any_lib.testing.expectError(error.InvalidPacket, Handshake.parseResponse(response_buffer[0..8]));
+            try grt.std.testing.expectError(error.InvalidPacket, Handshake.parseMessageType(&.{}));
+            try grt.std.testing.expectError(error.InvalidPacket, Handshake.parseResponse(response_buffer[0..8]));
 
             var wrong_index_response = response_buffer;
-            lib.mem.writeInt(u32, wrong_index_response[5..9], 99, .little);
+            any_lib.std.mem.writeInt(u32, wrong_index_response[5..9], 99, .little);
             var wrong_index_initiator = try Handshake.initInitiator(initiator_pair, responder_pair.public, 11);
             _ = try wrong_index_initiator.writeInit(init_buffer[0..]);
-            try any_lib.testing.expectError(
+            try grt.std.testing.expectError(
                 error.SessionIndexMismatch,
                 wrong_index_initiator.readResponse(wrong_index_response[0..response_len]),
             );
 
             var tampered_init = init_buffer;
             tampered_init[5] ^= 0xff;
-            try any_lib.testing.expectError(
+            try grt.std.testing.expectError(
                 error.InvalidHandshakeMessage,
                 Handshake.readInit(responder_pair, tampered_init[0..init_len]),
             );
         }
     };
 
-    const value = lib.testing.allocator.create(Runner) catch @panic("OOM");
+    const value = grt.std.testing.allocator.create(Runner) catch @panic("OOM");
     value.* = .{};
     return testing_api.TestRunner.make(Runner).new(value);
 }

@@ -1,7 +1,7 @@
-const embed = @import("embed");
+const glib = @import("glib");
 const Key = @import("noise/Key.zig");
 
-const AddrPort = embed.net.netip.AddrPort;
+const AddrPort = glib.net.netip.AddrPort;
 const DialOptions = @This();
 
 remote_key: Key = .{},

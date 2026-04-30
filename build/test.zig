@@ -39,7 +39,7 @@ pub fn createTestModule(
         const mod = b.modules.get(decl.name) orelse @panic("test dependency missing");
         test_mod.addImport(decl.name, mod);
     }
-    for ([_][]const u8{ "embed", "embed_std", "kcp" }) |name| {
+    for ([_][]const u8{ "glib", "gstd", "kcp" }) |name| {
         const mod = b.modules.get(name) orelse @panic("test dependency missing");
         test_mod.addImport(name, mod);
     }

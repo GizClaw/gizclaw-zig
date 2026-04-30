@@ -1,15 +1,14 @@
-const embed = @import("embed");
-const mem = embed.std.mem;
+const glib = @import("glib");
 
 const Cipher = @import("Cipher.zig");
 const Key = @import("Key.zig");
 const PeerType = @import("Peer.zig");
 
-pub fn make(comptime std: type, comptime cipher_kind: Cipher.Kind) type {
-    const Peer = PeerType.make(std, cipher_kind);
+pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
+    const Peer = PeerType.make(grt, cipher_kind);
 
     return struct {
-        allocator: std.mem.Allocator,
+        allocator: grt.std.mem.Allocator,
         max_peers: usize,
         timer_config: Peer.TimerConfig,
         items: []Peer = &.{},
@@ -17,7 +16,7 @@ pub fn make(comptime std: type, comptime cipher_kind: Cipher.Kind) type {
 
         const Self = @This();
 
-        pub fn init(allocator: std.mem.Allocator, max_peers: usize, timer_config: Peer.TimerConfig) Self {
+        pub fn init(allocator: grt.std.mem.Allocator, max_peers: usize, timer_config: Peer.TimerConfig) Self {
             return .{
                 .allocator = allocator,
                 .max_peers = max_peers,
@@ -117,30 +116,30 @@ pub fn make(comptime std: type, comptime cipher_kind: Cipher.Kind) type {
     };
 }
 
-pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
-    const testing_api = embed.testing;
+pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
+    const testing_api = glib.testing;
     const giznet = @import("../../giznet.zig");
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: glib.std.mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: glib.std.mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
-            tryCase(lib) catch |err| {
+            tryCase(grt) catch |err| {
                 t.logErrorf("giznet/noise PeerTable unit failed: {}", .{err});
                 return false;
             };
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: glib.std.mem.Allocator) void {
             _ = allocator;
-            lib.testing.allocator.destroy(self);
+            grt.std.testing.allocator.destroy(self);
         }
 
         fn tryCase(comptime any_lib: type) !void {
@@ -157,7 +156,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             const listener_pair = giznet.noise.KeyPair.seed(any_lib, 81);
             const endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 4010);
 
-            var table = PeerTable.init(any_lib.testing.allocator, 2, .{
+            var table = PeerTable.init(grt.std.testing.allocator, 2, .{
                 .keepalive_timeout_ms = 10,
                 .rekey_after_time_ms = 50,
                 .rekey_timeout_ms = 5,
@@ -169,31 +168,31 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             defer table.deinit();
 
             const peer_a = try table.getOrCreate(key_a.public);
-            try any_lib.testing.expectEqual(@as(usize, 1), table.count());
-            try any_lib.testing.expect(table.getConst(key_a.public) != null);
+            try grt.std.testing.expectEqual(@as(usize, 1), table.count());
+            try grt.std.testing.expect(table.getConst(key_a.public) != null);
             _ = try table.getOrCreate(key_a.public);
-            try any_lib.testing.expectEqual(@as(usize, 1), table.count());
+            try grt.std.testing.expectEqual(@as(usize, 1), table.count());
 
             const peer_b = try table.getOrCreate(key_b.public);
-            try any_lib.testing.expectEqual(@as(usize, 2), table.count());
-            try any_lib.testing.expectError(error.PeerLimitReached, table.getOrCreate(key_c.public));
+            try grt.std.testing.expectEqual(@as(usize, 2), table.count());
+            try grt.std.testing.expectError(error.PeerLimitReached, table.getOrCreate(key_c.public));
 
             const handshake = try Handshake.initInitiator(listener_pair, key_a.public, 91);
             peer_a.startPendingHandshake(listener_pair.public, endpoint, 91, handshake, null, 100);
-            try any_lib.testing.expectEqual(@as(usize, 1), table.pendingCount());
-            try any_lib.testing.expect(table.findPendingHandshakeByLocalSessionIndex(91) != null);
-            try any_lib.testing.expect(!table.removeIdle(key_a.public));
+            try grt.std.testing.expectEqual(@as(usize, 1), table.pendingCount());
+            try grt.std.testing.expect(table.findPendingHandshakeByLocalSessionIndex(91) != null);
+            try grt.std.testing.expect(!table.removeIdle(key_a.public));
 
             const session = makeSession(Session, key_b.public, endpoint, 5, 6, 0x55, 0x66);
             peer_b.establish(listener_pair.public, endpoint, session, false, 200);
-            try any_lib.testing.expectEqual(@as(usize, 1), table.sessionCount());
+            try grt.std.testing.expectEqual(@as(usize, 1), table.sessionCount());
             const by_session = table.findBySessionIndex(5) orelse return error.MissingPeer;
-            try any_lib.testing.expect(by_session.key.eql(key_b.public));
+            try grt.std.testing.expect(by_session.key.eql(key_b.public));
 
             peer_a.clearPendingHandshake();
-            try any_lib.testing.expect(table.removeIdle(key_a.public));
-            try any_lib.testing.expectEqual(@as(usize, 1), table.count());
-            try any_lib.testing.expect(table.get(key_a.public) == null);
+            try grt.std.testing.expect(table.removeIdle(key_a.public));
+            try grt.std.testing.expectEqual(@as(usize, 1), table.count());
+            try grt.std.testing.expect(table.get(key_a.public) == null);
         }
 
         fn makeSession(
@@ -216,7 +215,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
         }
     };
 
-    const value = lib.testing.allocator.create(Runner) catch @panic("OOM");
+    const value = grt.std.testing.allocator.create(Runner) catch @panic("OOM");
     value.* = .{};
     return testing_api.TestRunner.make(Runner).new(value);
 }

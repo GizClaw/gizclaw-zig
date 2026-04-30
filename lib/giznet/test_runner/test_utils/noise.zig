@@ -1,6 +1,5 @@
-const embed = @import("embed");
-const std = embed.std;
-const AddrPort = embed.net.netip.AddrPort;
+const glib = @import("glib");
+const AddrPort = glib.net.netip.AddrPort;
 
 const giznet = @import("../../../giznet.zig");
 const Cipher = @import("../../noise/Cipher.zig");
@@ -39,15 +38,15 @@ pub const MultiPeerReport = struct {
 };
 
 pub fn runSinglePeerTransfer(
-    comptime lib: type,
+    comptime grt: type,
     comptime cipher_kind: Cipher.Kind,
     comptime total_transfer_bytes: usize,
     comptime rekey_after_messages: u64,
 ) !SinglePeerReport {
     const payload_size: usize = 1024;
     const packet_size = SessionType.legacy_packet_size_capacity;
-    const Engine = EngineType.make(lib, packet_size, cipher_kind);
-    const rekey_after_messages_usize: usize = if (rekey_after_messages == std.math.maxInt(u64))
+    const Engine = EngineType.make(grt, packet_size, cipher_kind);
+    const rekey_after_messages_usize: usize = if (rekey_after_messages == glib.std.math.maxInt(u64))
         0
     else
         @intCast(rekey_after_messages);
@@ -58,7 +57,7 @@ pub fn runSinglePeerTransfer(
         chunk_count / rekey_after_messages_usize;
     const no_rekey_after_time_ms: u64 = 365 * 24 * 60 * 60 * 1000;
 
-    try lib.testing.expectEqual(@as(usize, 0), total_transfer_bytes % payload_size);
+    try grt.std.testing.expectEqual(@as(usize, 0), total_transfer_bytes % payload_size);
 
     const Side = enum {
         initiator,
@@ -117,7 +116,7 @@ pub fn runSinglePeerTransfer(
             const remote_endpoint = self.endpoint(side);
 
             if (packet.state == .prepared) {
-                try OutboundPacket.encrypt(lib, cipher_kind, packet);
+                try OutboundPacket.encrypt(grt, cipher_kind, packet);
             }
 
             const inbound = try target_engine.getInboundPacket();
@@ -135,7 +134,7 @@ pub fn runSinglePeerTransfer(
         fn handleInbound(self: *@This(), side: Side, packet: *InboundPacket) !void {
             switch (packet.state) {
                 .prepared => {
-                    try InboundPacket.decrtpy(lib, cipher_kind, packet);
+                    try InboundPacket.decrtpy(grt, cipher_kind, packet);
                     try self.engine(side).drive(.{ .inbound_packet = packet }, self.callback(side));
                 },
                 .consumed => {
@@ -149,8 +148,8 @@ pub fn runSinglePeerTransfer(
         fn handleEstablished(self: *@This(), side: Side, remote_key: Key) !void {
             self.established_events += 1;
             switch (side) {
-                .initiator => try lib.testing.expect(remote_key.eql(self.responder_key)),
-                .responder => try lib.testing.expect(remote_key.eql(self.initiator_key)),
+                .initiator => try grt.std.testing.expect(remote_key.eql(self.responder_key)),
+                .responder => try grt.std.testing.expect(remote_key.eql(self.initiator_key)),
             }
         }
 
@@ -160,10 +159,10 @@ pub fn runSinglePeerTransfer(
             var expected_payload: [payload_size]u8 = undefined;
             fillSinglePeerPayload(self.received_packets, expected_payload[0..]);
 
-            try lib.testing.expectEqual(@as(usize, payload_size), packet.len);
-            try lib.testing.expect(packet.remote_static.eql(self.initiator_key));
-            try lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.initiator_endpoint));
-            try lib.testing.expect(std.mem.eql(u8, expected_payload[0..], packet.bytes()));
+            try grt.std.testing.expectEqual(@as(usize, payload_size), packet.len);
+            try grt.std.testing.expect(packet.remote_static.eql(self.initiator_key));
+            try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.initiator_endpoint));
+            try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], packet.bytes()));
 
             self.received_packets += 1;
             self.received_bytes += packet.len;
@@ -186,7 +185,7 @@ pub fn runSinglePeerTransfer(
                 try self.initiator.drive(.{ .tick = {} }, self.callback(.initiator));
                 try self.responder.drive(.{ .tick = {} }, self.callback(.responder));
             }
-            try lib.testing.expectEqual(target_events, self.established_events);
+            try grt.std.testing.expectEqual(target_events, self.established_events);
         }
 
         fn engine(self: *@This(), side: Side) *Engine {
@@ -211,12 +210,12 @@ pub fn runSinglePeerTransfer(
         }
     };
 
-    const initiator_pair = giznet.noise.KeyPair.seed(lib, 901);
-    const responder_pair = giznet.noise.KeyPair.seed(lib, 902);
+    const initiator_pair = giznet.noise.KeyPair.seed(grt, 901);
+    const responder_pair = giznet.noise.KeyPair.seed(grt, 902);
     const initiator_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 51001);
     const responder_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 51002);
 
-    var initiator = try Engine.init(lib.testing.allocator, initiator_pair, .{
+    var initiator = try Engine.init(grt.std.testing.allocator, initiator_pair, .{
         .max_peers = 1,
         .max_pending = 1,
         .rekey_after_messages = rekey_after_messages,
@@ -224,7 +223,7 @@ pub fn runSinglePeerTransfer(
     });
     defer initiator.deinit();
 
-    var responder = try Engine.init(lib.testing.allocator, responder_pair, .{
+    var responder = try Engine.init(grt.std.testing.allocator, responder_pair, .{
         .max_peers = 1,
         .max_pending = 1,
         .rekey_after_messages = rekey_after_messages,
@@ -251,14 +250,14 @@ pub fn runSinglePeerTransfer(
     harness.initiator_callback_ctx = &initiator_callback_ctx;
     harness.responder_callback_ctx = &responder_callback_ctx;
 
-    const start_ns = lib.time.nanoTimestamp();
+    const start_ns = grt.time.instant.now();
     try initiator.drive(.{
         .initiate_handshake = .{
             .remote_key = responder_pair.public,
             .remote_endpoint = responder_endpoint,
         },
     }, harness.callback(.initiator));
-    try lib.testing.expectEqual(@as(usize, 2), harness.established_events);
+    try grt.std.testing.expectEqual(@as(usize, 2), harness.established_events);
 
     for (0..chunk_count) |chunk_index| {
         try harness.sendFromInitiator(chunk_index);
@@ -267,22 +266,22 @@ pub fn runSinglePeerTransfer(
             try harness.driveTicksUntilEstablished(2 * (1 + completed_rekeys), 8);
         }
     }
-    const end_ns = lib.time.nanoTimestamp();
+    const end_ns = grt.time.instant.now();
 
-    try lib.testing.expectEqual(chunk_count, harness.received_packets);
-    try lib.testing.expectEqual(total_transfer_bytes, harness.received_bytes);
-    try lib.testing.expectEqual(2 * (1 + expected_rekey_count), harness.established_events);
-    try lib.testing.expectEqual(if (expected_rekey_count == 0) @as(usize, 1) else @as(usize, 2), initiator.stats.session_count);
-    try lib.testing.expectEqual(if (expected_rekey_count == 0) @as(usize, 1) else @as(usize, 2), responder.stats.session_count);
-    try lib.testing.expectEqual(@as(usize, 0), initiator.stats.pending_handshake_count);
-    try lib.testing.expectEqual(@as(usize, 0), responder.stats.pending_handshake_count);
-    try lib.testing.expect(responder.stats.transfer_rx >= @as(u64, @intCast(total_transfer_bytes)));
+    try grt.std.testing.expectEqual(chunk_count, harness.received_packets);
+    try grt.std.testing.expectEqual(total_transfer_bytes, harness.received_bytes);
+    try grt.std.testing.expectEqual(2 * (1 + expected_rekey_count), harness.established_events);
+    try grt.std.testing.expectEqual(if (expected_rekey_count == 0) @as(usize, 1) else @as(usize, 2), initiator.stats.session_count);
+    try grt.std.testing.expectEqual(if (expected_rekey_count == 0) @as(usize, 1) else @as(usize, 2), responder.stats.session_count);
+    try grt.std.testing.expectEqual(@as(usize, 0), initiator.stats.pending_handshake_count);
+    try grt.std.testing.expectEqual(@as(usize, 0), responder.stats.pending_handshake_count);
+    try grt.std.testing.expect(responder.stats.transfer_rx >= @as(u64, @intCast(total_transfer_bytes)));
 
-    const elapsed_ns: u64 = @intCast(end_ns - start_ns);
+    const elapsed_ns: u64 = @intCast(grt.time.instant.sub(end_ns, start_ns));
     const bytes_per_second = if (elapsed_ns == 0 or total_transfer_bytes == 0)
         0
     else
-        @as(u64, @intCast((@as(u128, total_transfer_bytes) * @as(u128, lib.time.ns_per_s)) / @as(u128, elapsed_ns)));
+        @as(u64, @intCast((@as(u128, total_transfer_bytes) * @as(u128, grt.time.duration.Second)) / @as(u128, elapsed_ns)));
     return .{
         .bytes = total_transfer_bytes,
         .elapsed_ns = elapsed_ns,
@@ -298,7 +297,7 @@ pub fn runSinglePeerTransfer(
 }
 
 pub fn runMultiPeerBidirectionalRekey(
-    comptime lib: type,
+    comptime grt: type,
     comptime cipher_kind: Cipher.Kind,
     comptime peer_count: usize,
     comptime total_transfer_bytes_per_peer: usize,
@@ -306,14 +305,14 @@ pub fn runMultiPeerBidirectionalRekey(
 ) !MultiPeerReport {
     const payload_size: usize = 1024;
     const packet_size = SessionType.legacy_packet_size_capacity;
-    const Engine = EngineType.make(lib, packet_size, cipher_kind);
+    const Engine = EngineType.make(grt, packet_size, cipher_kind);
     const rekey_after_messages_usize: usize = @intCast(rekey_after_messages);
     const packets_per_peer: usize = total_transfer_bytes_per_peer / payload_size;
     const expected_rekey_count_per_relation: usize = packets_per_peer / rekey_after_messages_usize;
     const no_rekey_after_time_ms: u64 = 365 * 24 * 60 * 60 * 1000;
 
-    try lib.testing.expect(rekey_after_messages_usize != 0);
-    try lib.testing.expectEqual(@as(usize, 0), total_transfer_bytes_per_peer % payload_size);
+    try grt.std.testing.expect(rekey_after_messages_usize != 0);
+    try grt.std.testing.expectEqual(@as(usize, 0), total_transfer_bytes_per_peer % payload_size);
 
     const NodeKind = enum {
         left_hub,
@@ -389,7 +388,7 @@ pub fn runMultiPeerBidirectionalRekey(
             const remote_endpoint = self.endpoint(source);
 
             if (packet.state == .prepared) {
-                try OutboundPacket.encrypt(lib, cipher_kind, packet);
+                try OutboundPacket.encrypt(grt, cipher_kind, packet);
             }
 
             const inbound = try target_engine.getInboundPacket();
@@ -406,7 +405,7 @@ pub fn runMultiPeerBidirectionalRekey(
         fn handleInbound(self: *@This(), node_id: NodeId, packet: *InboundPacket) !void {
             switch (packet.state) {
                 .prepared => {
-                    try InboundPacket.decrtpy(lib, cipher_kind, packet);
+                    try InboundPacket.decrtpy(grt, cipher_kind, packet);
                     try self.engine(node_id).drive(.{ .inbound_packet = packet }, self.callback(node_id));
                 },
                 .consumed => {
@@ -420,10 +419,10 @@ pub fn runMultiPeerBidirectionalRekey(
         fn handleEstablished(self: *@This(), node_id: NodeId, remote_key: Key) !void {
             self.established_events += 1;
             switch (node_id.kind) {
-                .left_hub => try lib.testing.expect(self.containsKey(self.right_leaf_pairs, remote_key)),
-                .right_hub => try lib.testing.expect(self.containsKey(self.left_leaf_pairs, remote_key)),
-                .left_leaf => try lib.testing.expect(remote_key.eql(self.right_hub_key)),
-                .right_leaf => try lib.testing.expect(remote_key.eql(self.left_hub_key)),
+                .left_hub => try grt.std.testing.expect(self.containsKey(self.right_leaf_pairs, remote_key)),
+                .right_hub => try grt.std.testing.expect(self.containsKey(self.left_leaf_pairs, remote_key)),
+                .left_leaf => try grt.std.testing.expect(remote_key.eql(self.right_hub_key)),
+                .right_leaf => try grt.std.testing.expect(remote_key.eql(self.left_hub_key)),
             }
         }
 
@@ -434,19 +433,19 @@ pub fn runMultiPeerBidirectionalRekey(
                 .right_leaf => {
                     const chunk_index = self.right_leaf_received_packets[node_id.index];
                     fillMultiPeerPayload(.left_to_right, node_id.index, chunk_index, expected_payload[0..]);
-                    try lib.testing.expectEqual(@as(usize, payload_size), packet.len);
-                    try lib.testing.expect(packet.remote_static.eql(self.left_hub_key));
-                    try lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.left_hub_endpoint));
-                    try lib.testing.expect(std.mem.eql(u8, expected_payload[0..], packet.bytes()));
+                    try grt.std.testing.expectEqual(@as(usize, payload_size), packet.len);
+                    try grt.std.testing.expect(packet.remote_static.eql(self.left_hub_key));
+                    try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.left_hub_endpoint));
+                    try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], packet.bytes()));
                     self.right_leaf_received_packets[node_id.index] += 1;
                 },
                 .left_leaf => {
                     const chunk_index = self.left_leaf_received_packets[node_id.index];
                     fillMultiPeerPayload(.right_to_left, node_id.index, chunk_index, expected_payload[0..]);
-                    try lib.testing.expectEqual(@as(usize, payload_size), packet.len);
-                    try lib.testing.expect(packet.remote_static.eql(self.right_hub_key));
-                    try lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.right_hub_endpoint));
-                    try lib.testing.expect(std.mem.eql(u8, expected_payload[0..], packet.bytes()));
+                    try grt.std.testing.expectEqual(@as(usize, payload_size), packet.len);
+                    try grt.std.testing.expect(packet.remote_static.eql(self.right_hub_key));
+                    try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.right_hub_endpoint));
+                    try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], packet.bytes()));
                     self.left_leaf_received_packets[node_id.index] += 1;
                 },
                 .left_hub, .right_hub => return error.UnexpectedInboundOnHub,
@@ -524,16 +523,16 @@ pub fn runMultiPeerBidirectionalRekey(
                     try self.right_leaves[index].drive(.{ .tick = {} }, self.callback(.{ .kind = .right_leaf, .index = index }));
                 }
             }
-            try lib.testing.expectEqual(target_events, self.established_events);
+            try grt.std.testing.expectEqual(target_events, self.established_events);
         }
     };
 
-    const left_hub_pair = giznet.noise.KeyPair.seed(lib, 3001);
-    const right_hub_pair = giznet.noise.KeyPair.seed(lib, 3002);
+    const left_hub_pair = giznet.noise.KeyPair.seed(grt, 3001);
+    const right_hub_pair = giznet.noise.KeyPair.seed(grt, 3002);
     const left_hub_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 53001);
     const right_hub_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 53002);
 
-    var left_hub = try Engine.init(lib.testing.allocator, left_hub_pair, .{
+    var left_hub = try Engine.init(grt.std.testing.allocator, left_hub_pair, .{
         .max_peers = peer_count,
         .max_pending = peer_count,
         .rekey_after_messages = rekey_after_messages,
@@ -541,7 +540,7 @@ pub fn runMultiPeerBidirectionalRekey(
     });
     errdefer left_hub.deinit();
 
-    var right_hub = try Engine.init(lib.testing.allocator, right_hub_pair, .{
+    var right_hub = try Engine.init(grt.std.testing.allocator, right_hub_pair, .{
         .max_peers = peer_count,
         .max_pending = peer_count,
         .rekey_after_messages = rekey_after_messages,
@@ -567,12 +566,12 @@ pub fn runMultiPeerBidirectionalRekey(
     }
 
     for (0..peer_count) |index| {
-        left_leaf_pairs[index] = giznet.noise.KeyPair.seed(lib, @intCast(3100 + index));
-        right_leaf_pairs[index] = giznet.noise.KeyPair.seed(lib, @intCast(3200 + index));
+        left_leaf_pairs[index] = giznet.noise.KeyPair.seed(grt, @intCast(3100 + index));
+        right_leaf_pairs[index] = giznet.noise.KeyPair.seed(grt, @intCast(3200 + index));
         left_leaf_endpoints[index] = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, @intCast(53100 + index));
         right_leaf_endpoints[index] = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, @intCast(53200 + index));
 
-        left_leaves[index] = try Engine.init(lib.testing.allocator, left_leaf_pairs[index], .{
+        left_leaves[index] = try Engine.init(grt.std.testing.allocator, left_leaf_pairs[index], .{
             .max_peers = 1,
             .max_pending = 1,
             .rekey_after_messages = rekey_after_messages,
@@ -580,7 +579,7 @@ pub fn runMultiPeerBidirectionalRekey(
         });
         left_leaf_init_count += 1;
 
-        right_leaves[index] = try Engine.init(lib.testing.allocator, right_leaf_pairs[index], .{
+        right_leaves[index] = try Engine.init(grt.std.testing.allocator, right_leaf_pairs[index], .{
             .max_peers = 1,
             .max_pending = 1,
             .rekey_after_messages = rekey_after_messages,
@@ -652,11 +651,11 @@ pub fn runMultiPeerBidirectionalRekey(
         }, harness.callback(.{ .kind = .right_hub }));
     }
 
-    try lib.testing.expectEqual(@as(usize, peer_count * 4), harness.established_events);
-    try lib.testing.expectEqual(peer_count, left_hub.stats.peer_count);
-    try lib.testing.expectEqual(peer_count, right_hub.stats.peer_count);
-    try lib.testing.expectEqual(peer_count, left_hub.stats.session_count);
-    try lib.testing.expectEqual(peer_count, right_hub.stats.session_count);
+    try grt.std.testing.expectEqual(@as(usize, peer_count * 4), harness.established_events);
+    try grt.std.testing.expectEqual(peer_count, left_hub.stats.peer_count);
+    try grt.std.testing.expectEqual(peer_count, right_hub.stats.peer_count);
+    try grt.std.testing.expectEqual(peer_count, left_hub.stats.session_count);
+    try grt.std.testing.expectEqual(peer_count, right_hub.stats.session_count);
 
     for (0..packets_per_peer) |chunk_index| {
         for (0..peer_count) |peer_index| {
@@ -671,34 +670,34 @@ pub fn runMultiPeerBidirectionalRekey(
         }
     }
 
-    try lib.testing.expectEqual(peer_count * 4 * (1 + expected_rekey_count_per_relation), harness.established_events);
-    try lib.testing.expectEqual(if (expected_rekey_count_per_relation == 0) peer_count else peer_count * 2, left_hub.stats.session_count);
-    try lib.testing.expectEqual(if (expected_rekey_count_per_relation == 0) peer_count else peer_count * 2, right_hub.stats.session_count);
+    try grt.std.testing.expectEqual(peer_count * 4 * (1 + expected_rekey_count_per_relation), harness.established_events);
+    try grt.std.testing.expectEqual(if (expected_rekey_count_per_relation == 0) peer_count else peer_count * 2, left_hub.stats.session_count);
+    try grt.std.testing.expectEqual(if (expected_rekey_count_per_relation == 0) peer_count else peer_count * 2, right_hub.stats.session_count);
 
     for (0..peer_count) |index| {
-        try lib.testing.expectEqual(packets_per_peer, harness.left_leaf_received_packets[index]);
-        try lib.testing.expectEqual(packets_per_peer, harness.right_leaf_received_packets[index]);
-        try lib.testing.expectEqual(if (expected_rekey_count_per_relation == 0) @as(usize, 1) else @as(usize, 2), left_leaves[index].stats.session_count);
-        try lib.testing.expectEqual(if (expected_rekey_count_per_relation == 0) @as(usize, 1) else @as(usize, 2), right_leaves[index].stats.session_count);
+        try grt.std.testing.expectEqual(packets_per_peer, harness.left_leaf_received_packets[index]);
+        try grt.std.testing.expectEqual(packets_per_peer, harness.right_leaf_received_packets[index]);
+        try grt.std.testing.expectEqual(if (expected_rekey_count_per_relation == 0) @as(usize, 1) else @as(usize, 2), left_leaves[index].stats.session_count);
+        try grt.std.testing.expectEqual(if (expected_rekey_count_per_relation == 0) @as(usize, 1) else @as(usize, 2), right_leaves[index].stats.session_count);
 
         const left_leaf_peer = left_leaves[index].peers.get(right_hub_pair.public) orelse return error.SessionNotFound;
         const right_leaf_peer = right_leaves[index].peers.get(left_hub_pair.public) orelse return error.SessionNotFound;
         if (expected_rekey_count_per_relation == 0) {
-            try lib.testing.expect(left_leaf_peer.current != null);
-            try lib.testing.expect(right_leaf_peer.current != null);
+            try grt.std.testing.expect(left_leaf_peer.current != null);
+            try grt.std.testing.expect(right_leaf_peer.current != null);
         } else {
-            try lib.testing.expect(left_leaf_peer.current != null and left_leaf_peer.previous != null);
-            try lib.testing.expect(right_leaf_peer.current != null and right_leaf_peer.previous != null);
+            try grt.std.testing.expect(left_leaf_peer.current != null and left_leaf_peer.previous != null);
+            try grt.std.testing.expect(right_leaf_peer.current != null and right_leaf_peer.previous != null);
         }
 
         const left_hub_peer = left_hub.peers.get(right_leaf_pairs[index].public) orelse return error.SessionNotFound;
         const right_hub_peer = right_hub.peers.get(left_leaf_pairs[index].public) orelse return error.SessionNotFound;
         if (expected_rekey_count_per_relation == 0) {
-            try lib.testing.expect(left_hub_peer.current != null);
-            try lib.testing.expect(right_hub_peer.current != null);
+            try grt.std.testing.expect(left_hub_peer.current != null);
+            try grt.std.testing.expect(right_hub_peer.current != null);
         } else {
-            try lib.testing.expect(left_hub_peer.current != null and left_hub_peer.previous != null);
-            try lib.testing.expect(right_hub_peer.current != null and right_hub_peer.previous != null);
+            try grt.std.testing.expect(left_hub_peer.current != null and left_hub_peer.previous != null);
+            try grt.std.testing.expect(right_hub_peer.current != null and right_hub_peer.previous != null);
         }
     }
 

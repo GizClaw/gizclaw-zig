@@ -1,30 +1,30 @@
-const embed = @import("embed");
-const testing_api = embed.testing;
+const glib = @import("glib");
+const testing_api = glib.testing;
 
-const bench = @import("../testutils.zig");
+const bench = @import("../test_utils/common.zig");
 const Cipher = @import("../../../noise/Cipher.zig");
-const noise_testutils = @import("../../testutils/noise.zig");
+const noise_test_utils = @import("../../test_utils/noise.zig");
 
-pub fn make(comptime std: type) testing_api.TestRunner {
+pub fn make(comptime grt: type) testing_api.TestRunner {
     const Cases = struct {
-        fn chacha(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn chacha(_: *testing_api.T, allocator: grt.std.mem.Allocator) !void {
             _ = allocator;
             try runCase(.chacha_poly);
         }
 
-        fn aes(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn aes(_: *testing_api.T, allocator: grt.std.mem.Allocator) !void {
             _ = allocator;
             try runCase(.aes_256_gcm);
         }
 
-        fn plaintext(_: *testing_api.T, allocator: std.mem.Allocator) !void {
+        fn plaintext(_: *testing_api.T, allocator: grt.std.mem.Allocator) !void {
             _ = allocator;
             try runCase(.plaintext);
         }
 
         fn runCase(comptime cipher_kind: Cipher.Kind) !void {
-            const report = try noise_testutils.runSinglePeerTransfer(
-                std,
+            const report = try noise_test_utils.runSinglePeerTransfer(
+                grt,
                 cipher_kind,
                 100 * 1024 * 1024,
                 4096,
@@ -36,7 +36,7 @@ pub fn make(comptime std: type) testing_api.TestRunner {
                 .plaintext => "giznet.noise.engine.handshake_transfer_rekey.plaintext",
             };
 
-            bench.print(std, label, .{
+            bench.print(grt, label, .{
                 .warmup = 0,
                 .iterations = 1,
             }, report.elapsed_ns, .{
@@ -46,7 +46,7 @@ pub fn make(comptime std: type) testing_api.TestRunner {
                 .extra_name = "rekeys",
                 .extra_value = report.rekey_count,
             });
-            std.debug.print(
+            grt.std.debug.print(
                 "bench label=giznet.noise.engine.handshake_transfer_rekey cipher={s} established_events={d} received_packets={d} received_bytes={d} payload_B/s={d} payload_Mbps={d}\n",
                 .{
                     @tagName(cipher_kind),
@@ -61,28 +61,28 @@ pub fn make(comptime std: type) testing_api.TestRunner {
     };
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: std.mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: grt.std.mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: std.mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: grt.std.mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
-            t.run("chacha_poly", testing_api.TestRunner.fromFn(std, 512 * 1024, Cases.chacha));
-            t.run("aes_256_gcm", testing_api.TestRunner.fromFn(std, 512 * 1024, Cases.aes));
-            t.run("plaintext", testing_api.TestRunner.fromFn(std, 512 * 1024, Cases.plaintext));
+            t.run("chacha_poly", testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.chacha));
+            t.run("aes_256_gcm", testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.aes));
+            t.run("plaintext", testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.plaintext));
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: grt.std.mem.Allocator) void {
             _ = allocator;
-            std.testing.allocator.destroy(self);
+            grt.std.testing.allocator.destroy(self);
         }
     };
 
-    const value = std.testing.allocator.create(Runner) catch @panic("OOM");
+    const value = grt.std.testing.allocator.create(Runner) catch @panic("OOM");
     value.* = .{};
     return testing_api.TestRunner.make(Runner).new(value);
 }

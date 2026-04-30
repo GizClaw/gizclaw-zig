@@ -1,11 +1,10 @@
-const embed = @import("embed");
-const std = embed.std;
+const glib = @import("glib");
 const Cipher = @import("Cipher.zig");
 const Key = @import("Key.zig");
 const Message = @import("Message.zig");
 const SessionType = @import("Session.zig");
-const PoolType = embed.sync.Pool;
-const AddrPort = embed.net.netip.AddrPort;
+const PoolType = glib.sync.Pool;
+const AddrPort = glib.net.netip.AddrPort;
 const legacy_packet_size_capacity = SessionType.legacy_packet_size_capacity;
 
 const OutboundPacket = @This();
@@ -109,16 +108,16 @@ pub fn eql(self: *const OutboundPacket, other: *const OutboundPacket) bool {
     return self == other;
 }
 
-pub fn encrypt(comptime lib: type, comptime cipher_kind: Cipher.Kind, self: *OutboundPacket) !void {
-    const Session = SessionType.make(lib, legacy_packet_size_capacity, cipher_kind);
-    const CipherSuite = Cipher.make(lib, cipher_kind);
+pub fn encrypt(comptime grt: type, comptime cipher_kind: Cipher.Kind, self: *OutboundPacket) !void {
+    const Session = SessionType.make(grt, legacy_packet_size_capacity, cipher_kind);
+    const CipherSuite = Cipher.make(grt, cipher_kind);
 
     if (self.kind == .handshake) {
         self.state = .ready_to_send;
         return;
     }
 
-    std.debug.assert(self.kind == .transport);
+    glib.std.debug.assert(self.kind == .transport);
 
     const buffer = self.bufRef();
     const plaintext = self.bytes();
@@ -180,15 +179,15 @@ fn make(comptime _: type, comptime packet_size: usize) type {
 }
 
 pub fn initPool(
-    comptime lib: type,
-    allocator: std.mem.Allocator,
+    comptime grt: type,
+    allocator: glib.std.mem.Allocator,
     comptime packet_size: usize,
 ) !Pool {
-    const Impl = make(lib, packet_size);
-    const ImplPool = PoolType.make(lib, Impl);
+    const Impl = make(grt, packet_size);
+    const ImplPool = PoolType.make(grt.std, Impl);
 
     const PoolImpl = struct {
-        allocator: std.mem.Allocator,
+        allocator: glib.std.mem.Allocator,
         pool: ImplPool,
 
         pub fn getPacket(self: *@This()) ?*OutboundPacket {
@@ -209,7 +208,7 @@ pub fn initPool(
     impl.* = .{
         .allocator = allocator,
         .pool = ImplPool.init(allocator, struct {
-            fn newImpl(_: ?*anyopaque, _: std.mem.Allocator) ?Impl {
+            fn newImpl(_: ?*anyopaque, _: glib.std.mem.Allocator) ?Impl {
                 return .{};
             }
         }.newImpl, null),
@@ -238,43 +237,43 @@ pub fn initPool(
     };
 }
 
-pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
-    const testing_api = embed.testing;
+pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
+    const testing_api = glib.testing;
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: std.mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: glib.std.mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: std.mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: glib.std.mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
-            tryEncryptTransportCase(lib) catch |err| {
+            tryEncryptTransportCase(grt) catch |err| {
                 t.logErrorf("giznet/runtime OutboundPacket encrypt transport failed: {}", .{err});
                 return false;
             };
-            tryPoolReuseCase(lib) catch |err| {
+            tryPoolReuseCase(grt) catch |err| {
                 t.logErrorf("giznet/runtime OutboundPacket pool reuse failed: {}", .{err});
                 return false;
             };
-            tryPoolMultipleOutstandingCase(lib) catch |err| {
+            tryPoolMultipleOutstandingCase(grt) catch |err| {
                 t.logErrorf("giznet/runtime OutboundPacket pool multiple outstanding failed: {}", .{err});
                 return false;
             };
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: glib.std.mem.Allocator) void {
             _ = allocator;
-            lib.testing.allocator.destroy(self);
+            grt.std.testing.allocator.destroy(self);
         }
 
         fn tryEncryptTransportCase(comptime any_lib: type) !void {
             const Session = SessionType.make(any_lib, legacy_packet_size_capacity, Cipher.default_kind);
             const CipherSuite = Cipher.make(any_lib, Cipher.default_kind);
-            var pool = try initPool(any_lib, any_lib.testing.allocator, legacy_packet_size_capacity);
+            var pool = try initPool(any_lib, grt.std.testing.allocator, legacy_packet_size_capacity);
             defer pool.deinit();
 
             const packet = pool.get() orelse return error.TestExpectedPacket;
@@ -299,12 +298,12 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
 
             try OutboundPacket.encrypt(any_lib, Cipher.default_kind, packet);
 
-            try any_lib.testing.expectEqual(State.ready_to_send, packet.state);
-            try any_lib.testing.expectEqual(Kind.transport, packet.kind);
+            try grt.std.testing.expectEqual(State.ready_to_send, packet.state);
+            try grt.std.testing.expectEqual(Kind.transport, packet.kind);
 
             const transport = try Message.parseTransportMessage(packet.bytes());
-            try any_lib.testing.expectEqual(remote_session_index, transport.receiver_index);
-            try any_lib.testing.expectEqual(counter, transport.counter);
+            try grt.std.testing.expectEqual(remote_session_index, transport.receiver_index);
+            try grt.std.testing.expectEqual(counter, transport.counter);
 
             var plaintext: [Session.max_plaintext_len]u8 = undefined;
             const written = try CipherSuite.decrypt(
@@ -314,11 +313,11 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                 "",
                 plaintext[0..],
             );
-            try any_lib.testing.expect(std.mem.eql(u8, plaintext[0..written], payload[0..]));
+            try grt.std.testing.expect(glib.std.mem.eql(u8, plaintext[0..written], payload[0..]));
         }
 
         fn tryPoolReuseCase(comptime any_lib: type) !void {
-            var pool = try initPool(any_lib, any_lib.testing.allocator, 32);
+            var pool = try initPool(any_lib, grt.std.testing.allocator, 32);
             defer pool.deinit();
 
             const first = pool.get() orelse return error.TestExpectedFirstPacket;
@@ -335,14 +334,14 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const second = pool.get() orelse return error.TestExpectedSecondPacket;
             defer second.deinit();
 
-            try any_lib.testing.expect(second.eql(first));
-            try any_lib.testing.expectEqual(@as(usize, 0), second.bytes().len);
-            try any_lib.testing.expect(std.meta.eql(second.remote_endpoint, AddrPort{}));
-            try any_lib.testing.expectEqual(State.initial, second.state);
+            try grt.std.testing.expect(second.eql(first));
+            try grt.std.testing.expectEqual(@as(usize, 0), second.bytes().len);
+            try grt.std.testing.expect(glib.std.meta.eql(second.remote_endpoint, AddrPort{}));
+            try grt.std.testing.expectEqual(State.initial, second.state);
         }
 
         fn tryPoolMultipleOutstandingCase(comptime any_lib: type) !void {
-            var pool = try initPool(any_lib, any_lib.testing.allocator, 16);
+            var pool = try initPool(any_lib, grt.std.testing.allocator, 16);
             defer pool.deinit();
 
             const first = pool.get() orelse return error.TestExpectedFirstPacket;
@@ -351,11 +350,11 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const second = pool.get() orelse return error.TestExpectedSecondPacket;
             defer second.deinit();
 
-            try any_lib.testing.expect(!first.eql(second));
+            try grt.std.testing.expect(!first.eql(second));
         }
     };
 
-    const value = lib.testing.allocator.create(Runner) catch @panic("OOM");
+    const value = grt.std.testing.allocator.create(Runner) catch @panic("OOM");
     value.* = .{};
     return testing_api.TestRunner.make(Runner).new(value);
 }

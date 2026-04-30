@@ -1,8 +1,7 @@
-const embed = @import("embed");
-const mem = embed.std.mem;
+const glib = @import("glib");
 
 const Key = @import("Key.zig");
-const AddrPort = embed.net.netip.AddrPort;
+const AddrPort = glib.net.netip.AddrPort;
 const Cipher = @import("Cipher.zig");
 const HandshakeType = @import("Handshake.zig");
 const SessionType = @import("Session.zig");
@@ -19,10 +18,10 @@ pub const PeerTimerConfig = struct {
     rekey_after_messages: u64,
 };
 
-pub fn make(comptime std: type, comptime cipher_kind: Cipher.Kind) type {
+pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
     const packet_size_capacity = SessionType.legacy_packet_size_capacity;
-    const Handshake = HandshakeType.make(std, cipher_kind);
-    const Session = SessionType.make(std, packet_size_capacity, cipher_kind);
+    const Handshake = HandshakeType.make(grt, cipher_kind);
+    const Session = SessionType.make(grt, packet_size_capacity, cipher_kind);
 
     return struct {
         pub const TimerConfig = root.PeerTimerConfig;
@@ -233,30 +232,30 @@ pub fn make(comptime std: type, comptime cipher_kind: Cipher.Kind) type {
     };
 }
 
-pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
-    const testing_api = embed.testing;
+pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
+    const testing_api = glib.testing;
     const giznet = @import("../../giznet.zig");
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: glib.std.mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: glib.std.mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
-            tryCase(lib) catch |err| {
+            tryCase(grt) catch |err| {
                 t.logErrorf("giznet/noise Peer unit failed: {}", .{err});
                 return false;
             };
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: glib.std.mem.Allocator) void {
             _ = allocator;
-            lib.testing.allocator.destroy(self);
+            grt.std.testing.allocator.destroy(self);
         }
 
         fn tryCase(comptime any_lib: type) !void {
@@ -280,80 +279,80 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
             };
 
             var peer = Peer.init(responder_pair.public, timer_config);
-            try any_lib.testing.expect(peer.key.eql(responder_pair.public));
-            try any_lib.testing.expect(peer.isCompletelyIdle());
-            try any_lib.testing.expect(!peer.persistent_keepalive);
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.keepalive_interval_ms);
+            try grt.std.testing.expect(peer.key.eql(responder_pair.public));
+            try grt.std.testing.expect(peer.isCompletelyIdle());
+            try grt.std.testing.expect(!peer.persistent_keepalive);
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.keepalive_interval_ms);
 
             const handshake = try Handshake.initInitiator(initiator_pair, responder_pair.public, 77);
             peer.startPendingHandshake(initiator_pair.public, endpoint_one, 77, handshake, 15, 100);
-            try any_lib.testing.expect(peer.pending_handshake != null);
-            try any_lib.testing.expect(peer.local_static.eql(initiator_pair.public));
-            try any_lib.testing.expect(peer.persistent_keepalive);
-            try any_lib.testing.expectEqual(@as(?u64, 15), peer.keepalive_interval_ms);
-            try any_lib.testing.expect(giznet.eqlAddrPort(peer.pending_handshake.?.endpoint, endpoint_one));
-            try any_lib.testing.expectEqual(@as(?u32, 77), if (peer.pending_handshake) |pending_handshake| pending_handshake.local_session_index else null);
-            try any_lib.testing.expect(peer.pending_handshake != null);
+            try grt.std.testing.expect(peer.pending_handshake != null);
+            try grt.std.testing.expect(peer.local_static.eql(initiator_pair.public));
+            try grt.std.testing.expect(peer.persistent_keepalive);
+            try grt.std.testing.expectEqual(@as(?u64, 15), peer.keepalive_interval_ms);
+            try grt.std.testing.expect(giznet.eqlAddrPort(peer.pending_handshake.?.endpoint, endpoint_one));
+            try grt.std.testing.expectEqual(@as(?u32, 77), if (peer.pending_handshake) |pending_handshake| pending_handshake.local_session_index else null);
+            try grt.std.testing.expect(peer.pending_handshake != null);
 
             peer.pending_handshake.?.last_sent_ms = 111;
             peer.updateTimers(111, 0);
-            try any_lib.testing.expectEqual(@as(?u64, 116), peer.timers.get(.handshake_retry_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, 120), peer.timers.get(.handshake_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, 116), peer.timers.get(.handshake_retry_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, 120), peer.timers.get(.handshake_deadline));
 
             peer.clearPendingHandshake();
-            try any_lib.testing.expect(peer.pending_handshake == null);
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_retry_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_deadline));
+            try grt.std.testing.expect(peer.pending_handshake == null);
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_retry_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_deadline));
 
             const session_one = makeSession(Session, responder_pair.public, endpoint_one, 1, 2, 0x11, 0x22);
             peer.establish(initiator_pair.public, endpoint_one, session_one, true, 200);
-            try any_lib.testing.expect(peer.current != null);
-            try any_lib.testing.expect(peer.previous == null);
-            try any_lib.testing.expectEqual(@as(u32, 1), peer.current.?.localIndex());
-            try any_lib.testing.expect(peer.current != null and peer.current.?.canSend());
-            try any_lib.testing.expect(!peer.is_offline);
+            try grt.std.testing.expect(peer.current != null);
+            try grt.std.testing.expect(peer.previous == null);
+            try grt.std.testing.expectEqual(@as(u32, 1), peer.current.?.localIndex());
+            try grt.std.testing.expect(peer.current != null and peer.current.?.canSend());
+            try grt.std.testing.expect(!peer.is_offline);
 
             const session_two = makeSession(Session, responder_pair.public, endpoint_two, 3, 4, 0x33, 0x44);
             peer.establish(initiator_pair.public, endpoint_two, session_two, true, 300);
-            try any_lib.testing.expectEqual(@as(u32, 3), peer.current.?.localIndex());
-            try any_lib.testing.expectEqual(@as(u32, 1), peer.previous.?.localIndex());
-            try any_lib.testing.expect(giznet.eqlAddrPort(peer.endpoint, endpoint_two));
+            try grt.std.testing.expectEqual(@as(u32, 3), peer.current.?.localIndex());
+            try grt.std.testing.expectEqual(@as(u32, 1), peer.previous.?.localIndex());
+            try grt.std.testing.expect(giznet.eqlAddrPort(peer.endpoint, endpoint_two));
 
             peer.endpoint = endpoint_three;
             peer.last_received_ms = 310;
             if (peer.current) |*current| current.setEndpoint(endpoint_three);
             if (peer.previous) |*previous| previous.setEndpoint(endpoint_three);
             peer.updateTimers(310, 1);
-            try any_lib.testing.expect(giznet.eqlAddrPort(peer.endpoint, endpoint_three));
-            try any_lib.testing.expect(giznet.eqlAddrPort(peer.current.?.endpointValue(), endpoint_three));
-            try any_lib.testing.expect(giznet.eqlAddrPort(peer.previous.?.endpointValue(), endpoint_three));
-            try any_lib.testing.expectEqual(@as(?u64, 320), peer.timers.get(.keepalive_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, 315), peer.timers.get(.persistent_keepalive_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, 350), peer.timers.get(.rekey_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, 370), peer.timers.get(.offline_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, 370), peer.offline_deadline_ms);
+            try grt.std.testing.expect(giznet.eqlAddrPort(peer.endpoint, endpoint_three));
+            try grt.std.testing.expect(giznet.eqlAddrPort(peer.current.?.endpointValue(), endpoint_three));
+            try grt.std.testing.expect(giznet.eqlAddrPort(peer.previous.?.endpointValue(), endpoint_three));
+            try grt.std.testing.expectEqual(@as(?u64, 320), peer.timers.get(.keepalive_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, 315), peer.timers.get(.persistent_keepalive_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, 350), peer.timers.get(.rekey_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, 370), peer.timers.get(.offline_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, 370), peer.offline_deadline_ms);
 
             peer.rekey_triggered = true;
             peer.rekey_requested = false;
             peer.updateTimers(310, 0);
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.rekey_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.rekey_deadline));
             peer.rekey_triggered = false;
             peer.rekey_requested = false;
 
             peer.markOffline();
             peer.updateTimers(310, 0);
-            try any_lib.testing.expect(peer.is_offline);
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.offline_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.keepalive_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.persistent_keepalive_deadline));
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.offline_deadline_ms);
+            try grt.std.testing.expect(peer.is_offline);
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.offline_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.keepalive_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.persistent_keepalive_deadline));
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.offline_deadline_ms);
 
             peer.current = peer.previous;
             peer.previous = null;
-            try any_lib.testing.expectEqual(@as(u32, 1), peer.current.?.localIndex());
-            try any_lib.testing.expect(peer.previous == null);
+            try grt.std.testing.expectEqual(@as(u32, 1), peer.current.?.localIndex());
+            try grt.std.testing.expect(peer.previous == null);
             peer.current = null;
-            try any_lib.testing.expect(peer.isCompletelyIdle());
+            try grt.std.testing.expect(peer.isCompletelyIdle());
         }
 
         fn makeSession(
@@ -376,7 +375,7 @@ pub fn testRunner(comptime lib: type) embed.testing.TestRunner {
         }
     };
 
-    const value = lib.testing.allocator.create(Runner) catch @panic("OOM");
+    const value = grt.std.testing.allocator.create(Runner) catch @panic("OOM");
     value.* = .{};
     return testing_api.TestRunner.make(Runner).new(value);
 }

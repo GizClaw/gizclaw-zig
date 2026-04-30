@@ -1,6 +1,4 @@
-const embed = @import("embed");
-const std = embed.std;
-const mem = std.mem;
+const glib = @import("glib");
 
 const Self = @This();
 
@@ -86,7 +84,7 @@ pub fn final(self: *Self, out: *[digest_length]u8) void {
     self.round(self.buf[0..block_length], true);
 
     for (&self.h) |*word| {
-        word.* = mem.nativeToLittle(u32, word.*);
+        word.* = glib.std.mem.nativeToLittle(u32, word.*);
     }
 
     out.* = @as(*[digest_length]u8, @ptrCast(&self.h)).*;
@@ -108,7 +106,7 @@ fn round(self: *Self, block: []const u8, last: bool) void {
     var v: [16]u32 = undefined;
 
     for (&m, 0..) |*word, i| {
-        word.* = mem.readInt(u32, block[i * 4 ..][0..4], .little);
+        word.* = glib.std.mem.readInt(u32, block[i * 4 ..][0..4], .little);
     }
 
     for (0..8) |i| {

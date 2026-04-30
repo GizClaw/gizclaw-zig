@@ -1,6 +1,4 @@
-const embed = @import("embed");
-const std = embed.std;
-const mem = std.mem;
+const glib = @import("glib");
 
 const Key = @import("Key.zig");
 
@@ -42,8 +40,8 @@ pub fn parseTransportMessage(data: []const u8) !TransportMessage {
     if (data[0] != MessageTypeTransport) return error.InvalidMessageType;
 
     return .{
-        .receiver_index = mem.readInt(u32, data[1..5], .little),
-        .counter = mem.readInt(u64, data[5..13], .little),
+        .receiver_index = glib.std.mem.readInt(u32, data[1..5], .little),
+        .counter = glib.std.mem.readInt(u64, data[5..13], .little),
         .ciphertext = data[13..],
     };
 }
@@ -53,8 +51,8 @@ pub fn buildTransportMessage(receiver_index: u32, counter: u64, ciphertext: []co
     if (out.len < needed) return error.BufferTooSmall;
 
     out[0] = MessageTypeTransport;
-    mem.writeInt(u32, out[1..5], receiver_index, .little);
-    mem.writeInt(u64, out[5..13], counter, .little);
+    glib.std.mem.writeInt(u32, out[1..5], receiver_index, .little);
+    glib.std.mem.writeInt(u64, out[5..13], counter, .little);
     var index: usize = 0;
     while (index < ciphertext.len) : (index += 1) {
         out[13 + index] = ciphertext[index];
@@ -74,7 +72,7 @@ pub fn parseHandshakeInit(data: []const u8) !HandshakeInitMessage {
     if (data[0] != MessageTypeHandshakeInit) return error.InvalidMessageType;
 
     return .{
-        .sender_index = mem.readInt(u32, data[1..5], .little),
+        .sender_index = glib.std.mem.readInt(u32, data[1..5], .little),
         .ephemeral = .{ .bytes = data[5..37].* },
         .static_encrypted = data[37..85].*,
     };
@@ -85,7 +83,7 @@ pub fn buildHandshakeInit(sender_index: u32, ephemeral: Key, static_encrypted: [
     if (out.len < HandshakeInitSize) return error.BufferTooSmall;
 
     out[0] = MessageTypeHandshakeInit;
-    mem.writeInt(u32, out[1..5], sender_index, .little);
+    glib.std.mem.writeInt(u32, out[1..5], sender_index, .little);
     @memcpy(out[5..37], &ephemeral.bytes);
     @memcpy(out[37..85], static_encrypted);
     return HandshakeInitSize;
@@ -96,8 +94,8 @@ pub fn parseHandshakeResp(data: []const u8) !HandshakeRespMessage {
     if (data[0] != MessageTypeHandshakeResp) return error.InvalidMessageType;
 
     return .{
-        .sender_index = mem.readInt(u32, data[1..5], .little),
-        .receiver_index = mem.readInt(u32, data[5..9], .little),
+        .sender_index = glib.std.mem.readInt(u32, data[1..5], .little),
+        .receiver_index = glib.std.mem.readInt(u32, data[5..9], .little),
         .ephemeral = .{ .bytes = data[9..41].* },
         .empty_encrypted = data[41..57].*,
     };
@@ -108,8 +106,8 @@ pub fn buildHandshakeResp(sender_index: u32, receiver_index: u32, ephemeral: Key
     if (out.len < HandshakeRespSize) return error.BufferTooSmall;
 
     out[0] = MessageTypeHandshakeResp;
-    mem.writeInt(u32, out[1..5], sender_index, .little);
-    mem.writeInt(u32, out[5..9], receiver_index, .little);
+    glib.std.mem.writeInt(u32, out[1..5], sender_index, .little);
+    glib.std.mem.writeInt(u32, out[5..9], receiver_index, .little);
     @memcpy(out[9..41], &ephemeral.bytes);
     @memcpy(out[41..57], empty_encrypted);
     return HandshakeRespSize;

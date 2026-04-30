@@ -1,6 +1,6 @@
 //! Stable erased root handle for giznet backends.
 
-const embed = @import("embed");
+const glib = @import("glib");
 const Conn = @import("Conn.zig");
 const DialOptions = @import("DialOptions.zig");
 
@@ -63,7 +63,7 @@ pub fn make(comptime Runtime: type, comptime Config: type) type {
         pub const ConfigType = Config;
 
         const OwnedGizNet = struct {
-            allocator: embed.mem.Allocator,
+            allocator: glib.std.mem.Allocator,
             runtime: *Runtime,
 
             pub fn dial(self: *@This(), options: DialOptions) DialError!Conn {
@@ -96,7 +96,7 @@ pub fn make(comptime Runtime: type, comptime Config: type) type {
             }
         };
 
-        pub fn init(allocator: embed.mem.Allocator, config: Config) !GizNet {
+        pub fn init(allocator: glib.std.mem.Allocator, config: Config) !GizNet {
             const owned = try allocator.create(OwnedGizNet);
             errdefer allocator.destroy(owned);
 

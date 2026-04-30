@@ -19,8 +19,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    b.modules.put("embed", embed_dep.module("embed")) catch @panic("OOM");
-    b.modules.put("embed_std", embed_dep.module("embed_std")) catch @panic("OOM");
+    b.modules.put("glib", embed_dep.module("glib")) catch @panic("OOM");
+    b.modules.put("gstd", embed_dep.module("gstd")) catch @panic("OOM");
     b.modules.put("kcp", zig_kcp_dep.module("kcp")) catch @panic("OOM");
 
     inline for (@typeInfo(Libraries).@"struct".decls) |decl| {

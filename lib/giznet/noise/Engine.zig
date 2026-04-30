@@ -1,6 +1,5 @@
-const embed = @import("embed");
-const mem = embed.std.mem;
-const AddrPort = embed.net.netip.AddrPort;
+const glib = @import("glib");
+const AddrPort = glib.net.netip.AddrPort;
 
 const Cipher = @import("Cipher.zig");
 const HandshakeType = @import("Handshake.zig");
@@ -84,20 +83,20 @@ pub const Callback = struct {
 };
 
 pub fn make(
-    comptime std: type,
+    comptime grt: type,
     comptime packet_size_capacity: usize,
     comptime cipher_kind: Cipher.Kind,
 ) type {
-    const Order = std.math.Order;
-    const Handshake = HandshakeType.make(std, cipher_kind);
-    const Peer = PeerType.make(std, cipher_kind);
-    const PeerTable = PeerTableType.make(std, cipher_kind);
-    const Session = SessionType.make(std, packet_size_capacity, cipher_kind);
+    const Order = grt.std.math.Order;
+    const Handshake = HandshakeType.make(grt, cipher_kind);
+    const Peer = PeerType.make(grt, cipher_kind);
+    const PeerTable = PeerTableType.make(grt, cipher_kind);
+    const Session = SessionType.make(grt, packet_size_capacity, cipher_kind);
     const TimerTreapKey = struct {
         due_ms: u64,
         peer_key: Key,
     };
-    const TimerTreap = std.Treap(TimerTreapKey, struct {
+    const TimerTreap = grt.std.Treap(TimerTreapKey, struct {
         fn compare(a: TimerTreapKey, b: TimerTreapKey) Order {
             if (a.due_ms < b.due_ms) return .lt;
             if (a.due_ms > b.due_ms) return .gt;
@@ -112,9 +111,9 @@ pub fn make(
     }.compare);
 
     return struct {
-        var started: ?std.time.Instant = null;
+        var started: ?grt.time.instant.Time = null;
 
-        allocator: std.mem.Allocator,
+        allocator: grt.std.mem.Allocator,
         local_static: KeyPair,
         config: Engine.Config,
         peers: PeerTable,
@@ -134,7 +133,7 @@ pub fn make(
         };
 
         pub fn init(
-            allocator: std.mem.Allocator,
+            allocator: grt.std.mem.Allocator,
             local_static: KeyPair,
             config: Engine.Config,
         ) !Self {
@@ -145,10 +144,10 @@ pub fn make(
             errdefer if (timer_slots.len != 0) allocator.free(timer_slots);
             for (timer_slots) |*slot| slot.* = .{};
 
-            const inbound_pool = try InboundPacket.initPool(std, allocator, packet_size_capacity);
+            const inbound_pool = try InboundPacket.initPool(grt, allocator, packet_size_capacity);
             errdefer inbound_pool.deinit();
 
-            const outbound_pool = try OutboundPacket.initPool(std, allocator, packet_size_capacity);
+            const outbound_pool = try OutboundPacket.initPool(grt, allocator, packet_size_capacity);
             errdefer outbound_pool.deinit();
 
             return .{
@@ -743,58 +742,58 @@ pub fn make(
         }
 
         fn nowMs() u64 {
-            const now = std.time.Instant.now() catch @panic("noise.Engine requires std.time.Instant");
+            const now = grt.time.instant.now();
             if (started == null) {
                 started = now;
                 return 0;
             }
-            return now.since(started.?) / std.time.ns_per_ms;
+            return @intCast(@divTrunc(grt.time.instant.sub(now, started.?), grt.time.duration.MilliSecond));
         }
     };
 }
 
-pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
-    const testing_api = embed.testing;
+pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
+    const testing_api = glib.testing;
     const giznet = @import("../../giznet.zig");
 
     const Cases = struct {
-        fn offlineDeadlineMarksPeerOffline(_: *testing_api.T, allocator: mem.Allocator) !void {
+        fn offlineDeadlineMarksPeerOffline(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runOfflineDeadlineFlow();
         }
 
-        fn passiveKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: mem.Allocator) !void {
+        fn passiveKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runPassiveKeepaliveFlow();
         }
 
-        fn initiateHandshakeConfiguresPersistentKeepalive(_: *testing_api.T, allocator: mem.Allocator) !void {
+        fn initiateHandshakeConfiguresPersistentKeepalive(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runInitiateHandshakeKeepaliveConfigFlow();
         }
 
-        fn persistentKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: mem.Allocator) !void {
+        fn persistentKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runPersistentKeepaliveFlow();
         }
 
-        fn chachaRekeyTransfer10KiB(_: *testing_api.T, allocator: mem.Allocator) !void {
+        fn chachaRekeyTransfer10KiB(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runRekeyAfterMessagesFlow(.chacha_poly);
         }
 
-        fn aesRekeyTransfer10KiB(_: *testing_api.T, allocator: mem.Allocator) !void {
+        fn aesRekeyTransfer10KiB(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runRekeyAfterMessagesFlow(.aes_256_gcm);
         }
 
-        fn plaintextRekeyTransfer10KiB(_: *testing_api.T, allocator: mem.Allocator) !void {
+        fn plaintextRekeyTransfer10KiB(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runRekeyAfterMessagesFlow(.plaintext);
         }
 
         fn runOfflineDeadlineFlow() !void {
-            const any_lib = lib;
+            const any_lib = grt;
             const packet_size = SessionType.legacy_packet_size_capacity;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
@@ -804,7 +803,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2902);
             const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52102);
 
-            var engine = try EngineType.init(any_lib.testing.allocator, local_pair, .{
+            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .offline_timeout_ms = 0,
@@ -845,7 +844,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                     const self: *@This() = @ptrCast(@alignCast(ctx));
                     switch (result) {
                         .offline => |remote_key| {
-                            try any_lib.testing.expect(remote_key.eql(self.expected_remote_key));
+                            try grt.std.testing.expect(remote_key.eql(self.expected_remote_key));
                             self.offline_count += 1;
                         },
                         .outbound => |packet| {
@@ -867,14 +866,14 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             };
             try engine.drive(.{ .tick = {} }, callback_state.callback());
 
-            try any_lib.testing.expectEqual(@as(usize, 1), callback_state.offline_count);
-            try any_lib.testing.expect(peer.is_offline);
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.offline_deadline_ms);
-            try any_lib.testing.expectEqual(@as(?u64, null), peer.timers.get(.offline_deadline));
+            try grt.std.testing.expectEqual(@as(usize, 1), callback_state.offline_count);
+            try grt.std.testing.expect(peer.is_offline);
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.offline_deadline_ms);
+            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.offline_deadline));
         }
 
         fn runPassiveKeepaliveFlow() !void {
-            const any_lib = lib;
+            const any_lib = grt;
             const packet_size = SessionType.legacy_packet_size_capacity;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
@@ -884,7 +883,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2912);
             const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52112);
 
-            var engine = try EngineType.init(any_lib.testing.allocator, local_pair, .{
+            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .keepalive_timeout_ms = 0,
@@ -956,15 +955,15 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const packet = callback_state.keepalive_packet orelse return error.MissingKeepalivePacket;
             defer packet.deinit();
 
-            try any_lib.testing.expectEqual(OutboundPacket.Kind.transport, packet.kind);
-            try any_lib.testing.expectEqual(OutboundPacket.State.prepared, packet.state);
-            try any_lib.testing.expectEqual(@as(usize, 0), packet.len);
-            try any_lib.testing.expect(packet.remote_static.eql(remote_pair.public));
-            try any_lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
+            try grt.std.testing.expectEqual(OutboundPacket.Kind.transport, packet.kind);
+            try grt.std.testing.expectEqual(OutboundPacket.State.prepared, packet.state);
+            try grt.std.testing.expectEqual(@as(usize, 0), packet.len);
+            try grt.std.testing.expect(packet.remote_static.eql(remote_pair.public));
+            try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
         }
 
         fn runInitiateHandshakeKeepaliveConfigFlow() !void {
-            const any_lib = lib;
+            const any_lib = grt;
             const packet_size = SessionType.legacy_packet_size_capacity;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
@@ -973,7 +972,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2917);
             const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52116);
 
-            var engine = try EngineType.init(any_lib.testing.allocator, local_pair, .{
+            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
             });
@@ -1023,17 +1022,17 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             defer packet.deinit();
 
             const peer = engine.peers.get(remote_pair.public) orelse return error.MissingPeer;
-            try any_lib.testing.expect(peer.pending_handshake != null);
-            try any_lib.testing.expect(peer.persistent_keepalive);
-            try any_lib.testing.expectEqual(@as(?u64, 17), peer.keepalive_interval_ms);
-            try any_lib.testing.expectEqual(OutboundPacket.Kind.handshake, packet.kind);
-            try any_lib.testing.expectEqual(OutboundPacket.State.ready_to_send, packet.state);
-            try any_lib.testing.expect(packet.remote_static.eql(remote_pair.public));
-            try any_lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
+            try grt.std.testing.expect(peer.pending_handshake != null);
+            try grt.std.testing.expect(peer.persistent_keepalive);
+            try grt.std.testing.expectEqual(@as(?u64, 17), peer.keepalive_interval_ms);
+            try grt.std.testing.expectEqual(OutboundPacket.Kind.handshake, packet.kind);
+            try grt.std.testing.expectEqual(OutboundPacket.State.ready_to_send, packet.state);
+            try grt.std.testing.expect(packet.remote_static.eql(remote_pair.public));
+            try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
         }
 
         fn runPersistentKeepaliveFlow() !void {
-            const any_lib = lib;
+            const any_lib = grt;
             const packet_size = SessionType.legacy_packet_size_capacity;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
@@ -1043,7 +1042,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2922);
             const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52122);
 
-            var engine = try EngineType.init(any_lib.testing.allocator, local_pair, .{
+            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .offline_timeout_ms = 10_000,
@@ -1118,15 +1117,15 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const packet = callback_state.keepalive_packet orelse return error.MissingKeepalivePacket;
             defer packet.deinit();
 
-            try any_lib.testing.expectEqual(OutboundPacket.Kind.transport, packet.kind);
-            try any_lib.testing.expectEqual(OutboundPacket.State.prepared, packet.state);
-            try any_lib.testing.expectEqual(@as(usize, 0), packet.len);
-            try any_lib.testing.expect(packet.remote_static.eql(remote_pair.public));
-            try any_lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
+            try grt.std.testing.expectEqual(OutboundPacket.Kind.transport, packet.kind);
+            try grt.std.testing.expectEqual(OutboundPacket.State.prepared, packet.state);
+            try grt.std.testing.expectEqual(@as(usize, 0), packet.len);
+            try grt.std.testing.expect(packet.remote_static.eql(remote_pair.public));
+            try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
         }
 
         fn runRekeyAfterMessagesFlow(comptime cipher_kind: Cipher.Kind) !void {
-            const any_lib = lib;
+            const any_lib = grt;
             const packet_size = SessionType.legacy_packet_size_capacity;
             const EngineType = make(any_lib, packet_size, cipher_kind);
             const payload_size: usize = 1024;
@@ -1135,14 +1134,14 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const trigger_message_count: usize = 4;
             const no_rekey_after_time_ms: u64 = 365 * 24 * 60 * 60 * 1000;
 
-            try any_lib.testing.expectEqual(@as(usize, 0), total_transfer_bytes % payload_size);
+            try grt.std.testing.expectEqual(@as(usize, 0), total_transfer_bytes % payload_size);
 
             const initiator_pair = giznet.noise.KeyPair.seed(any_lib, 1901);
             const responder_pair = giznet.noise.KeyPair.seed(any_lib, 1902);
             const initiator_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52001);
             const responder_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52002);
 
-            var initiator = try EngineType.init(any_lib.testing.allocator, initiator_pair, .{
+            var initiator = try EngineType.init(grt.std.testing.allocator, initiator_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .rekey_after_messages = trigger_message_count,
@@ -1150,7 +1149,7 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             });
             defer initiator.deinit();
 
-            var responder = try EngineType.init(any_lib.testing.allocator, responder_pair, .{
+            var responder = try EngineType.init(grt.std.testing.allocator, responder_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .rekey_after_messages = trigger_message_count,
@@ -1250,8 +1249,8 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                 fn handleEstablished(self: *@This(), side: Side, remote_key: Key) !void {
                     self.established_events += 1;
                     switch (side) {
-                        .initiator => try any_lib.testing.expect(remote_key.eql(self.responder_key)),
-                        .responder => try any_lib.testing.expect(remote_key.eql(self.initiator_key)),
+                        .initiator => try grt.std.testing.expect(remote_key.eql(self.responder_key)),
+                        .responder => try grt.std.testing.expect(remote_key.eql(self.initiator_key)),
                     }
                 }
 
@@ -1267,10 +1266,10 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                     var expected_payload: [payload_size]u8 = undefined;
                     fillPayload(self.received_packets, expected_payload[0..]);
 
-                    try any_lib.testing.expectEqual(@as(usize, payload_size), packet.len);
-                    try any_lib.testing.expect(packet.remote_static.eql(self.initiator_key));
-                    try any_lib.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.initiator_endpoint));
-                    try any_lib.testing.expect(mem.eql(u8, expected_payload[0..], packet.bytes()));
+                    try grt.std.testing.expectEqual(@as(usize, payload_size), packet.len);
+                    try grt.std.testing.expect(packet.remote_static.eql(self.initiator_key));
+                    try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.initiator_endpoint));
+                    try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], packet.bytes()));
 
                     self.received_packets += 1;
                     self.received_bytes += packet.len;
@@ -1342,9 +1341,9 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                 },
             }, harness.callback(.initiator));
 
-            try any_lib.testing.expectEqual(@as(usize, 2), harness.established_events);
-            try any_lib.testing.expectEqual(@as(usize, 1), initiator.stats.session_count);
-            try any_lib.testing.expectEqual(@as(usize, 1), responder.stats.session_count);
+            try grt.std.testing.expectEqual(@as(usize, 2), harness.established_events);
+            try grt.std.testing.expectEqual(@as(usize, 1), initiator.stats.session_count);
+            try grt.std.testing.expectEqual(@as(usize, 1), responder.stats.session_count);
 
             const initiator_peer_before = initiator.peers.get(responder_pair.public) orelse return error.SessionNotFound;
             const responder_peer_before = responder.peers.get(initiator_pair.public) orelse return error.SessionNotFound;
@@ -1362,13 +1361,13 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
                 try responder.drive(.{ .tick = {} }, harness.callback(.responder));
             }
 
-            try any_lib.testing.expect(harness.established_events >= 4);
-            try any_lib.testing.expectEqual(trigger_message_count, harness.received_packets);
-            try any_lib.testing.expectEqual(trigger_message_count * payload_size, harness.received_bytes);
-            try any_lib.testing.expectEqual(@as(usize, 2), initiator.stats.session_count);
-            try any_lib.testing.expectEqual(@as(usize, 2), responder.stats.session_count);
-            try any_lib.testing.expectEqual(@as(usize, 0), initiator.stats.pending_handshake_count);
-            try any_lib.testing.expectEqual(@as(usize, 0), responder.stats.pending_handshake_count);
+            try grt.std.testing.expect(harness.established_events >= 4);
+            try grt.std.testing.expectEqual(trigger_message_count, harness.received_packets);
+            try grt.std.testing.expectEqual(trigger_message_count * payload_size, harness.received_bytes);
+            try grt.std.testing.expectEqual(@as(usize, 2), initiator.stats.session_count);
+            try grt.std.testing.expectEqual(@as(usize, 2), responder.stats.session_count);
+            try grt.std.testing.expectEqual(@as(usize, 0), initiator.stats.pending_handshake_count);
+            try grt.std.testing.expectEqual(@as(usize, 0), responder.stats.pending_handshake_count);
 
             const initiator_peer_after = initiator.peers.get(responder_pair.public) orelse return error.SessionNotFound;
             const responder_peer_after = responder.peers.get(initiator_pair.public) orelse return error.SessionNotFound;
@@ -1377,17 +1376,17 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
             const responder_current = responder_peer_after.current orelse return error.SessionNotFound;
             const responder_previous = responder_peer_after.previous orelse return error.SessionNotFound;
 
-            try any_lib.testing.expect(initiator_current.localIndex() != initiator_old_current.localIndex());
-            try any_lib.testing.expectEqual(initiator_old_current.localIndex(), initiator_previous.localIndex());
-            try any_lib.testing.expect(responder_current.localIndex() != responder_old_current.localIndex());
-            try any_lib.testing.expectEqual(responder_old_current.localIndex(), responder_previous.localIndex());
+            try grt.std.testing.expect(initiator_current.localIndex() != initiator_old_current.localIndex());
+            try grt.std.testing.expectEqual(initiator_old_current.localIndex(), initiator_previous.localIndex());
+            try grt.std.testing.expect(responder_current.localIndex() != responder_old_current.localIndex());
+            try grt.std.testing.expectEqual(responder_old_current.localIndex(), responder_previous.localIndex());
 
             while (chunk_index < total_packet_count) : (chunk_index += 1) {
                 try harness.sendFromInitiator(chunk_index);
             }
-            try any_lib.testing.expectEqual(total_packet_count, harness.received_packets);
-            try any_lib.testing.expectEqual(total_transfer_bytes, harness.received_bytes);
-            try any_lib.testing.expect(harness.established_events >= 4);
+            try grt.std.testing.expectEqual(total_packet_count, harness.received_packets);
+            try grt.std.testing.expectEqual(total_transfer_bytes, harness.received_bytes);
+            try grt.std.testing.expect(harness.established_events >= 4);
         }
 
         fn makeSession(
@@ -1415,53 +1414,53 @@ pub fn TestRunner(comptime lib: type) embed.testing.TestRunner {
     };
 
     const Runner = struct {
-        pub fn init(self: *@This(), allocator: mem.Allocator) !void {
+        pub fn init(self: *@This(), allocator: glib.std.mem.Allocator) !void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn run(self: *@This(), t: *testing_api.T, allocator: mem.Allocator) bool {
+        pub fn run(self: *@This(), t: *testing_api.T, allocator: glib.std.mem.Allocator) bool {
             _ = self;
             _ = allocator;
 
             t.run(
                 "offline_deadline_marks_peer_offline",
-                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.offlineDeadlineMarksPeerOffline),
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.offlineDeadlineMarksPeerOffline),
             );
             t.run(
                 "passive_keepalive_emits_empty_transport",
-                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.passiveKeepaliveEmitsEmptyTransport),
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.passiveKeepaliveEmitsEmptyTransport),
             );
             t.run(
                 "initiate_handshake_configures_persistent_keepalive",
-                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.initiateHandshakeConfiguresPersistentKeepalive),
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.initiateHandshakeConfiguresPersistentKeepalive),
             );
             t.run(
                 "persistent_keepalive_emits_empty_transport",
-                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.persistentKeepaliveEmitsEmptyTransport),
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.persistentKeepaliveEmitsEmptyTransport),
             );
             t.run(
                 "chacha_poly_rekey_transfer_10KiB",
-                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.chachaRekeyTransfer10KiB),
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.chachaRekeyTransfer10KiB),
             );
             t.run(
                 "aes_256_gcm_rekey_transfer_10KiB",
-                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.aesRekeyTransfer10KiB),
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.aesRekeyTransfer10KiB),
             );
             t.run(
                 "plaintext_rekey_transfer_10KiB",
-                testing_api.TestRunner.fromFn(lib, 512 * 1024, Cases.plaintextRekeyTransfer10KiB),
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.plaintextRekeyTransfer10KiB),
             );
             return true;
         }
 
-        pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: glib.std.mem.Allocator) void {
             _ = allocator;
-            lib.testing.allocator.destroy(self);
+            grt.std.testing.allocator.destroy(self);
         }
     };
 
-    const value = lib.testing.allocator.create(Runner) catch @panic("OOM");
+    const value = grt.std.testing.allocator.create(Runner) catch @panic("OOM");
     value.* = .{};
     return testing_api.TestRunner.make(Runner).new(value);
 }
