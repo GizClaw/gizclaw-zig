@@ -12,58 +12,58 @@ pub const Kind = enum {
     cleanup_deadline,
 };
 
-keepalive_deadline_ms: ?u64 = null,
-persistent_keepalive_deadline_ms: ?u64 = null,
-rekey_deadline_ms: ?u64 = null,
-handshake_retry_deadline_ms: ?u64 = null,
-handshake_deadline_ms: ?u64 = null,
-offline_deadline_ms: ?u64 = null,
-cleanup_deadline_ms: ?u64 = null,
+keepalive_deadline: ?glib.time.instant.Time = null,
+persistent_keepalive_deadline: ?glib.time.instant.Time = null,
+rekey_deadline: ?glib.time.instant.Time = null,
+handshake_retry_deadline: ?glib.time.instant.Time = null,
+handshake_deadline: ?glib.time.instant.Time = null,
+offline_deadline: ?glib.time.instant.Time = null,
+cleanup_deadline: ?glib.time.instant.Time = null,
 
 pub fn clear(self: *TimerState) void {
     self.* = .{};
 }
 
-pub fn set(self: *TimerState, kind: Kind, due_ms: ?u64) void {
+pub fn set(self: *TimerState, kind: Kind, due: ?glib.time.instant.Time) void {
     switch (kind) {
-        .keepalive_deadline => self.keepalive_deadline_ms = due_ms,
-        .persistent_keepalive_deadline => self.persistent_keepalive_deadline_ms = due_ms,
-        .rekey_deadline => self.rekey_deadline_ms = due_ms,
-        .handshake_retry_deadline => self.handshake_retry_deadline_ms = due_ms,
-        .handshake_deadline => self.handshake_deadline_ms = due_ms,
-        .offline_deadline => self.offline_deadline_ms = due_ms,
-        .cleanup_deadline => self.cleanup_deadline_ms = due_ms,
+        .keepalive_deadline => self.keepalive_deadline = due,
+        .persistent_keepalive_deadline => self.persistent_keepalive_deadline = due,
+        .rekey_deadline => self.rekey_deadline = due,
+        .handshake_retry_deadline => self.handshake_retry_deadline = due,
+        .handshake_deadline => self.handshake_deadline = due,
+        .offline_deadline => self.offline_deadline = due,
+        .cleanup_deadline => self.cleanup_deadline = due,
     }
 }
 
-pub fn get(self: TimerState, kind: Kind) ?u64 {
+pub fn get(self: TimerState, kind: Kind) ?glib.time.instant.Time {
     return switch (kind) {
-        .keepalive_deadline => self.keepalive_deadline_ms,
-        .persistent_keepalive_deadline => self.persistent_keepalive_deadline_ms,
-        .rekey_deadline => self.rekey_deadline_ms,
-        .handshake_retry_deadline => self.handshake_retry_deadline_ms,
-        .handshake_deadline => self.handshake_deadline_ms,
-        .offline_deadline => self.offline_deadline_ms,
-        .cleanup_deadline => self.cleanup_deadline_ms,
+        .keepalive_deadline => self.keepalive_deadline,
+        .persistent_keepalive_deadline => self.persistent_keepalive_deadline,
+        .rekey_deadline => self.rekey_deadline,
+        .handshake_retry_deadline => self.handshake_retry_deadline,
+        .handshake_deadline => self.handshake_deadline,
+        .offline_deadline => self.offline_deadline,
+        .cleanup_deadline => self.cleanup_deadline,
     };
 }
 
-pub fn nextDue(self: TimerState, now_ms: u64) ?Kind {
+pub fn nextDue(self: TimerState, now: glib.time.instant.Time) ?Kind {
     var best_kind: ?Kind = null;
-    var best_due: ?u64 = null;
-    self.considerDue(.keepalive_deadline, now_ms, &best_kind, &best_due);
-    self.considerDue(.persistent_keepalive_deadline, now_ms, &best_kind, &best_due);
-    self.considerDue(.rekey_deadline, now_ms, &best_kind, &best_due);
-    self.considerDue(.handshake_retry_deadline, now_ms, &best_kind, &best_due);
-    self.considerDue(.handshake_deadline, now_ms, &best_kind, &best_due);
-    self.considerDue(.offline_deadline, now_ms, &best_kind, &best_due);
-    self.considerDue(.cleanup_deadline, now_ms, &best_kind, &best_due);
+    var best_due: ?glib.time.instant.Time = null;
+    self.considerDue(.keepalive_deadline, now, &best_kind, &best_due);
+    self.considerDue(.persistent_keepalive_deadline, now, &best_kind, &best_due);
+    self.considerDue(.rekey_deadline, now, &best_kind, &best_due);
+    self.considerDue(.handshake_retry_deadline, now, &best_kind, &best_due);
+    self.considerDue(.handshake_deadline, now, &best_kind, &best_due);
+    self.considerDue(.offline_deadline, now, &best_kind, &best_due);
+    self.considerDue(.cleanup_deadline, now, &best_kind, &best_due);
 
     return best_kind;
 }
 
-pub fn earliest(self: TimerState) ?u64 {
-    var best_due: ?u64 = null;
+pub fn earliest(self: TimerState) ?glib.time.instant.Time {
+    var best_due: ?glib.time.instant.Time = null;
     self.considerEarliest(.keepalive_deadline, &best_due);
     self.considerEarliest(.persistent_keepalive_deadline, &best_due);
     self.considerEarliest(.rekey_deadline, &best_due);
@@ -78,19 +78,19 @@ pub fn earliest(self: TimerState) ?u64 {
 fn considerDue(
     self: TimerState,
     kind: Kind,
-    now_ms: u64,
+    now: glib.time.instant.Time,
     best_kind: *?Kind,
-    best_due: *?u64,
+    best_due: *?glib.time.instant.Time,
 ) void {
     const due = self.get(kind) orelse return;
-    if (due > now_ms) return;
+    if (due > now) return;
     if (best_due.* == null or due < best_due.*.?) {
         best_due.* = due;
         best_kind.* = kind;
     }
 }
 
-fn considerEarliest(self: TimerState, kind: Kind, best_due: *?u64) void {
+fn considerEarliest(self: TimerState, kind: Kind, best_due: *?glib.time.instant.Time) void {
     const due = self.get(kind) orelse return;
     if (best_due.* == null or due < best_due.*.?) best_due.* = due;
 }
@@ -123,7 +123,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
         fn tryCase(comptime any_lib: type) !void {
             _ = any_lib;
             var timers: TimerState = .{};
-            try grt.std.testing.expectEqual(@as(?u64, null), timers.earliest());
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), timers.earliest());
             try grt.std.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(0));
 
             timers.set(.rekey_deadline, 20);
@@ -134,17 +134,17 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             timers.set(.handshake_deadline, 18);
             timers.set(.offline_deadline, 25);
 
-            try grt.std.testing.expectEqual(@as(?u64, 20), timers.get(.rekey_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, 10), timers.earliest());
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 20), timers.get(.rekey_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 10), timers.earliest());
             try grt.std.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(9));
             try grt.std.testing.expectEqual(@as(?TimerState.Kind, .keepalive_deadline), timers.nextDue(10));
 
             timers.set(.keepalive_deadline, null);
-            try grt.std.testing.expectEqual(@as(?u64, 11), timers.earliest());
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 11), timers.earliest());
             try grt.std.testing.expectEqual(@as(?TimerState.Kind, .persistent_keepalive_deadline), timers.nextDue(11));
 
             timers.clear();
-            try grt.std.testing.expectEqual(@as(?u64, null), timers.earliest());
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), timers.earliest());
             try grt.std.testing.expectEqual(@as(?TimerState.Kind, null), timers.nextDue(100));
         }
     };

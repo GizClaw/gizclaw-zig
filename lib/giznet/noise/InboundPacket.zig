@@ -51,7 +51,7 @@ vtable: ?*const VTable = null,
 pool: ?PoolType = null,
 len: usize = 0,
 remote_endpoint: AddrPort = .{},
-timestamp_ms: u64 = 0,
+timestamp: glib.time.instant.Time = 0,
 state: State = .initial,
 kind: Kind = .unknown,
 remote_static: Key = .{},
@@ -140,7 +140,7 @@ pub fn deinit(self: *InboundPacket) void {
     const impl_ptr = self.impl_ptr orelse unreachable;
     self.len = 0;
     self.remote_endpoint = .{};
-    self.timestamp_ms = 0;
+    self.timestamp = 0;
     self.state = .initial;
     self.kind = .unknown;
     self.remote_static = .{};
@@ -309,7 +309,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             @memcpy(packet.bufRef()[0..wire_len], wire[0..wire_len]);
             packet.len = wire_len;
             packet.remote_endpoint = endpoint;
-            packet.timestamp_ms = 77;
+            packet.timestamp = 77;
             packet.state = .prepared;
             packet.kind = .unknown;
             packet.remote_static = .{};
@@ -350,7 +350,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             @memcpy(packet.bufRef()[0..payload.len], payload[0..]);
             packet.len = payload.len;
             packet.remote_endpoint = endpoint;
-            packet.timestamp_ms = 77;
+            packet.timestamp = 77;
             packet.state = .prepared;
             packet.kind = .unknown;
             packet.remote_static = .{};
@@ -360,7 +360,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             packet.counter = 0;
             try grt.std.testing.expect(glib.std.mem.eql(u8, packet.bytes(), &[_]u8{ 7, 'h', 'e', 'l', 'l', 'o' }));
             try grt.std.testing.expect(glib.std.meta.eql(packet.remote_endpoint, endpoint));
-            try grt.std.testing.expectEqual(@as(u64, 77), packet.timestamp_ms);
+            try grt.std.testing.expectEqual(@as(glib.time.instant.Time, 77), packet.timestamp);
             try grt.std.testing.expectEqual(State.prepared, packet.state);
             try grt.std.testing.expectEqual(Kind.unknown, packet.kind);
             try grt.std.testing.expectEqual(@as(u32, 0), packet.local_session_index);
@@ -382,7 +382,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             @memcpy(first.bufRef()[0.."ping".len], "ping");
             first.len = "ping".len;
             first.remote_endpoint = endpoint;
-            first.timestamp_ms = 91;
+            first.timestamp = 91;
             first.state = .prepared;
             first.kind = .unknown;
             first.remote_static = .{};

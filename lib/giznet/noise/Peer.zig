@@ -9,12 +9,12 @@ const TimerState = @import("TimerState.zig");
 const root = @This();
 
 pub const PeerTimerConfig = struct {
-    keepalive_timeout_ms: u64,
-    rekey_after_time_ms: u64,
-    rekey_timeout_ms: u64,
-    handshake_attempt_ms: u64,
-    offline_timeout_ms: u64,
-    session_cleanup_ms: u64,
+    keepalive_timeout: glib.time.duration.Duration,
+    rekey_after_time: glib.time.duration.Duration,
+    rekey_timeout: glib.time.duration.Duration,
+    handshake_attempt: glib.time.duration.Duration,
+    offline_timeout: glib.time.duration.Duration,
+    session_cleanup: glib.time.duration.Duration,
     rekey_after_messages: u64,
 };
 
@@ -31,8 +31,8 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
             endpoint: AddrPort,
             local_session_index: u32,
             handshake: Handshake,
-            attempt_started_ms: u64,
-            last_sent_ms: u64,
+            attempt_started: glib.time.instant.Time,
+            last_sent: glib.time.instant.Time,
         };
 
         key: Key,
@@ -44,14 +44,14 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
         pending_handshake: ?PendingHandshake = null,
         is_offline: bool = false,
         persistent_keepalive: bool = false,
-        keepalive_interval_ms: ?u64 = null,
+        keepalive_interval: ?glib.time.duration.Duration = null,
         is_initiator: bool = false,
         rekey_triggered: bool = false,
         rekey_requested: bool = false,
-        session_created_ms: u64 = 0,
-        last_sent_ms: u64 = 0,
-        last_received_ms: u64 = 0,
-        offline_deadline_ms: ?u64 = null,
+        session_created: glib.time.instant.Time = 0,
+        last_sent: glib.time.instant.Time = 0,
+        last_received: glib.time.instant.Time = 0,
+        offline_deadline: ?glib.time.instant.Time = null,
         timers: TimerState = .{},
 
         const Self = @This();
@@ -59,7 +59,7 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
         pub fn init(key: Key, timer_config: TimerConfig) Self {
             return .{
                 .key = key,
-                .timer_config = timer_config,
+                .timer_config = root.normalizeTimerConfig(timer_config),
             };
         }
 
@@ -69,20 +69,20 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
             endpoint: AddrPort,
             local_session_index: u32,
             handshake: Handshake,
-            keepalive_interval_ms: ?u64,
-            now_ms: u64,
+            keepalive_interval: ?glib.time.duration.Duration,
+            now: glib.time.instant.Time,
         ) void {
             self.local_static = local_static;
             self.endpoint = endpoint;
-            self.persistent_keepalive = keepalive_interval_ms != null;
-            self.keepalive_interval_ms = keepalive_interval_ms;
+            self.persistent_keepalive = keepalive_interval != null;
+            self.keepalive_interval = keepalive_interval;
             self.pending_handshake = .{
                 .local_static = local_static,
                 .endpoint = endpoint,
                 .local_session_index = local_session_index,
                 .handshake = handshake,
-                .attempt_started_ms = now_ms,
-                .last_sent_ms = now_ms,
+                .attempt_started = now,
+                .last_sent = now,
             };
         }
 
@@ -92,17 +92,17 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
             self.timers.set(.handshake_deadline, null);
         }
 
-        pub fn markOnline(self: *Self, now_ms: u64) void {
+        pub fn markOnline(self: *Self, now: glib.time.instant.Time) void {
             self.is_offline = false;
-            self.offline_deadline_ms = if (self.current != null)
-                now_ms + self.timer_config.offline_timeout_ms
+            self.offline_deadline = if (self.current != null)
+                glib.time.instant.add(now, self.timer_config.offline_timeout)
             else
                 null;
         }
 
         pub fn markOffline(self: *Self) void {
             self.is_offline = true;
-            self.offline_deadline_ms = null;
+            self.offline_deadline = null;
             self.timers.set(.keepalive_deadline, null);
             self.timers.set(.persistent_keepalive_deadline, null);
             self.timers.set(.rekey_deadline, null);
@@ -115,30 +115,30 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
             endpoint: AddrPort,
             session: Session,
             is_initiator: bool,
-            now_ms: u64,
+            now: glib.time.instant.Time,
         ) void {
             self.local_static = local_static;
             self.endpoint = endpoint;
             self.is_initiator = is_initiator;
             self.rekey_triggered = false;
             self.rekey_requested = false;
-            self.session_created_ms = now_ms;
-            self.last_sent_ms = now_ms;
-            self.last_received_ms = now_ms;
+            self.session_created = now;
+            self.last_sent = now;
+            self.last_received = now;
             self.clearPendingHandshake();
             self.previous = self.current;
             self.current = session;
-            self.markOnline(now_ms);
+            self.markOnline(now);
             if (self.current) |*current| current.setEndpoint(endpoint);
         }
 
-        pub fn updateTimers(self: *Self, now_ms: u64, transport_messages: usize) void {
+        pub fn updateTimers(self: *Self, now: glib.time.instant.Time, transport_messages: usize) void {
             if (transport_messages != 0) {
                 if (self.current) |current| {
                     if (self.is_initiator and !self.rekey_triggered and self.pending_handshake == null) {
                         if (current.sendNonce() >= self.timer_config.rekey_after_messages or
                             current.recvMaxNonce() >= self.timer_config.rekey_after_messages or
-                            (now_ms -| self.session_created_ms) >= self.timer_config.rekey_after_time_ms)
+                            glib.time.instant.sub(now, self.session_created) >= self.timer_config.rekey_after_time)
                         {
                             self.rekey_requested = true;
                         }
@@ -147,12 +147,12 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
             }
 
             self.recomputeTimers(
-                self.timer_config.keepalive_timeout_ms,
-                self.timer_config.rekey_after_time_ms,
-                self.timer_config.rekey_timeout_ms,
-                self.timer_config.handshake_attempt_ms,
-                self.timer_config.offline_timeout_ms,
-                self.timer_config.session_cleanup_ms,
+                self.timer_config.keepalive_timeout,
+                self.timer_config.rekey_after_time,
+                self.timer_config.rekey_timeout,
+                self.timer_config.handshake_attempt,
+                self.timer_config.offline_timeout,
+                self.timer_config.session_cleanup,
             );
         }
 
@@ -172,49 +172,56 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
 
         pub fn recomputeTimers(
             self: *Self,
-            keepalive_timeout_ms: u64,
-            rekey_after_time_ms: u64,
-            rekey_timeout_ms: u64,
-            handshake_attempt_ms: u64,
-            offline_timeout_ms: u64,
-            session_cleanup_ms: u64,
+            keepalive_timeout: glib.time.duration.Duration,
+            rekey_after_time: glib.time.duration.Duration,
+            rekey_timeout: glib.time.duration.Duration,
+            handshake_attempt: glib.time.duration.Duration,
+            offline_timeout: glib.time.duration.Duration,
+            session_cleanup: glib.time.duration.Duration,
         ) void {
-            if (self.current != null and !self.is_offline and self.last_received_ms > self.last_sent_ms) {
-                self.timers.set(.keepalive_deadline, self.last_received_ms + keepalive_timeout_ms);
+            const safe_keepalive_timeout = root.nonNegativeDuration(keepalive_timeout);
+            const safe_rekey_after_time = root.nonNegativeDuration(rekey_after_time);
+            const safe_rekey_timeout = root.nonNegativeDuration(rekey_timeout);
+            const safe_handshake_attempt = root.nonNegativeDuration(handshake_attempt);
+            const safe_offline_timeout = root.nonNegativeDuration(offline_timeout);
+            const safe_session_cleanup = root.nonNegativeDuration(session_cleanup);
+
+            if (self.current != null and !self.is_offline and self.last_received > self.last_sent) {
+                self.timers.set(.keepalive_deadline, glib.time.instant.add(self.last_received, safe_keepalive_timeout));
             } else {
                 self.timers.set(.keepalive_deadline, null);
             }
 
-            if (self.current != null and !self.is_offline and self.persistent_keepalive and self.keepalive_interval_ms != null) {
-                const interval_ms = self.keepalive_interval_ms.?;
-                const safe_interval_ms: u64 = if (interval_ms == 0) 1 else interval_ms;
-                self.timers.set(.persistent_keepalive_deadline, self.last_sent_ms + safe_interval_ms);
+            if (self.current != null and !self.is_offline and self.persistent_keepalive and self.keepalive_interval != null) {
+                const interval = self.keepalive_interval.?;
+                const safe_interval: glib.time.duration.Duration = if (interval <= 0) glib.time.duration.MilliSecond else interval;
+                self.timers.set(.persistent_keepalive_deadline, glib.time.instant.add(self.last_sent, safe_interval));
             } else {
                 self.timers.set(.persistent_keepalive_deadline, null);
             }
 
             if (self.current != null and !self.is_offline and self.is_initiator and !self.rekey_triggered) {
                 if (self.rekey_requested) {
-                    self.timers.set(.rekey_deadline, @max(self.last_received_ms, self.last_sent_ms));
+                    self.timers.set(.rekey_deadline, @max(self.last_received, self.last_sent));
                 } else {
-                    self.timers.set(.rekey_deadline, self.session_created_ms + rekey_after_time_ms);
+                    self.timers.set(.rekey_deadline, glib.time.instant.add(self.session_created, safe_rekey_after_time));
                 }
             } else {
                 self.timers.set(.rekey_deadline, null);
             }
 
             if (self.current != null and !self.is_offline) {
-                const deadline_ms = self.last_received_ms + offline_timeout_ms;
-                self.offline_deadline_ms = deadline_ms;
-                self.timers.set(.offline_deadline, deadline_ms);
+                const deadline = glib.time.instant.add(self.last_received, safe_offline_timeout);
+                self.offline_deadline = deadline;
+                self.timers.set(.offline_deadline, deadline);
             } else {
-                self.offline_deadline_ms = null;
+                self.offline_deadline = null;
                 self.timers.set(.offline_deadline, null);
             }
 
             if (self.pending_handshake) |pending_handshake| {
-                self.timers.set(.handshake_retry_deadline, pending_handshake.last_sent_ms + rekey_timeout_ms);
-                self.timers.set(.handshake_deadline, pending_handshake.attempt_started_ms + handshake_attempt_ms);
+                self.timers.set(.handshake_retry_deadline, glib.time.instant.add(pending_handshake.last_sent, safe_rekey_timeout));
+                self.timers.set(.handshake_deadline, glib.time.instant.add(pending_handshake.attempt_started, safe_handshake_attempt));
             } else {
                 self.timers.set(.handshake_retry_deadline, null);
                 self.timers.set(.handshake_deadline, null);
@@ -223,13 +230,28 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
             if (self.previous) |previous| {
                 self.timers.set(
                     .cleanup_deadline,
-                    @max(previous.lastReceivedMs(), previous.lastSentMs()) + session_cleanup_ms,
+                    glib.time.instant.add(@max(previous.lastReceivedTime(), previous.lastSentTime()), safe_session_cleanup),
                 );
             } else {
                 self.timers.set(.cleanup_deadline, null);
             }
         }
     };
+}
+
+fn normalizeTimerConfig(config: PeerTimerConfig) PeerTimerConfig {
+    var normalized = config;
+    normalized.keepalive_timeout = nonNegativeDuration(normalized.keepalive_timeout);
+    normalized.rekey_after_time = nonNegativeDuration(normalized.rekey_after_time);
+    normalized.rekey_timeout = nonNegativeDuration(normalized.rekey_timeout);
+    normalized.handshake_attempt = nonNegativeDuration(normalized.handshake_attempt);
+    normalized.offline_timeout = nonNegativeDuration(normalized.offline_timeout);
+    normalized.session_cleanup = nonNegativeDuration(normalized.session_cleanup);
+    return normalized;
+}
+
+fn nonNegativeDuration(duration: glib.time.duration.Duration) glib.time.duration.Duration {
+    return @max(duration, 0);
 }
 
 pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
@@ -269,40 +291,58 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const endpoint_three = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 3030);
 
             const timer_config: Peer.TimerConfig = .{
-                .keepalive_timeout_ms = 10,
-                .rekey_after_time_ms = 50,
-                .rekey_timeout_ms = 5,
-                .handshake_attempt_ms = 20,
-                .offline_timeout_ms = 60,
-                .session_cleanup_ms = 40,
+                .keepalive_timeout = 10,
+                .rekey_after_time = 50,
+                .rekey_timeout = 5,
+                .handshake_attempt = 20,
+                .offline_timeout = 60,
+                .session_cleanup = 40,
                 .rekey_after_messages = 8,
             };
+
+            const negative_timer_config: Peer.TimerConfig = .{
+                .keepalive_timeout = -1,
+                .rekey_after_time = -1,
+                .rekey_timeout = -1,
+                .handshake_attempt = -1,
+                .offline_timeout = -1,
+                .session_cleanup = -1,
+                .rekey_after_messages = 8,
+            };
+
+            const negative_peer = Peer.init(responder_pair.public, negative_timer_config);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), negative_peer.timer_config.keepalive_timeout);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), negative_peer.timer_config.rekey_after_time);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), negative_peer.timer_config.rekey_timeout);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), negative_peer.timer_config.handshake_attempt);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), negative_peer.timer_config.offline_timeout);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), negative_peer.timer_config.session_cleanup);
 
             var peer = Peer.init(responder_pair.public, timer_config);
             try grt.std.testing.expect(peer.key.eql(responder_pair.public));
             try grt.std.testing.expect(peer.isCompletelyIdle());
             try grt.std.testing.expect(!peer.persistent_keepalive);
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.keepalive_interval_ms);
+            try grt.std.testing.expectEqual(@as(?glib.time.duration.Duration, null), peer.keepalive_interval);
 
             const handshake = try Handshake.initInitiator(initiator_pair, responder_pair.public, 77);
             peer.startPendingHandshake(initiator_pair.public, endpoint_one, 77, handshake, 15, 100);
             try grt.std.testing.expect(peer.pending_handshake != null);
             try grt.std.testing.expect(peer.local_static.eql(initiator_pair.public));
             try grt.std.testing.expect(peer.persistent_keepalive);
-            try grt.std.testing.expectEqual(@as(?u64, 15), peer.keepalive_interval_ms);
+            try grt.std.testing.expectEqual(@as(?glib.time.duration.Duration, 15), peer.keepalive_interval);
             try grt.std.testing.expect(giznet.eqlAddrPort(peer.pending_handshake.?.endpoint, endpoint_one));
             try grt.std.testing.expectEqual(@as(?u32, 77), if (peer.pending_handshake) |pending_handshake| pending_handshake.local_session_index else null);
             try grt.std.testing.expect(peer.pending_handshake != null);
 
-            peer.pending_handshake.?.last_sent_ms = 111;
+            peer.pending_handshake.?.last_sent = 111;
             peer.updateTimers(111, 0);
-            try grt.std.testing.expectEqual(@as(?u64, 116), peer.timers.get(.handshake_retry_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, 120), peer.timers.get(.handshake_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 116), peer.timers.get(.handshake_retry_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 120), peer.timers.get(.handshake_deadline));
 
             peer.clearPendingHandshake();
             try grt.std.testing.expect(peer.pending_handshake == null);
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_retry_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.handshake_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), peer.timers.get(.handshake_retry_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), peer.timers.get(.handshake_deadline));
 
             const session_one = makeSession(Session, responder_pair.public, endpoint_one, 1, 2, 0x11, 0x22);
             peer.establish(initiator_pair.public, endpoint_one, session_one, true, 200);
@@ -319,33 +359,33 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try grt.std.testing.expect(giznet.eqlAddrPort(peer.endpoint, endpoint_two));
 
             peer.endpoint = endpoint_three;
-            peer.last_received_ms = 310;
+            peer.last_received = 310;
             if (peer.current) |*current| current.setEndpoint(endpoint_three);
             if (peer.previous) |*previous| previous.setEndpoint(endpoint_three);
             peer.updateTimers(310, 1);
             try grt.std.testing.expect(giznet.eqlAddrPort(peer.endpoint, endpoint_three));
             try grt.std.testing.expect(giznet.eqlAddrPort(peer.current.?.endpointValue(), endpoint_three));
             try grt.std.testing.expect(giznet.eqlAddrPort(peer.previous.?.endpointValue(), endpoint_three));
-            try grt.std.testing.expectEqual(@as(?u64, 320), peer.timers.get(.keepalive_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, 315), peer.timers.get(.persistent_keepalive_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, 350), peer.timers.get(.rekey_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, 370), peer.timers.get(.offline_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, 370), peer.offline_deadline_ms);
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 320), peer.timers.get(.keepalive_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 315), peer.timers.get(.persistent_keepalive_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 350), peer.timers.get(.rekey_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 370), peer.timers.get(.offline_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, 370), peer.offline_deadline);
 
             peer.rekey_triggered = true;
             peer.rekey_requested = false;
             peer.updateTimers(310, 0);
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.rekey_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), peer.timers.get(.rekey_deadline));
             peer.rekey_triggered = false;
             peer.rekey_requested = false;
 
             peer.markOffline();
             peer.updateTimers(310, 0);
             try grt.std.testing.expect(peer.is_offline);
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.offline_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.keepalive_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.persistent_keepalive_deadline));
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.offline_deadline_ms);
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), peer.timers.get(.offline_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), peer.timers.get(.keepalive_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), peer.timers.get(.persistent_keepalive_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), peer.offline_deadline);
 
             peer.current = peer.previous;
             peer.previous = null;

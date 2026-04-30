@@ -14,26 +14,26 @@ const SessionType = @import("Session.zig");
 
 const Engine = @This();
 
-pub const default_rekey_after_time_ms: u64 = 120_000;
-pub const default_reject_after_time_ms: u64 = 180_000;
-pub const default_rekey_timeout_ms: u64 = 5_000;
-pub const default_keepalive_timeout_ms: u64 = 10_000;
-pub const default_handshake_attempt_ms: u64 = 90_000;
-pub const default_offline_timeout_ms: u64 = 180_000;
-pub const default_session_cleanup_ms: u64 = 180_000;
+pub const default_rekey_after_time: glib.time.duration.Duration = 120 * glib.time.duration.Second;
+pub const default_reject_after_time: glib.time.duration.Duration = 180 * glib.time.duration.Second;
+pub const default_rekey_timeout: glib.time.duration.Duration = 5 * glib.time.duration.Second;
+pub const default_keepalive_timeout: glib.time.duration.Duration = 10 * glib.time.duration.Second;
+pub const default_handshake_attempt: glib.time.duration.Duration = 90 * glib.time.duration.Second;
+pub const default_offline_timeout: glib.time.duration.Duration = 180 * glib.time.duration.Second;
+pub const default_session_cleanup: glib.time.duration.Duration = 180 * glib.time.duration.Second;
 pub const default_rekey_after_messages: u64 = 1 << 20;
 pub const default_reject_after_messages: u64 = (1 << 20) + (1 << 12);
 
 pub const Config = struct {
     max_peers: usize = 8,
     max_pending: usize = 8,
-    rekey_after_time_ms: u64 = default_rekey_after_time_ms,
-    reject_after_time_ms: u64 = default_reject_after_time_ms,
-    rekey_timeout_ms: u64 = default_rekey_timeout_ms,
-    keepalive_timeout_ms: u64 = default_keepalive_timeout_ms,
-    handshake_attempt_ms: u64 = default_handshake_attempt_ms,
-    offline_timeout_ms: u64 = default_offline_timeout_ms,
-    session_cleanup_ms: u64 = default_session_cleanup_ms,
+    rekey_after_time: glib.time.duration.Duration = default_rekey_after_time,
+    reject_after_time: glib.time.duration.Duration = default_reject_after_time,
+    rekey_timeout: glib.time.duration.Duration = default_rekey_timeout,
+    keepalive_timeout: glib.time.duration.Duration = default_keepalive_timeout,
+    handshake_attempt: glib.time.duration.Duration = default_handshake_attempt,
+    offline_timeout: glib.time.duration.Duration = default_offline_timeout,
+    session_cleanup: glib.time.duration.Duration = default_session_cleanup,
     rekey_after_messages: u64 = default_rekey_after_messages,
     reject_after_messages: u64 = default_reject_after_messages,
 };
@@ -43,13 +43,13 @@ pub const DriveOutput = union(enum) {
     inbound: *InboundPacket,
     established: Key,
     offline: Key,
-    next_tick_ms: u64,
+    next_tick_deadline: glib.time.instant.Time,
 };
 
 pub const InitiateHandshake = struct {
     remote_key: Key,
     remote_endpoint: AddrPort,
-    keepalive_interval_ms: ?u64 = null,
+    keepalive_interval: ?glib.time.duration.Duration = null,
 };
 
 pub const SendData = struct {
@@ -68,7 +68,7 @@ pub const Stats = struct {
     peer_count: usize = 0,
     pending_handshake_count: usize = 0,
     session_count: usize = 0,
-    latest_handshake_ms: ?u64 = null,
+    latest_handshake: ?glib.time.instant.Time = null,
     transfer_rx: u64 = 0,
     transfer_tx: u64 = 0,
 };
@@ -93,13 +93,13 @@ pub fn make(
     const PeerTable = PeerTableType.make(grt, cipher_kind);
     const Session = SessionType.make(grt, packet_size_capacity, cipher_kind);
     const TimerTreapKey = struct {
-        due_ms: u64,
+        due: glib.time.instant.Time,
         peer_key: Key,
     };
     const TimerTreap = grt.std.Treap(TimerTreapKey, struct {
         fn compare(a: TimerTreapKey, b: TimerTreapKey) Order {
-            if (a.due_ms < b.due_ms) return .lt;
-            if (a.due_ms > b.due_ms) return .gt;
+            if (a.due < b.due) return .lt;
+            if (a.due > b.due) return .gt;
 
             var index: usize = 0;
             while (index < a.peer_key.bytes.len) : (index += 1) {
@@ -111,8 +111,6 @@ pub fn make(
     }.compare);
 
     return struct {
-        var started: ?grt.time.instant.Time = null;
-
         allocator: grt.std.mem.Allocator,
         local_static: KeyPair,
         config: Engine.Config,
@@ -137,9 +135,10 @@ pub fn make(
             local_static: KeyPair,
             config: Engine.Config,
         ) !Self {
+            const normalized_config = Engine.normalizeConfig(config);
             var timer_slots: []TimerSlot = &[_]TimerSlot{};
-            if (config.max_peers != 0) {
-                timer_slots = try allocator.alloc(TimerSlot, config.max_peers);
+            if (normalized_config.max_peers != 0) {
+                timer_slots = try allocator.alloc(TimerSlot, normalized_config.max_peers);
             }
             errdefer if (timer_slots.len != 0) allocator.free(timer_slots);
             for (timer_slots) |*slot| slot.* = .{};
@@ -153,15 +152,15 @@ pub fn make(
             return .{
                 .allocator = allocator,
                 .local_static = local_static,
-                .config = config,
-                .peers = PeerTable.init(allocator, config.max_peers, .{
-                    .keepalive_timeout_ms = config.keepalive_timeout_ms,
-                    .rekey_after_time_ms = config.rekey_after_time_ms,
-                    .rekey_timeout_ms = config.rekey_timeout_ms,
-                    .handshake_attempt_ms = config.handshake_attempt_ms,
-                    .offline_timeout_ms = config.offline_timeout_ms,
-                    .session_cleanup_ms = config.session_cleanup_ms,
-                    .rekey_after_messages = config.rekey_after_messages,
+                .config = normalized_config,
+                .peers = PeerTable.init(allocator, normalized_config.max_peers, .{
+                    .keepalive_timeout = normalized_config.keepalive_timeout,
+                    .rekey_after_time = normalized_config.rekey_after_time,
+                    .rekey_timeout = normalized_config.rekey_timeout,
+                    .handshake_attempt = normalized_config.handshake_attempt,
+                    .offline_timeout = normalized_config.offline_timeout,
+                    .session_cleanup = normalized_config.session_cleanup,
+                    .rekey_after_messages = normalized_config.rekey_after_messages,
                 }),
                 .inbound_pool = inbound_pool,
                 .outbound_pool = outbound_pool,
@@ -247,15 +246,15 @@ pub fn make(
             self: *Self,
             on_result: Engine.Callback,
         ) !void {
-            const now_ms = nowMs();
+            const now_time = Self.instantNow();
 
             while (self.timer_treap.getMin()) |node| {
-                if (node.key.due_ms > now_ms) break;
-                try self.tickNode(node, now_ms, on_result);
+                if (node.key.due > now_time) break;
+                try self.tickNode(node, now_time, on_result);
             }
 
             if (self.timer_treap.getMin()) |node| {
-                try self.emitEvent(on_result, .{ .next_tick_ms = node.key.due_ms });
+                try self.emitEvent(on_result, .{ .next_tick_deadline = node.key.due });
             }
         }
 
@@ -335,7 +334,7 @@ pub fn make(
             const responder_session_index = try self.allocateSessionIndex();
             const written = try handshake.writeResponse(responder_session_index, outbound_packet.bufRef());
             const material = try handshake.sessionMaterial();
-            const now_ms = nowMs();
+            const now_time = Self.instantNow();
             const endpoint = packet.remote_endpoint;
             const session = Session.init(.{
                 .local_index = responder_session_index,
@@ -344,13 +343,13 @@ pub fn make(
                 .endpoint = endpoint,
                 .send_key = material.server_to_client,
                 .recv_key = material.client_to_server,
-                .timeout_ms = self.config.reject_after_time_ms,
-                .now_ms = now_ms,
+                .timeout = self.config.reject_after_time,
+                .now = now_time,
             });
 
-            self.stats.latest_handshake_ms = now_ms;
-            peer.establish(self.local_static.public, endpoint, session, false, now_ms);
-            peer.updateTimers(now_ms, 0);
+            self.stats.latest_handshake = now_time;
+            peer.establish(self.local_static.public, endpoint, session, false, now_time);
+            peer.updateTimers(now_time, 0);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
             try self.emitEvent(on_result, .{ .established = peer_key });
 
@@ -377,7 +376,7 @@ pub fn make(
             try handshake.readResponse(packet.bytes());
             const material = try handshake.sessionMaterial();
 
-            const now_ms = nowMs();
+            const now_time = Self.instantNow();
             const endpoint = packet.remote_endpoint;
             const session = Session.init(.{
                 .local_index = handshake.localSessionIndex(),
@@ -386,13 +385,13 @@ pub fn make(
                 .endpoint = endpoint,
                 .send_key = material.client_to_server,
                 .recv_key = material.server_to_client,
-                .timeout_ms = self.config.reject_after_time_ms,
-                .now_ms = now_ms,
+                .timeout = self.config.reject_after_time,
+                .now = now_time,
             });
 
-            self.stats.latest_handshake_ms = now_ms;
-            peer.establish(self.local_static.public, endpoint, session, true, now_ms);
-            peer.updateTimers(now_ms, 0);
+            self.stats.latest_handshake = now_time;
+            peer.establish(self.local_static.public, endpoint, session, true, now_time);
+            peer.updateTimers(now_time, 0);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
             try self.emitEvent(on_result, .{ .established = peer.key });
 
@@ -412,14 +411,14 @@ pub fn make(
             const session = peer.sessionByLocalIndex(packet.local_session_index) orelse return error.SessionNotFound;
             if (session.remoteIndex() != packet.remote_session_index) return error.SessionIndexMismatch;
 
-            const now_ms = nowMs();
-            try session.commitRecv(packet.counter, now_ms);
+            const now_time = Self.instantNow();
+            try session.commitRecv(packet.counter, now_time);
             peer.endpoint = packet.remote_endpoint;
-            peer.last_received_ms = now_ms;
-            peer.markOnline(now_ms);
+            peer.last_received = now_time;
+            peer.markOnline(now_time);
             if (peer.current) |*current| current.setEndpoint(peer.endpoint);
             if (peer.previous) |*previous| previous.setEndpoint(peer.endpoint);
-            peer.updateTimers(now_ms, 1);
+            peer.updateTimers(now_time, 1);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
 
             packet.state = .consumed;
@@ -464,8 +463,8 @@ pub fn make(
 
             const peer = self.peers.get(request.remote_key) orelse return error.SessionNotFound;
             const session = if (peer.current) |*session| session else return error.SessionNotFound;
-            const sent_ms = nowMs();
-            const counter = try session.claimSendCounter(sent_ms);
+            const sent = Self.instantNow();
+            const counter = try session.claimSendCounter(sent);
 
             packet.len = request.payload.len;
             packet.remote_endpoint = session.endpointValue();
@@ -474,8 +473,8 @@ pub fn make(
             packet.remote_session_index = session.remoteIndex();
             packet.counter = counter;
 
-            peer.last_sent_ms = sent_ms;
-            peer.updateTimers(sent_ms, 1);
+            peer.last_sent = sent;
+            peer.updateTimers(sent, 1);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
             try self.emitEvent(on_result, .{ .outbound = packet });
         }
@@ -491,14 +490,14 @@ pub fn make(
 
             const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer packet.deinit();
-            try self.startPendingHandshake(peer, request.remote_endpoint, request.keepalive_interval_ms, nowMs(), packet);
+            try self.startPendingHandshake(peer, request.remote_endpoint, request.keepalive_interval, Self.instantNow(), packet);
             try self.emitEvent(on_result, .{ .outbound = packet });
         }
 
         fn tickNode(
             self: *Self,
             node: *TimerTreap.Node,
-            now_ms: u64,
+            now: glib.time.instant.Time,
             on_result: Engine.Callback,
         ) !void {
             const peer_key = node.key.peer_key;
@@ -523,8 +522,8 @@ pub fn make(
                 }
             }
 
-            peer.updateTimers(now_ms, 0);
-            while (peer.timers.nextDue(now_ms)) |kind| {
+            peer.updateTimers(now, 0);
+            while (peer.timers.nextDue(now)) |kind| {
                 switch (kind) {
                     .keepalive_deadline => {
                         peer.timers.set(.keepalive_deadline, null);
@@ -567,7 +566,7 @@ pub fn make(
 
             if (mark_offline) {
                 peer.markOffline();
-                peer.updateTimers(now_ms, 0);
+                peer.updateTimers(now, 0);
                 try self.emitEvent(on_result, .{ .offline = peer.key });
             } else {
                 if (send_keepalive) {
@@ -594,8 +593,8 @@ pub fn make(
             errdefer packet.deinit();
             const peer = self.peers.get(peer_key) orelse return error.SessionNotFound;
             const session = if (peer.current) |*session| session else return error.SessionNotFound;
-            const sent_ms = nowMs();
-            const counter = try session.claimSendCounter(sent_ms);
+            const sent = Self.instantNow();
+            const counter = try session.claimSendCounter(sent);
             packet.len = 0;
             packet.state = .prepared;
             packet.kind = .transport;
@@ -604,8 +603,8 @@ pub fn make(
             packet.session_key = session.sendKey();
             packet.remote_session_index = session.remoteIndex();
             packet.counter = counter;
-            peer.last_sent_ms = sent_ms;
-            peer.updateTimers(sent_ms, 1);
+            peer.last_sent = sent;
+            peer.updateTimers(sent, 1);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
             try self.emitEvent(on_result, .{ .outbound = packet });
         }
@@ -614,16 +613,16 @@ pub fn make(
             self: *Self,
             peer: *Peer,
             endpoint: AddrPort,
-            keepalive_interval_ms: ?u64,
-            now_ms: u64,
+            keepalive_interval: ?glib.time.duration.Duration,
+            now: glib.time.instant.Time,
             packet: *OutboundPacket,
         ) !void {
             const local_session_index = try self.allocateSessionIndex();
             var handshake = try Handshake.initInitiator(self.local_static, peer.key, local_session_index);
             const written = try handshake.writeInit(packet.bufRef());
 
-            peer.startPendingHandshake(self.local_static.public, endpoint, local_session_index, handshake, keepalive_interval_ms, now_ms);
-            peer.updateTimers(now_ms, 0);
+            peer.startPendingHandshake(self.local_static.public, endpoint, local_session_index, handshake, keepalive_interval, now);
+            peer.updateTimers(now, 0);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
             packet.len = written;
             packet.kind = .handshake;
@@ -638,7 +637,7 @@ pub fn make(
 
             const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer packet.deinit();
-            try self.startPendingHandshake(peer, peer.endpoint, peer.keepalive_interval_ms, nowMs(), packet);
+            try self.startPendingHandshake(peer, peer.endpoint, peer.keepalive_interval, Self.instantNow(), packet);
             try self.emitEvent(on_result, .{ .outbound = packet });
         }
 
@@ -649,7 +648,7 @@ pub fn make(
             const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer packet.deinit();
             peer.clearPendingHandshake();
-            try self.startPendingHandshake(peer, pending_handshake.endpoint, peer.keepalive_interval_ms, nowMs(), packet);
+            try self.startPendingHandshake(peer, pending_handshake.endpoint, peer.keepalive_interval, Self.instantNow(), packet);
             try self.emitEvent(on_result, .{ .outbound = packet });
         }
 
@@ -691,10 +690,10 @@ pub fn make(
                 existing.set(null);
                 slot.inserted = false;
             }
-            const due_ms = peer.timers.earliest() orelse return;
+            const due = peer.timers.earliest() orelse return;
 
             var entry = self.timer_treap.getEntryFor(.{
-                .due_ms = due_ms,
+                .due = due,
                 .peer_key = peer.key,
             });
             entry.set(&slot.node);
@@ -737,19 +736,30 @@ pub fn make(
                 .inbound => |_| {},
                 .established => {},
                 .offline => {},
-                .next_tick_ms => {},
+                .next_tick_deadline => {},
             }
         }
 
-        fn nowMs() u64 {
-            const now = grt.time.instant.now();
-            if (started == null) {
-                started = now;
-                return 0;
-            }
-            return @intCast(@divTrunc(grt.time.instant.sub(now, started.?), grt.time.duration.MilliSecond));
+        pub fn instantNow() glib.time.instant.Time {
+            return grt.time.instant.now();
         }
     };
+}
+
+fn normalizeConfig(config: Config) Config {
+    var normalized = config;
+    normalized.rekey_after_time = nonNegativeDuration(normalized.rekey_after_time);
+    normalized.reject_after_time = nonNegativeDuration(normalized.reject_after_time);
+    normalized.rekey_timeout = nonNegativeDuration(normalized.rekey_timeout);
+    normalized.keepalive_timeout = nonNegativeDuration(normalized.keepalive_timeout);
+    normalized.handshake_attempt = nonNegativeDuration(normalized.handshake_attempt);
+    normalized.offline_timeout = nonNegativeDuration(normalized.offline_timeout);
+    normalized.session_cleanup = nonNegativeDuration(normalized.session_cleanup);
+    return normalized;
+}
+
+fn nonNegativeDuration(duration: glib.time.duration.Duration) glib.time.duration.Duration {
+    return @max(duration, 0);
 }
 
 pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
@@ -775,6 +785,11 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
         fn persistentKeepaliveEmitsEmptyTransport(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runPersistentKeepaliveFlow();
+        }
+
+        fn negativeDurationsNormalizeToImmediate(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
+            _ = allocator;
+            try runNegativeDurationNormalizationFlow();
         }
 
         fn chachaRekeyTransfer10KiB(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
@@ -806,11 +821,11 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
-                .offline_timeout_ms = 0,
+                .offline_timeout = 0,
             });
             defer engine.deinit();
 
-            const now_ms = EngineType.nowMs();
+            const now = EngineType.instantNow();
             const peer = try engine.peers.getOrCreate(remote_pair.public);
             peer.establish(local_pair.public, remote_endpoint, makeSession(
                 Session,
@@ -820,12 +835,12 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 12,
                 0x11,
                 0x22,
-                engine.config.reject_after_time_ms,
-                now_ms,
-            ), true, now_ms);
-            peer.last_sent_ms = now_ms;
-            peer.last_received_ms = now_ms;
-            peer.updateTimers(now_ms, 0);
+                engine.config.reject_after_time,
+                now,
+            ), true, now);
+            peer.last_sent = now;
+            peer.last_received = now;
+            peer.updateTimers(now, 0);
             try engine.syncPeerTimerEntry(peer);
 
             const CallbackState = struct {
@@ -856,7 +871,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                             return error.UnexpectedInbound;
                         },
                         .established => return error.UnexpectedEstablished,
-                        .next_tick_ms => |_| self.next_tick_events += 1,
+                        .next_tick_deadline => |_| self.next_tick_events += 1,
                     }
                 }
             };
@@ -868,8 +883,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             try grt.std.testing.expectEqual(@as(usize, 1), callback_state.offline_count);
             try grt.std.testing.expect(peer.is_offline);
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.offline_deadline_ms);
-            try grt.std.testing.expectEqual(@as(?u64, null), peer.timers.get(.offline_deadline));
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), peer.offline_deadline);
+            try grt.std.testing.expectEqual(@as(?glib.time.instant.Time, null), peer.timers.get(.offline_deadline));
         }
 
         fn runPassiveKeepaliveFlow() !void {
@@ -886,16 +901,16 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
-                .keepalive_timeout_ms = 0,
-                .offline_timeout_ms = 10_000,
+                .keepalive_timeout = 0,
+                .offline_timeout = 10 * glib.time.duration.Second,
             });
             defer engine.deinit();
 
             const receive_now = blk: {
-                const start_now = EngineType.nowMs();
+                const start_now = EngineType.instantNow();
                 var current_now = start_now;
                 while (current_now == start_now) {
-                    current_now = EngineType.nowMs();
+                    current_now = EngineType.instantNow();
                 }
                 break :blk current_now;
             };
@@ -909,11 +924,11 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 22,
                 0x33,
                 0x44,
-                engine.config.reject_after_time_ms,
+                engine.config.reject_after_time,
                 receive_now,
             ), false, receive_now);
-            peer.last_sent_ms = receive_now - 1;
-            peer.last_received_ms = receive_now;
+            peer.last_sent = glib.time.instant.add(receive_now, -glib.time.duration.NanoSecond);
+            peer.last_received = receive_now;
             peer.updateTimers(receive_now, 0);
             try engine.syncPeerTimerEntry(peer);
 
@@ -944,7 +959,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                         },
                         .established => return error.UnexpectedEstablished,
                         .offline => return error.UnexpectedOffline,
-                        .next_tick_ms => |_| self.next_tick_events += 1,
+                        .next_tick_deadline => |_| self.next_tick_events += 1,
                     }
                 }
             };
@@ -1004,7 +1019,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                         },
                         .established => return error.UnexpectedEstablished,
                         .offline => return error.UnexpectedOffline,
-                        .next_tick_ms => |_| {},
+                        .next_tick_deadline => |_| {},
                     }
                 }
             };
@@ -1014,7 +1029,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 .initiate_handshake = .{
                     .remote_key = remote_pair.public,
                     .remote_endpoint = remote_endpoint,
-                    .keepalive_interval_ms = 17,
+                    .keepalive_interval = 17 * glib.time.duration.MilliSecond,
                 },
             }, callback_state.callback());
 
@@ -1024,7 +1039,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const peer = engine.peers.get(remote_pair.public) orelse return error.MissingPeer;
             try grt.std.testing.expect(peer.pending_handshake != null);
             try grt.std.testing.expect(peer.persistent_keepalive);
-            try grt.std.testing.expectEqual(@as(?u64, 17), peer.keepalive_interval_ms);
+            try grt.std.testing.expectEqual(@as(?glib.time.duration.Duration, 17 * glib.time.duration.MilliSecond), peer.keepalive_interval);
             try grt.std.testing.expectEqual(OutboundPacket.Kind.handshake, packet.kind);
             try grt.std.testing.expectEqual(OutboundPacket.State.ready_to_send, packet.state);
             try grt.std.testing.expect(packet.remote_static.eql(remote_pair.public));
@@ -1045,15 +1060,15 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
-                .offline_timeout_ms = 10_000,
+                .offline_timeout = 10 * glib.time.duration.Second,
             });
             defer engine.deinit();
 
             const sent_now = blk: {
-                const start_now = EngineType.nowMs();
+                const start_now = EngineType.instantNow();
                 var current_now = start_now;
                 while (current_now == start_now) {
-                    current_now = EngineType.nowMs();
+                    current_now = EngineType.instantNow();
                 }
                 break :blk current_now;
             };
@@ -1067,13 +1082,13 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 32,
                 0x55,
                 0x66,
-                engine.config.reject_after_time_ms,
+                engine.config.reject_after_time,
                 sent_now,
             ), true, sent_now);
-            peer.last_sent_ms = sent_now;
-            peer.last_received_ms = sent_now;
+            peer.last_sent = sent_now;
+            peer.last_received = sent_now;
             peer.persistent_keepalive = true;
-            peer.keepalive_interval_ms = 1;
+            peer.keepalive_interval = glib.time.duration.NanoSecond;
             peer.updateTimers(sent_now, 0);
             try engine.syncPeerTimerEntry(peer);
 
@@ -1104,7 +1119,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                         },
                         .established => return error.UnexpectedEstablished,
                         .offline => return error.UnexpectedOffline,
-                        .next_tick_ms => |_| self.next_tick_events += 1,
+                        .next_tick_deadline => |_| self.next_tick_events += 1,
                     }
                 }
             };
@@ -1124,6 +1139,41 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
         }
 
+        fn runNegativeDurationNormalizationFlow() !void {
+            const any_lib = grt;
+            const packet_size = SessionType.legacy_packet_size_capacity;
+            const cipher_kind = Cipher.default_kind;
+            const EngineType = make(any_lib, packet_size, cipher_kind);
+
+            const local_pair = giznet.noise.KeyPair.seed(any_lib, 2926);
+            const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2927);
+
+            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
+                .max_peers = 1,
+                .max_pending = 1,
+                .rekey_after_time = -1,
+                .reject_after_time = -1,
+                .rekey_timeout = -1,
+                .keepalive_timeout = -1,
+                .handshake_attempt = -1,
+                .offline_timeout = -1,
+                .session_cleanup = -1,
+            });
+            defer engine.deinit();
+
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), engine.config.rekey_after_time);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), engine.config.reject_after_time);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), engine.config.rekey_timeout);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), engine.config.keepalive_timeout);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), engine.config.handshake_attempt);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), engine.config.offline_timeout);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), engine.config.session_cleanup);
+
+            const peer = try engine.peers.getOrCreate(remote_pair.public);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), peer.timer_config.rekey_after_time);
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), peer.timer_config.offline_timeout);
+        }
+
         fn runRekeyAfterMessagesFlow(comptime cipher_kind: Cipher.Kind) !void {
             const any_lib = grt;
             const packet_size = SessionType.legacy_packet_size_capacity;
@@ -1132,7 +1182,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const total_transfer_bytes: usize = 10 * 1024;
             const total_packet_count: usize = total_transfer_bytes / payload_size;
             const trigger_message_count: usize = 4;
-            const no_rekey_after_time_ms: u64 = 365 * 24 * 60 * 60 * 1000;
+            const no_rekey_after_time: glib.time.duration.Duration = 365 * glib.time.duration.Day;
 
             try grt.std.testing.expectEqual(@as(usize, 0), total_transfer_bytes % payload_size);
 
@@ -1145,7 +1195,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 .max_peers = 1,
                 .max_pending = 1,
                 .rekey_after_messages = trigger_message_count,
-                .rekey_after_time_ms = no_rekey_after_time_ms,
+                .rekey_after_time = no_rekey_after_time,
             });
             defer initiator.deinit();
 
@@ -1153,7 +1203,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 .max_peers = 1,
                 .max_pending = 1,
                 .rekey_after_messages = trigger_message_count,
-                .rekey_after_time_ms = no_rekey_after_time_ms,
+                .rekey_after_time = no_rekey_after_time,
             });
             defer responder.deinit();
 
@@ -1205,7 +1255,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                         .inbound => |packet| try self.handleInbound(side, packet),
                         .established => |remote_key| try self.handleEstablished(side, remote_key),
                         .offline => |remote_key| try self.handleOffline(side, remote_key),
-                        .next_tick_ms => |_| self.next_tick_events += 1,
+                        .next_tick_deadline => |_| self.next_tick_events += 1,
                     }
                 }
 
@@ -1397,8 +1447,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             remote_index: u32,
             send_fill: u8,
             recv_fill: u8,
-            timeout_ms: u64,
-            now_ms: u64,
+            timeout: glib.time.duration.Duration,
+            now: glib.time.instant.Time,
         ) Session {
             return Session.init(.{
                 .local_index = local_index,
@@ -1407,8 +1457,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 .endpoint = endpoint,
                 .send_key = giznet.noise.Key{ .bytes = [_]u8{send_fill} ** 32 },
                 .recv_key = giznet.noise.Key{ .bytes = [_]u8{recv_fill} ** 32 },
-                .timeout_ms = timeout_ms,
-                .now_ms = now_ms,
+                .timeout = timeout,
+                .now = now,
             });
         }
     };
@@ -1438,6 +1488,10 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             t.run(
                 "persistent_keepalive_emits_empty_transport",
                 testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.persistentKeepaliveEmitsEmptyTransport),
+            );
+            t.run(
+                "negative_durations_normalize_to_immediate",
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.negativeDurationsNormalizeToImmediate),
             );
             t.run(
                 "chacha_poly_rekey_transfer_10KiB",

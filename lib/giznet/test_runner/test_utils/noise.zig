@@ -55,7 +55,7 @@ pub fn runSinglePeerTransfer(
         0
     else
         chunk_count / rekey_after_messages_usize;
-    const no_rekey_after_time_ms: u64 = 365 * 24 * 60 * 60 * 1000;
+    const no_rekey_after_time: glib.time.duration.Duration = 365 * glib.time.duration.Day;
 
     try grt.std.testing.expectEqual(@as(usize, 0), total_transfer_bytes % payload_size);
 
@@ -106,7 +106,7 @@ pub fn runSinglePeerTransfer(
                 .inbound => |packet| try self.handleInbound(side, packet),
                 .established => |remote_key| try self.handleEstablished(side, remote_key),
                 .offline => return error.UnexpectedOffline,
-                .next_tick_ms => |_| self.next_tick_events += 1,
+                .next_tick_deadline => |_| self.next_tick_events += 1,
             }
         }
 
@@ -219,7 +219,7 @@ pub fn runSinglePeerTransfer(
         .max_peers = 1,
         .max_pending = 1,
         .rekey_after_messages = rekey_after_messages,
-        .rekey_after_time_ms = no_rekey_after_time_ms,
+        .rekey_after_time = no_rekey_after_time,
     });
     defer initiator.deinit();
 
@@ -227,7 +227,7 @@ pub fn runSinglePeerTransfer(
         .max_peers = 1,
         .max_pending = 1,
         .rekey_after_messages = rekey_after_messages,
-        .rekey_after_time_ms = no_rekey_after_time_ms,
+        .rekey_after_time = no_rekey_after_time,
     });
     defer responder.deinit();
 
@@ -309,7 +309,7 @@ pub fn runMultiPeerBidirectionalRekey(
     const rekey_after_messages_usize: usize = @intCast(rekey_after_messages);
     const packets_per_peer: usize = total_transfer_bytes_per_peer / payload_size;
     const expected_rekey_count_per_relation: usize = packets_per_peer / rekey_after_messages_usize;
-    const no_rekey_after_time_ms: u64 = 365 * 24 * 60 * 60 * 1000;
+    const no_rekey_after_time: glib.time.duration.Duration = 365 * glib.time.duration.Day;
 
     try grt.std.testing.expect(rekey_after_messages_usize != 0);
     try grt.std.testing.expectEqual(@as(usize, 0), total_transfer_bytes_per_peer % payload_size);
@@ -378,7 +378,7 @@ pub fn runMultiPeerBidirectionalRekey(
                 .inbound => |packet| try self.handleInbound(source, packet),
                 .established => |remote_key| try self.handleEstablished(source, remote_key),
                 .offline => return error.UnexpectedOffline,
-                .next_tick_ms => |_| self.next_tick_events += 1,
+                .next_tick_deadline => |_| self.next_tick_events += 1,
             }
         }
 
@@ -536,7 +536,7 @@ pub fn runMultiPeerBidirectionalRekey(
         .max_peers = peer_count,
         .max_pending = peer_count,
         .rekey_after_messages = rekey_after_messages,
-        .rekey_after_time_ms = no_rekey_after_time_ms,
+        .rekey_after_time = no_rekey_after_time,
     });
     errdefer left_hub.deinit();
 
@@ -544,7 +544,7 @@ pub fn runMultiPeerBidirectionalRekey(
         .max_peers = peer_count,
         .max_pending = peer_count,
         .rekey_after_messages = rekey_after_messages,
-        .rekey_after_time_ms = no_rekey_after_time_ms,
+        .rekey_after_time = no_rekey_after_time,
     });
     errdefer right_hub.deinit();
 
@@ -575,7 +575,7 @@ pub fn runMultiPeerBidirectionalRekey(
             .max_peers = 1,
             .max_pending = 1,
             .rekey_after_messages = rekey_after_messages,
-            .rekey_after_time_ms = no_rekey_after_time_ms,
+            .rekey_after_time = no_rekey_after_time,
         });
         left_leaf_init_count += 1;
 
@@ -583,7 +583,7 @@ pub fn runMultiPeerBidirectionalRekey(
             .max_peers = 1,
             .max_pending = 1,
             .rekey_after_messages = rekey_after_messages,
-            .rekey_after_time_ms = no_rekey_after_time_ms,
+            .rekey_after_time = no_rekey_after_time,
         });
         right_leaf_init_count += 1;
     }

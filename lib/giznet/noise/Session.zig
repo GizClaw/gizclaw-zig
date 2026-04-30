@@ -27,14 +27,12 @@ pub fn make(
     }
 
     return struct {
-        var started: ?grt.time.instant.Time = null;
-
         pub const State = enum(u8) {
             established,
             expired,
         };
 
-        pub const session_timeout_ms: u64 = 180_000;
+        pub const session_timeout: glib.time.duration.Duration = 180 * glib.time.duration.Second;
         pub const replay_window_size: u64 = 2048;
         pub const replay_window_words: usize = replay_window_size / 64;
         pub const packet_size_capacity: usize = capacity;
@@ -53,8 +51,8 @@ pub fn make(
             send_key: Key,
             recv_key: Key,
             key_phase: u8 = 0,
-            timeout_ms: u64 = session_timeout_ms,
-            now_ms: ?u64 = null,
+            timeout: glib.time.duration.Duration = session_timeout,
+            now: ?glib.time.instant.Time = null,
         };
 
         local_index: u32,
@@ -64,20 +62,20 @@ pub fn make(
         send_key: Key,
         recv_key: Key,
         key_phase: u8,
-        timeout_ms: u64,
+        timeout: glib.time.duration.Duration,
         state: State = .established,
         send_nonce: u64 = 0,
         recv_seen_any: bool = false,
         recv_max_nonce: u64 = 0,
         recv_bitmap: [replay_window_words]u64 = [_]u64{0} ** replay_window_words,
-        created_ms: u64,
-        last_rx_ms: u64,
-        last_tx_ms: u64,
+        created: glib.time.instant.Time,
+        last_rx: glib.time.instant.Time,
+        last_tx: glib.time.instant.Time,
 
         const Self = @This();
 
         pub fn init(config: Config) Self {
-            const now_ms = config.now_ms orelse nowMs();
+            const now_time = config.now orelse grt.time.instant.now();
             return .{
                 .local_index = config.local_index,
                 .remote_index = config.remote_index,
@@ -86,10 +84,10 @@ pub fn make(
                 .send_key = config.send_key,
                 .recv_key = config.recv_key,
                 .key_phase = config.key_phase,
-                .timeout_ms = config.timeout_ms,
-                .created_ms = now_ms,
-                .last_rx_ms = now_ms,
-                .last_tx_ms = now_ms,
+                .timeout = nonNegativeDuration(config.timeout),
+                .created = now_time,
+                .last_rx = now_time,
+                .last_tx = now_time,
             };
         }
 
@@ -101,12 +99,12 @@ pub fn make(
             return self.state == .established and !self.isExpired();
         }
 
-        pub fn canSendAt(self: Self, now_ms: u64) bool {
-            return self.state == .established and !self.isExpiredAt(now_ms);
+        pub fn canSendAt(self: Self, now: glib.time.instant.Time) bool {
+            return self.state == .established and !self.isExpiredAt(now);
         }
 
-        pub fn canRecvAt(self: Self, now_ms: u64) bool {
-            return self.state == .established and !self.isExpiredAt(now_ms);
+        pub fn canRecvAt(self: Self, now: glib.time.instant.Time) bool {
+            return self.state == .established and !self.isExpiredAt(now);
         }
 
         pub fn markExpired(self: *Self) void {
@@ -149,13 +147,13 @@ pub fn make(
             return self.send_nonce;
         }
 
-        pub fn claimSendCounter(self: *Self, now_ms: u64) !u64 {
-            if (!self.canSendAt(now_ms)) return error.SessionExpired;
+        pub fn claimSendCounter(self: *Self, now: glib.time.instant.Time) !u64 {
+            if (!self.canSendAt(now)) return error.SessionExpired;
             if (self.send_nonce >= max_nonce) return error.NonceExhausted;
 
             const counter = self.send_nonce;
             self.send_nonce += 1;
-            self.last_tx_ms = now_ms;
+            self.last_tx = now;
             return counter;
         }
 
@@ -163,33 +161,33 @@ pub fn make(
             return self.recv_max_nonce;
         }
 
-        pub fn createdMs(self: Self) u64 {
-            return self.created_ms;
+        pub fn createdTime(self: Self) glib.time.instant.Time {
+            return self.created;
         }
 
-        pub fn lastReceivedMs(self: Self) u64 {
-            return self.last_rx_ms;
+        pub fn lastReceivedTime(self: Self) glib.time.instant.Time {
+            return self.last_rx;
         }
 
-        pub fn lastSentMs(self: Self) u64 {
-            return self.last_tx_ms;
+        pub fn lastSentTime(self: Self) glib.time.instant.Time {
+            return self.last_tx;
         }
 
-        pub fn commitRecv(self: *Self, counter: u64, now_ms: u64) !void {
-            if (!self.canRecvAt(now_ms)) return error.SessionExpired;
+        pub fn commitRecv(self: *Self, counter: u64, now: glib.time.instant.Time) !void {
+            if (!self.canRecvAt(now)) return error.SessionExpired;
             try acceptNonce(self, counter);
             noteNonce(self, counter);
-            self.last_rx_ms = now_ms;
+            self.last_rx = now;
         }
 
         pub fn isExpired(self: Self) bool {
-            return self.isExpiredAt(nowMs());
+            return self.isExpiredAt(grt.time.instant.now());
         }
 
-        pub fn isExpiredAt(self: Self, now_ms: u64) bool {
+        pub fn isExpiredAt(self: Self, now: glib.time.instant.Time) bool {
             if (self.state == .expired) return true;
-            const last_activity_ms = @max(self.last_rx_ms, self.last_tx_ms);
-            return now_ms >= last_activity_ms and (now_ms - last_activity_ms) >= self.timeout_ms;
+            const last_activity = @max(self.last_rx, self.last_tx);
+            return glib.time.instant.sub(now, last_activity) >= self.timeout;
         }
 
         fn acceptNonce(self: *Self, nonce: u64) !void {
@@ -316,16 +314,11 @@ pub fn make(
                 }
             }
         }
-
-        fn nowMs() u64 {
-            const now = grt.time.instant.now();
-            if (started == null) {
-                started = now;
-                return 0;
-            }
-            return @intCast(@divTrunc(grt.time.instant.sub(now, started.?), grt.time.duration.MilliSecond));
-        }
     };
+}
+
+fn nonNegativeDuration(duration: glib.time.duration.Duration) glib.time.duration.Duration {
+    return @max(duration, 0);
 }
 
 pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
@@ -384,12 +377,12 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             try receiver.commitRecv(0, 100);
             try grt.std.testing.expectEqual(@as(u64, 0), receiver.recvMaxNonce());
-            try grt.std.testing.expectEqual(@as(u64, 100), receiver.lastReceivedMs());
+            try grt.std.testing.expectEqual(@as(glib.time.instant.Time, 100), receiver.lastReceivedTime());
             try grt.std.testing.expectError(error.ReplayDetected, receiver.commitRecv(0, 101));
             try receiver.commitRecv(2, 102);
             try grt.std.testing.expectEqual(@as(u64, 2), receiver.recvMaxNonce());
             try receiver.commitRecv(1, 103);
-            try grt.std.testing.expectEqual(@as(u64, 103), receiver.lastReceivedMs());
+            try grt.std.testing.expectEqual(@as(glib.time.instant.Time, 103), receiver.lastReceivedTime());
             try grt.std.testing.expectError(error.ReplayDetected, receiver.commitRecv(1, 104));
 
             var timeout_sender = Session.init(.{
@@ -399,10 +392,25 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 .endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 4000),
                 .send_key = send_key,
                 .recv_key = recv_key,
-                .timeout_ms = 0,
+                .timeout = 0,
+                .now = 0,
             });
             try grt.std.testing.expect(!timeout_sender.canSend());
             try grt.std.testing.expectError(error.SessionExpired, timeout_sender.claimSendCounter(1));
+
+            var negative_timeout_sender = Session.init(.{
+                .local_index = 1,
+                .remote_index = 2,
+                .peer_key = giznet.noise.Key{ .bytes = [_]u8{0x44} ** 32 },
+                .endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 4001),
+                .send_key = send_key,
+                .recv_key = recv_key,
+                .timeout = -1,
+                .now = 10,
+            });
+            try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), negative_timeout_sender.timeout);
+            try grt.std.testing.expect(!negative_timeout_sender.canSendAt(10));
+            try grt.std.testing.expectError(error.SessionExpired, negative_timeout_sender.claimSendCounter(11));
 
             receiver.markExpired();
             try grt.std.testing.expect(!receiver.canRecv());

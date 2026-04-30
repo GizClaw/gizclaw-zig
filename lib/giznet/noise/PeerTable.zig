@@ -157,12 +157,12 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 4010);
 
             var table = PeerTable.init(grt.std.testing.allocator, 2, .{
-                .keepalive_timeout_ms = 10,
-                .rekey_after_time_ms = 50,
-                .rekey_timeout_ms = 5,
-                .handshake_attempt_ms = 20,
-                .offline_timeout_ms = 60,
-                .session_cleanup_ms = 40,
+                .keepalive_timeout = 10,
+                .rekey_after_time = 50,
+                .rekey_timeout = 5,
+                .handshake_attempt = 20,
+                .offline_timeout = 60,
+                .session_cleanup = 40,
                 .rekey_after_messages = 8,
             });
             defer table.deinit();
