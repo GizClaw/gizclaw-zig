@@ -3,11 +3,11 @@ const AddrPort = glib.net.netip.AddrPort;
 
 const Cipher = @import("Cipher.zig");
 const HandshakeType = @import("Handshake.zig");
-const InboundPacket = @import("InboundPacket.zig");
+const InboundPacket = @import("../packet/Inbound.zig");
 const Key = @import("Key.zig");
 const KeyPair = @import("KeyPair.zig");
 const Message = @import("Message.zig");
-const OutboundPacket = @import("OutboundPacket.zig");
+const OutboundPacket = @import("../packet/Outbound.zig");
 const PeerType = @import("Peer.zig");
 const PeerTableType = @import("PeerTable.zig");
 const SessionType = @import("Session.zig");
@@ -52,14 +52,9 @@ pub const InitiateHandshake = struct {
     keepalive_interval: ?glib.time.duration.Duration = null,
 };
 
-pub const SendData = struct {
-    remote_key: Key,
-    payload: []u8,
-};
-
 pub const DriveInput = union(enum) {
     inbound_packet: *InboundPacket,
-    send_data: SendData,
+    send_data: *OutboundPacket,
     initiate_handshake: InitiateHandshake,
     tick: void,
 };
@@ -188,6 +183,10 @@ pub fn make(
             return self.inbound_pool.get() orelse error.OutOfMemory;
         }
 
+        pub fn getOutboundPacket(self: *Self) !*OutboundPacket {
+            return self.outbound_pool.get() orelse error.OutOfMemory;
+        }
+
         /// Single engine drive entrypoint.
         ///
         /// Contract shape:
@@ -224,6 +223,7 @@ pub fn make(
 
                         .prepared => error.InboundPacketRequiresDecrypt,
                         .consumed => error.InboundPacketConsumed,
+                        .service_delivered => error.InboundPacketConsumed,
                         .decrypt_failed => error.InboundPacketDecryptFailed,
                         .consume_failed => error.InboundPacketConsumeFailed,
                     };
@@ -450,23 +450,18 @@ pub fn make(
 
         fn createDataOutbound(
             self: *Self,
-            request: Engine.SendData,
+            packet: *OutboundPacket,
             on_result: Engine.Callback,
         ) !void {
-            const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
-            errdefer packet.deinit();
-
             packet.state = .prepared;
             packet.kind = .transport;
-            if (packet.transportPlaintextBufRef().len < request.payload.len) return error.BufferTooSmall;
-            @memcpy(packet.transportPlaintextBufRef()[0..request.payload.len], request.payload);
+            if (packet.transportPlaintextBufRef().len < packet.len) return error.BufferTooSmall;
 
-            const peer = self.peers.get(request.remote_key) orelse return error.SessionNotFound;
+            const peer = self.peers.get(packet.remote_static) orelse return error.SessionNotFound;
             const session = if (peer.current) |*session| session else return error.SessionNotFound;
             const sent = Self.instantNow();
             const counter = try session.claimSendCounter(sent);
 
-            packet.len = request.payload.len;
             packet.remote_endpoint = session.endpointValue();
             packet.remote_static = peer.key;
             packet.session_key = session.sendKey();
@@ -1356,11 +1351,14 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 fn sendFromInitiator(self: *@This(), chunk_index: usize) !void {
                     var packet_buffer: [payload_size]u8 = undefined;
                     fillPayload(chunk_index, packet_buffer[0..]);
+                    const packet = try self.initiator.getOutboundPacket();
+                    errdefer packet.deinit();
+                    if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
+                    @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
+                    packet.len = packet_buffer.len;
+                    packet.remote_static = self.responder_key;
                     try self.initiator.drive(.{
-                        .send_data = .{
-                            .remote_key = self.responder_key,
-                            .payload = packet_buffer[0..],
-                        },
+                        .send_data = packet,
                     }, self.callback(.initiator));
                 }
             };

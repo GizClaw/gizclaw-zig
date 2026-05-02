@@ -1,15 +1,18 @@
 //! Package root for the `giznet` rewrite.
 
 const glib = @import("glib");
-const ConnFile = @import("giznet/Conn.zig");
-const DialOptionsFile = @import("giznet/DialOptions.zig");
-const GizNetFile = @import("giznet/GizNet.zig");
 const noise_ns = @import("giznet/noise.zig");
+const packet_ns = @import("giznet/packet.zig");
+const runtime_ns = @import("giznet/runtime.zig");
+const service_ns = @import("giznet/service.zig");
 
 pub const noise = noise_ns;
-pub const GizNet = GizNetFile;
-pub const Conn = ConnFile;
-pub const DialOptions = DialOptionsFile;
+pub const packet = packet_ns;
+pub const runtime = runtime_ns;
+pub const service = service_ns;
+pub const GizNet = @import("giznet/GizNet.zig");
+pub const Conn = @import("giznet/Conn.zig");
+pub const DialOptions = @import("giznet/DialOptions.zig");
 pub const Key = noise_ns.Key;
 pub const KeyPair = noise_ns.KeyPair;
 pub const AddrPort = glib.net.netip.AddrPort;
@@ -39,5 +42,8 @@ pub fn make(comptime grt: type) type {
         pub const Key = noise_ns.Key;
         pub const KeyPair = noise_ns.KeyPair;
         pub const noise = noise_ns.make(grt, noise_ns.default_cipher_kind);
+        pub const packet = packet_ns;
+        pub const runtime = runtime_ns;
+        pub const service = service_ns.make(grt);
     };
 }

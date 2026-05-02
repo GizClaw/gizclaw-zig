@@ -1,5 +1,7 @@
 //! Stable erased peer-connection handle for giznet.
 
+const glib = @import("glib");
+
 const Key = @import("noise/Key.zig");
 
 const Conn = @This();
@@ -14,6 +16,7 @@ pub const ReadResult = struct {
 
 pub const VTable = struct {
     read: *const fn (ptr: *anyopaque, buf: []u8) anyerror!ReadResult,
+    readTimeout: *const fn (ptr: *anyopaque, buf: []u8, timeout: glib.time.duration.Duration) anyerror!ReadResult,
     write: *const fn (ptr: *anyopaque, protocol: u8, payload: []const u8) anyerror!usize,
     close: *const fn (ptr: *anyopaque) anyerror!void,
     deinit: *const fn (ptr: *anyopaque) void,
@@ -23,6 +26,10 @@ pub const VTable = struct {
 
 pub fn read(self: Conn, buf: []u8) anyerror!ReadResult {
     return self.vtable.read(self.ptr, buf);
+}
+
+pub fn readTimeout(self: Conn, buf: []u8, timeout: glib.time.duration.Duration) anyerror!ReadResult {
+    return self.vtable.readTimeout(self.ptr, buf, timeout);
 }
 
 pub fn write(self: Conn, protocol: u8, payload: []const u8) anyerror!usize {
@@ -61,6 +68,11 @@ pub fn init(ptr: anytype) Conn {
             return self.read(buf);
         }
 
+        fn readTimeoutFn(raw_ptr: *anyopaque, buf: []u8, timeout: glib.time.duration.Duration) anyerror!ReadResult {
+            const self: *Impl = @ptrCast(@alignCast(raw_ptr));
+            return self.readTimeout(buf, timeout);
+        }
+
         fn writeFn(raw_ptr: *anyopaque, protocol: u8, payload: []const u8) anyerror!usize {
             const self: *Impl = @ptrCast(@alignCast(raw_ptr));
             return self.write(protocol, payload);
@@ -85,19 +97,20 @@ pub fn init(ptr: anytype) Conn {
             const self: *Impl = @ptrCast(@alignCast(raw_ptr));
             return self.remoteStatic();
         }
-    };
 
-    const vtable = VTable{
-        .read = gen.readFn,
-        .write = gen.writeFn,
-        .close = gen.closeFn,
-        .deinit = gen.deinitFn,
-        .localStatic = gen.localStaticFn,
-        .remoteStatic = gen.remoteStaticFn,
+        const vtable = VTable{
+            .read = readFn,
+            .readTimeout = readTimeoutFn,
+            .write = writeFn,
+            .close = closeFn,
+            .deinit = deinitFn,
+            .localStatic = localStaticFn,
+            .remoteStatic = remoteStaticFn,
+        };
     };
 
     return .{
         .ptr = ptr,
-        .vtable = &vtable,
+        .vtable = &gen.vtable,
     };
 }

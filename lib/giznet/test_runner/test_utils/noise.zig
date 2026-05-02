@@ -4,10 +4,10 @@ const AddrPort = glib.net.netip.AddrPort;
 const giznet = @import("../../../giznet.zig");
 const Cipher = @import("../../noise/Cipher.zig");
 const EngineType = @import("../../noise/Engine.zig");
-const InboundPacket = @import("../../noise/InboundPacket.zig");
+const InboundPacket = @import("../../packet/Inbound.zig");
 const Key = @import("../../noise/Key.zig");
 const KeyPair = @import("../../noise/KeyPair.zig");
-const OutboundPacket = @import("../../noise/OutboundPacket.zig");
+const OutboundPacket = @import("../../packet/Outbound.zig");
 const SessionType = @import("../../noise/Session.zig");
 
 const MultiPeerDirection = enum(u8) {
@@ -171,11 +171,14 @@ pub fn runSinglePeerTransfer(
         fn sendFromInitiator(self: *@This(), chunk_index: usize) !void {
             var packet_buffer: [payload_size]u8 = undefined;
             fillSinglePeerPayload(chunk_index, packet_buffer[0..]);
+            const packet = try self.initiator.getOutboundPacket();
+            errdefer packet.deinit();
+            if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
+            @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
+            packet.len = packet_buffer.len;
+            packet.remote_static = self.responder_key;
             try self.initiator.drive(.{
-                .send_data = .{
-                    .remote_key = self.responder_key,
-                    .payload = packet_buffer[0..],
-                },
+                .send_data = packet,
             }, self.callback(.initiator));
         }
 
@@ -494,22 +497,28 @@ pub fn runMultiPeerBidirectionalRekey(
         fn sendFromLeftHub(self: *@This(), peer_index: usize, chunk_index: usize) !void {
             var packet_buffer: [payload_size]u8 = undefined;
             fillMultiPeerPayload(.left_to_right, peer_index, chunk_index, packet_buffer[0..]);
+            const packet = try self.left_hub.getOutboundPacket();
+            errdefer packet.deinit();
+            if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
+            @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
+            packet.len = packet_buffer.len;
+            packet.remote_static = self.right_leaf_pairs[peer_index].public;
             try self.left_hub.drive(.{
-                .send_data = .{
-                    .remote_key = self.right_leaf_pairs[peer_index].public,
-                    .payload = packet_buffer[0..],
-                },
+                .send_data = packet,
             }, self.callback(.{ .kind = .left_hub }));
         }
 
         fn sendFromRightHub(self: *@This(), peer_index: usize, chunk_index: usize) !void {
             var packet_buffer: [payload_size]u8 = undefined;
             fillMultiPeerPayload(.right_to_left, peer_index, chunk_index, packet_buffer[0..]);
+            const packet = try self.right_hub.getOutboundPacket();
+            errdefer packet.deinit();
+            if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
+            @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
+            packet.len = packet_buffer.len;
+            packet.remote_static = self.left_leaf_pairs[peer_index].public;
             try self.right_hub.drive(.{
-                .send_data = .{
-                    .remote_key = self.left_leaf_pairs[peer_index].public,
-                    .payload = packet_buffer[0..],
-                },
+                .send_data = packet,
             }, self.callback(.{ .kind = .right_hub }));
         }
 

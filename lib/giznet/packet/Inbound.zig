@@ -1,19 +1,23 @@
 const glib = @import("glib");
-const Cipher = @import("Cipher.zig");
-const Key = @import("Key.zig");
-const Message = @import("Message.zig");
-const SessionType = @import("Session.zig");
+const Cipher = @import("../noise/Cipher.zig");
+const Key = @import("../noise/Key.zig");
+const Message = @import("../noise/Message.zig");
+const Protocol = @import("../service/protocol.zig");
+const SessionType = @import("../noise/Session.zig");
+const Uvarint = @import("../service/Uvarint.zig");
+
 const PoolType = glib.sync.Pool;
 const AddrPort = glib.net.netip.AddrPort;
 const legacy_packet_size_capacity = SessionType.legacy_packet_size_capacity;
 
-const InboundPacket = @This();
+const Inbound = @This();
 
 pub const State = enum {
     initial,
     prepared,
     ready_to_consume,
     consumed,
+    service_delivered,
     decrypt_failed,
     consume_failed,
 };
@@ -22,6 +26,25 @@ pub const Kind = enum {
     unknown,
     handshake,
     transport,
+};
+
+pub const ServiceData = union(enum) {
+    direct: Direct,
+    kcp: Kcp,
+    close: void,
+};
+
+pub const Direct = struct {
+    protocol: u8 = 0,
+    payload: []u8 = &.{},
+};
+
+pub const Kcp = struct {
+    service: u64 = 0,
+    stream: u64 = 0,
+    frame_type: u8 = 0,
+    frame: []u8 = &.{},
+    payload: []u8 = &.{},
 };
 
 pub const VTable = struct {
@@ -33,11 +56,11 @@ pub const Pool = struct {
     vtable: *const PoolVTable,
 
     pub const PoolVTable = struct {
-        get: *const fn (ptr: *anyopaque) ?*InboundPacket,
+        get: *const fn (ptr: *anyopaque) ?*Inbound,
         deinit: *const fn (ptr: *anyopaque) void,
     };
 
-    pub fn get(self: Pool) ?*InboundPacket {
+    pub fn get(self: Pool) ?*Inbound {
         return self.vtable.get(self.ptr);
     }
 
@@ -59,16 +82,17 @@ session_key: Key = .{},
 local_session_index: u32 = 0,
 remote_session_index: u32 = 0,
 counter: u64 = 0,
+service_data: ?ServiceData = null,
 
-fn init(self: *InboundPacket, pointer: anytype) *InboundPacket {
+fn init(self: *Inbound, pointer: anytype) *Inbound {
     const Ptr = @TypeOf(pointer);
     const info = @typeInfo(Ptr);
     if (info != .pointer or info.pointer.size != .one)
-        @compileError("InboundPacket.init expects a single-item pointer");
+        @compileError("Inbound.init expects a single-item pointer");
 
     const Impl = info.pointer.child;
     if (!comptime @hasDecl(Impl, "bufRef"))
-        @compileError("InboundPacket.init expects pointer type to expose `bufRef()`");
+        @compileError("Inbound.init expects pointer type to expose `bufRef()`");
 
     const erased: *anyopaque = @ptrCast(@alignCast(pointer));
 
@@ -89,32 +113,57 @@ fn init(self: *InboundPacket, pointer: anytype) *InboundPacket {
     return self;
 }
 
-pub fn bufRef(self: *const InboundPacket) []u8 {
+pub fn bufRef(self: *const Inbound) []u8 {
     const vtable = self.vtable orelse unreachable;
     const impl_ptr = self.impl_ptr orelse unreachable;
     return vtable.bufRef(impl_ptr);
 }
 
-pub fn bytes(self: *const InboundPacket) []u8 {
+pub fn bytes(self: *const Inbound) []u8 {
     const start = switch (self.kind) {
         .handshake, .unknown => 0,
         .transport => switch (self.state) {
-            .ready_to_consume, .consumed, .consume_failed => Message.TransportHeaderSize,
+            .ready_to_consume, .consumed, .service_delivered, .consume_failed => Message.TransportHeaderSize,
             else => 0,
         },
     };
     return self.bufRef()[start..][0..self.len];
 }
 
-pub fn fullBuffer(self: *const InboundPacket) []u8 {
+pub fn fullBuffer(self: *const Inbound) []u8 {
     return self.bufRef();
 }
 
-pub fn eql(self: *const InboundPacket, other: *const InboundPacket) bool {
+pub fn eql(self: *const Inbound, other: *const Inbound) bool {
     return self == other;
 }
 
-pub fn decrtpy(comptime grt: type, comptime cipher_kind: Cipher.Kind, self: *InboundPacket) !void {
+pub fn parseServiceData(self: *Inbound) !*Inbound {
+    const data = self.bytes();
+    if (data.len < 1) return error.PayloadTooShort;
+    const payload = data[1..];
+    switch (data[0]) {
+        Protocol.ProtocolKCP => {
+            const service = try Uvarint.read(payload);
+            self.service_data = .{ .kcp = .{
+                .service = service.value,
+                .frame = payload[service.len..],
+            } };
+        },
+        Protocol.ProtocolConnCtrl => {
+            self.service_data = .{ .close = {} };
+        },
+        else => |protocol| {
+            self.service_data = .{ .direct = .{
+                .protocol = protocol,
+                .payload = payload,
+            } };
+        },
+    }
+    return self;
+}
+
+pub fn decrtpy(comptime grt: type, comptime cipher_kind: Cipher.Kind, self: *Inbound) !void {
     const CipherSuite = Cipher.make(grt, cipher_kind);
     errdefer self.state = .decrypt_failed;
     const transport = Message.parseTransportMessage(self.fullBuffer()[0..self.len]) catch return error.InvalidTransportPacket;
@@ -133,9 +182,10 @@ pub fn decrtpy(comptime grt: type, comptime cipher_kind: Cipher.Kind, self: *Inb
     self.len = written;
     self.kind = .transport;
     self.state = .ready_to_consume;
+    self.service_data = null;
 }
 
-pub fn deinit(self: *InboundPacket) void {
+pub fn deinit(self: *Inbound) void {
     const pool = self.pool orelse unreachable;
     const impl_ptr = self.impl_ptr orelse unreachable;
     self.len = 0;
@@ -148,13 +198,14 @@ pub fn deinit(self: *InboundPacket) void {
     self.local_session_index = 0;
     self.remote_session_index = 0;
     self.counter = 0;
+    self.service_data = null;
     pool.put(impl_ptr);
 }
 
 fn make(comptime _: type, comptime packet_size: usize) type {
     return struct {
         buffer_storage: [packet_size]u8 = undefined,
-        packet: InboundPacket = undefined,
+        packet: Inbound = undefined,
 
         const Self = @This();
         fn bufRef(self: *Self) []u8 {
@@ -186,7 +237,7 @@ pub fn initPool(
         allocator: glib.std.mem.Allocator,
         pool: ImplPool,
 
-        pub fn getPacket(self: *@This()) ?*InboundPacket {
+        pub fn getPacket(self: *@This()) ?*Inbound {
             const impl = self.pool.getTyped() orelse return null;
             const packet = impl.packet.init(impl);
             packet.pool = PoolType.init(&self.pool);
@@ -211,7 +262,7 @@ pub fn initPool(
     };
 
     const gen = struct {
-        fn getFn(ptr: *anyopaque) ?*InboundPacket {
+        fn getFn(ptr: *anyopaque) ?*Inbound {
             const self: *PoolImpl = @ptrCast(@alignCast(ptr));
             return self.getPacket();
         }
@@ -247,19 +298,23 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             _ = allocator;
 
             tryDecryptTransportCase(grt) catch |err| {
-                t.logErrorf("giznet/runtime InboundPacket decrypt transport failed: {}", .{err});
+                t.logErrorf("giznet/packet Inbound decrypt transport failed: {}", .{err});
                 return false;
             };
             tryWrapperCase(grt) catch |err| {
-                t.logErrorf("giznet/runtime InboundPacket wrapper failed: {}", .{err});
+                t.logErrorf("giznet/packet Inbound wrapper failed: {}", .{err});
+                return false;
+            };
+            tryParseServicePayloadCase(grt) catch |err| {
+                t.logErrorf("giznet/packet Inbound service parse failed: {}", .{err});
                 return false;
             };
             tryPoolReuseCase(grt) catch |err| {
-                t.logErrorf("giznet/runtime InboundPacket pool reuse failed: {}", .{err});
+                t.logErrorf("giznet/packet Inbound pool reuse failed: {}", .{err});
                 return false;
             };
             tryPoolMultipleOutstandingCase(grt) catch |err| {
-                t.logErrorf("giznet/runtime InboundPacket pool multiple outstanding failed: {}", .{err});
+                t.logErrorf("giznet/packet Inbound pool multiple outstanding failed: {}", .{err});
                 return false;
             };
             return true;
@@ -323,11 +378,12 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             packet.remote_session_index = 88;
             packet.counter = counter;
 
-            try InboundPacket.decrtpy(any_lib, Cipher.default_kind, packet);
+            try Inbound.decrtpy(any_lib, Cipher.default_kind, packet);
 
             try grt.std.testing.expect(glib.std.mem.eql(u8, packet.bytes(), payload));
             try grt.std.testing.expectEqual(@as(usize, payload.len), packet.len);
             try grt.std.testing.expectEqual(counter, packet.counter);
+            try grt.std.testing.expectEqual(@as(?ServiceData, null), packet.service_data);
         }
 
         fn tryWrapperCase(comptime any_lib: type) !void {
@@ -341,7 +397,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             };
 
             var mock = Mock{};
-            var packet_storage: InboundPacket = .{};
+            var packet_storage: Inbound = .{};
             const packet = packet_storage.init(&mock);
             const endpoint = AddrPort.from4(.{ 127, 0, 0, 1 }, 9001);
 
@@ -366,10 +422,31 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try grt.std.testing.expectEqual(@as(u32, 0), packet.local_session_index);
             try grt.std.testing.expectEqual(@as(u32, 0), packet.remote_session_index);
             try grt.std.testing.expectEqual(@as(u64, 0), packet.counter);
+            try grt.std.testing.expectEqual(@as(?ServiceData, null), packet.service_data);
 
             packet.state = .consumed;
             packet.counter = 11;
             try grt.std.testing.expectEqual(State.consumed, packet.state);
+        }
+
+        fn tryParseServicePayloadCase(comptime any_lib: type) !void {
+            var pool = try initPool(any_lib, grt.std.testing.allocator, 32);
+            defer pool.deinit();
+
+            const packet = pool.get() orelse return error.TestExpectedPacket;
+            defer packet.deinit();
+
+            const payload = [_]u8{ 9, 'p', 'i', 'n', 'g' };
+            const plaintext = packet.bufRef()[Message.TransportHeaderSize..];
+            @memcpy(plaintext[0..payload.len], payload[0..]);
+            packet.len = payload.len;
+            packet.kind = .transport;
+            packet.state = .ready_to_consume;
+
+            try grt.std.testing.expect((try packet.parseServiceData()) == packet);
+            const direct = packet.service_data.?.direct;
+            try grt.std.testing.expectEqual(@as(u8, 9), direct.protocol);
+            try grt.std.testing.expectEqualStrings("ping", direct.payload);
         }
 
         fn tryPoolReuseCase(comptime any_lib: type) !void {
@@ -390,6 +467,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             first.local_session_index = 0;
             first.remote_session_index = 0;
             first.counter = 0;
+            first.service_data = .{ .direct = .{ .protocol = 7, .payload = first.bufRef()[0..0] } };
             first.state = .consumed;
             first.counter = 17;
             first.deinit();
@@ -403,6 +481,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try grt.std.testing.expectEqual(State.initial, second.state);
             try grt.std.testing.expectEqual(Kind.unknown, second.kind);
             try grt.std.testing.expectEqual(@as(u64, 0), second.counter);
+            try grt.std.testing.expectEqual(@as(?ServiceData, null), second.service_data);
         }
 
         fn tryPoolMultipleOutstandingCase(comptime any_lib: type) !void {
