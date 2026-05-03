@@ -9,6 +9,7 @@ const NoisePeerTable = @import("../noise/PeerTable.zig");
 const NoiseEngine = @import("../noise/Engine.zig");
 const PacketInbound = @import("../packet/Inbound.zig");
 const PacketOutbound = @import("../packet/Outbound.zig");
+const ServiceEngine = @import("../service/Engine.zig");
 const ServicePeer = @import("../service/Peer.zig");
 const ServicePeerTable = @import("../service/PeerTable.zig");
 const ServiceUvarint = @import("../service/Uvarint.zig");
@@ -32,6 +33,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             t.run("noise/engine", NoiseEngine.TestRunner(grt));
             t.run("packet/inbound", PacketInbound.TestRunner(grt));
             t.run("packet/outbound", PacketOutbound.TestRunner(grt));
+            t.run("service/engine", ServiceEngine.TestRunner(grt));
             t.run("service/uvarint", ServiceUvarint.TestRunner(grt));
             t.run("service/peer", ServicePeer.TestRunner(grt));
             t.run("service/peer_table", ServicePeerTable.TestRunner(grt));

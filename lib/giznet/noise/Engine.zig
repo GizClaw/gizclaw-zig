@@ -820,6 +820,21 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try runNegativeDurationNormalizationFlow();
         }
 
+        fn outboundCallbackErrorLeavesCallerPacketOwned(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
+            _ = allocator;
+            try runOutboundCallbackErrorOwnershipFlow();
+        }
+
+        fn transportCallbackErrorLeavesInboundOwned(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
+            _ = allocator;
+            try runTransportCallbackErrorOwnershipFlow();
+        }
+
+        fn emptyTransportSuccessConsumesInbound(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
+            _ = allocator;
+            try runEmptyTransportSuccessOwnershipFlow();
+        }
+
         fn chachaRekeyTransfer10KiB(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runRekeyAfterMessagesFlow(.chacha_poly);
@@ -1207,6 +1222,110 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), peer.timer_config.offline_timeout);
         }
 
+        fn runOutboundCallbackErrorOwnershipFlow() !void {
+            const any_lib = grt;
+            const packet_size = SessionType.legacy_packet_size_capacity;
+            const cipher_kind = Cipher.default_kind;
+            const EngineType = make(any_lib, packet_size, cipher_kind);
+            const Session = SessionType.make(any_lib, packet_size, cipher_kind);
+
+            const local_pair = giznet.noise.KeyPair.seed(any_lib, 2931);
+            const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2932);
+            const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52132);
+
+            var engine_harness = try TestEngine(EngineType, packet_size).init(grt.std.testing.allocator, local_pair, .{
+                .max_peers = 1,
+                .max_pending = 1,
+            });
+            defer engine_harness.deinit();
+            const engine = &engine_harness.engine;
+
+            const now = EngineType.instantNow();
+            const peer = try engine.peers.getOrCreate(remote_pair.public);
+            peer.establish(local_pair.public, remote_endpoint, makeSession(
+                Session,
+                remote_pair.public,
+                remote_endpoint,
+                41,
+                42,
+                0x77,
+                0x88,
+                engine.config.reject_after_time,
+                now,
+            ), true, now);
+
+            const packet = try engine_harness.allocOutboundPacket();
+            errdefer packet.deinit();
+            packet.remote_static = remote_pair.public;
+            const payload = "owned on error";
+            if (packet.transportPlaintextBufRef().len < payload.len) return error.BufferTooSmall;
+            @memcpy(packet.transportPlaintextBufRef()[0..payload.len], payload);
+            packet.len = payload.len;
+
+            var callback_state: OwnershipCallbackState = .{ .fail_outbound = true };
+            try grt.std.testing.expectError(
+                error.InjectOutboundFailure,
+                engine.drive(.{ .send_data = packet }, callback_state.callback()),
+            );
+            packet.deinit();
+        }
+
+        fn runTransportCallbackErrorOwnershipFlow() !void {
+            const any_lib = grt;
+            const packet_size = SessionType.legacy_packet_size_capacity;
+            const cipher_kind = Cipher.default_kind;
+            const EngineType = make(any_lib, packet_size, cipher_kind);
+            const Session = SessionType.make(any_lib, packet_size, cipher_kind);
+
+            const local_pair = giznet.noise.KeyPair.seed(any_lib, 2933);
+            const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2934);
+            const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52134);
+
+            var engine_harness = try TestEngine(EngineType, packet_size).init(grt.std.testing.allocator, local_pair, .{
+                .max_peers = 1,
+                .max_pending = 1,
+            });
+            defer engine_harness.deinit();
+            const engine = &engine_harness.engine;
+
+            try installEstablishedPeer(EngineType, Session, engine, local_pair.public, remote_pair.public, remote_endpoint, 51, 52);
+
+            const packet = try makeReadyTransportInbound(&engine_harness, remote_pair.public, remote_endpoint, 51, 52, 0, "emit then fail");
+            defer packet.deinit();
+
+            var callback_state: OwnershipCallbackState = .{ .fail_inbound = true };
+            try grt.std.testing.expectError(
+                error.InjectInboundFailure,
+                engine.drive(.{ .inbound_packet = packet }, callback_state.callback()),
+            );
+        }
+
+        fn runEmptyTransportSuccessOwnershipFlow() !void {
+            const any_lib = grt;
+            const packet_size = SessionType.legacy_packet_size_capacity;
+            const cipher_kind = Cipher.default_kind;
+            const EngineType = make(any_lib, packet_size, cipher_kind);
+            const Session = SessionType.make(any_lib, packet_size, cipher_kind);
+
+            const local_pair = giznet.noise.KeyPair.seed(any_lib, 2935);
+            const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2936);
+            const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52136);
+
+            var engine_harness = try TestEngine(EngineType, packet_size).init(grt.std.testing.allocator, local_pair, .{
+                .max_peers = 1,
+                .max_pending = 1,
+            });
+            defer engine_harness.deinit();
+            const engine = &engine_harness.engine;
+
+            try installEstablishedPeer(EngineType, Session, engine, local_pair.public, remote_pair.public, remote_endpoint, 61, 62);
+
+            const packet = try makeReadyTransportInbound(&engine_harness, remote_pair.public, remote_endpoint, 61, 62, 0, "");
+            var callback_state: OwnershipCallbackState = .{};
+            try engine.drive(.{ .inbound_packet = packet }, callback_state.callback());
+            try grt.std.testing.expectEqual(@as(usize, 0), callback_state.inbound_count);
+        }
+
         fn runRekeyAfterMessagesFlow(comptime cipher_kind: Cipher.Kind) !void {
             const any_lib = grt;
             const packet_size = SessionType.legacy_packet_size_capacity;
@@ -1305,6 +1424,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                     }
 
                     const inbound = try target_engine.allocInboundPacket();
+                    errdefer inbound.deinit();
                     if (inbound.bufRef().len < packet.len) return error.BufferTooSmall;
 
                     @memcpy(inbound.bufRef()[0..packet.len], packet.bytes());
@@ -1313,9 +1433,6 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
                     try target_engine.engine.drive(.{ .inbound_packet = inbound }, self.callback(target_side));
                     packet.deinit();
-                    if (inbound.state != .initial) {
-                        inbound.deinit();
-                    }
                 }
 
                 fn handleInbound(self: *@This(), side: Side, packet: *InboundPacket) !void {
@@ -1485,6 +1602,87 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try grt.std.testing.expect(harness.established_events >= 4);
         }
 
+        const OwnershipCallbackState = struct {
+            fail_outbound: bool = false,
+            fail_inbound: bool = false,
+            outbound_count: usize = 0,
+            inbound_count: usize = 0,
+
+            fn callback(self: *@This()) Engine.Callback {
+                return .{ .ctx = self, .call = call };
+            }
+
+            fn call(ctx: *anyopaque, result: Engine.DriveOutput) anyerror!void {
+                const self: *@This() = @ptrCast(@alignCast(ctx));
+                switch (result) {
+                    .outbound => |packet| {
+                        self.outbound_count += 1;
+                        if (self.fail_outbound) return error.InjectOutboundFailure;
+                        packet.deinit();
+                    },
+                    .inbound => |packet| {
+                        self.inbound_count += 1;
+                        if (self.fail_inbound) return error.InjectInboundFailure;
+                        packet.deinit();
+                    },
+                    .established => {},
+                    .offline => {},
+                    .next_tick_deadline => |_| {},
+                }
+            }
+        };
+
+        fn installEstablishedPeer(
+            comptime EngineType: type,
+            comptime Session: type,
+            engine: *EngineType,
+            local_key: Key,
+            remote_key: Key,
+            endpoint: AddrPort,
+            local_index: u32,
+            remote_index: u32,
+        ) !void {
+            const now = EngineType.instantNow();
+            const peer = try engine.peers.getOrCreate(remote_key);
+            peer.establish(local_key, endpoint, makeSession(
+                Session,
+                remote_key,
+                endpoint,
+                local_index,
+                remote_index,
+                0x99,
+                0xaa,
+                engine.config.reject_after_time,
+                now,
+            ), true, now);
+        }
+
+        fn makeReadyTransportInbound(
+            engine_harness: anytype,
+            remote_key: Key,
+            endpoint: AddrPort,
+            local_index: u32,
+            remote_index: u32,
+            counter: u64,
+            payload: []const u8,
+        ) !*InboundPacket {
+            const packet = try engine_harness.allocInboundPacket();
+            errdefer packet.deinit();
+
+            const plaintext = packet.bufRef()[Message.TransportHeaderSize..];
+            if (plaintext.len < payload.len) return error.BufferTooSmall;
+            @memcpy(plaintext[0..payload.len], payload);
+            packet.len = payload.len;
+            packet.kind = .transport;
+            packet.state = .ready_to_consume;
+            packet.remote_static = remote_key;
+            packet.remote_endpoint = endpoint;
+            packet.local_session_index = local_index;
+            packet.remote_session_index = remote_index;
+            packet.counter = counter;
+            return packet;
+        }
+
         fn makeSession(
             Session: type,
             peer_key: Key,
@@ -1538,6 +1736,18 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             t.run(
                 "negative_durations_normalize_to_immediate",
                 testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.negativeDurationsNormalizeToImmediate),
+            );
+            t.run(
+                "outbound_callback_error_leaves_caller_packet_owned",
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.outboundCallbackErrorLeavesCallerPacketOwned),
+            );
+            t.run(
+                "transport_callback_error_leaves_inbound_owned",
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.transportCallbackErrorLeavesInboundOwned),
+            );
+            t.run(
+                "empty_transport_success_consumes_inbound",
+                testing_api.TestRunner.fromFn(grt.std, 512 * 1024, Cases.emptyTransportSuccessConsumesInbound),
             );
             t.run(
                 "chacha_poly_rekey_transfer_10KiB",

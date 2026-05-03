@@ -69,6 +69,7 @@ fn runBidirectionalConcurrentTransfer(
 ) !void {
     var fixture = try Fixture.init(allocator, .{
         .service = .{ .peer = .{ .packet_channel_capacity = transfer_packet_channel_capacity } },
+        .transfer_yield_every = 1,
     });
     defer fixture.deinit();
 
@@ -121,6 +122,7 @@ fn runMultiPairConcurrentTransfer(
 ) !void {
     var fixture = try Fixture.init(allocator, .{
         .service = .{ .peer = .{ .packet_channel_capacity = transfer_packet_channel_capacity } },
+        .transfer_yield_every = 1,
     });
     defer fixture.deinit();
 

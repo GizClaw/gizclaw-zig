@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      platform: macOS
+      warning_only: false
+
+  linux-arm64:
+    name: Linux arm64
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      platform: Linux arm64
+      warning_only: false
+
+  linux-amd64:
+    name: Linux amd64
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      platform: Linux amd64
+      warning_only: true
+
+  windows-amd64:
+    name: Windows amd64
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      platform: Windows amd64
+      warning_only: true
+
+  windows-arm64:
+    name: Windows arm64
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      platform: Windows arm64
+      warning_only: true

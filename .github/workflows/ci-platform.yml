@@ -1,0 +1,115 @@
+name: CI Platform
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        required: true
+        type: string
+      warning_only:
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  runners:
+    name: runners / ${{ inputs.platform }}
+    runs-on: ubuntu-24.04
+    outputs:
+      unit: ${{ steps.select.outputs.unit }}
+      integration: ${{ steps.select.outputs.integration }}
+    steps:
+      - id: select
+        name: Select runners
+        run: |
+          case "${{ inputs.platform }}" in
+            "macOS")
+              unit="${{ vars.CI_MACOS_UNIT_RUNNER || 'macos-14' }}"
+              integration="${{ vars.CI_MACOS_INTEGRATION_RUNNER || 'macos-14' }}"
+              ;;
+            "Linux arm64")
+              unit="${{ vars.CI_LINUX_ARM64_UNIT_RUNNER || 'ubuntu-24.04-arm' }}"
+              integration="${{ vars.CI_LINUX_ARM64_INTEGRATION_RUNNER || 'ubuntu-24.04-arm' }}"
+              ;;
+            "Linux amd64")
+              unit="${{ vars.CI_LINUX_AMD64_UNIT_RUNNER || 'ubuntu-24.04' }}"
+              integration="${{ vars.CI_LINUX_AMD64_INTEGRATION_RUNNER || 'ubuntu-24.04' }}"
+              ;;
+            "Windows amd64")
+              unit="${{ vars.CI_WINDOWS_AMD64_UNIT_RUNNER || 'windows-latest' }}"
+              integration="${{ vars.CI_WINDOWS_AMD64_INTEGRATION_RUNNER || 'windows-latest' }}"
+              ;;
+            "Windows arm64")
+              unit="${{ vars.CI_WINDOWS_ARM64_UNIT_RUNNER || 'windows-11-arm' }}"
+              integration="${{ vars.CI_WINDOWS_ARM64_INTEGRATION_RUNNER || 'windows-11-arm' }}"
+              ;;
+            *)
+              echo "unknown platform: ${{ inputs.platform }}" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "unit=${unit}" >> "${GITHUB_OUTPUT}"
+          echo "integration=${integration}" >> "${GITHUB_OUTPUT}"
+
+  unit:
+    name: unit / ${{ inputs.platform }}
+    needs: runners
+    runs-on: ${{ needs.runners.outputs.unit }}
+    continue-on-error: ${{ inputs.warning_only }}
+    timeout-minutes: 20
+    outputs:
+      passed: ${{ steps.unit.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - id: unit
+        name: Run unit tests
+        run: |
+          set +e
+          zig build test-unit
+          status="$?"
+          if [ "${status}" -eq 0 ]; then
+            echo "passed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "passed=false" >> "${GITHUB_OUTPUT}"
+          fi
+          exit "${status}"
+
+  integration:
+    name: integration / ${{ inputs.platform }}
+    needs:
+      - runners
+      - unit
+    if: ${{ always() && needs.unit.outputs.passed == 'true' }}
+    runs-on: ${{ needs.runners.outputs.integration }}
+    continue-on-error: ${{ inputs.warning_only }}
+    timeout-minutes: 30
+    outputs:
+      passed: ${{ steps.integration.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - id: integration
+        name: Run integration tests
+        run: |
+          set +e
+          zig build test-integration
+          status="$?"
+          if [ "${status}" -eq 0 ]; then
+            echo "passed=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "passed=false" >> "${GITHUB_OUTPUT}"
+          fi
+          exit "${status}"
+
