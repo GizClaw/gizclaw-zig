@@ -183,8 +183,29 @@ fn runMultiPairConcurrentTransfer(
 }
 
 fn expectRate(comptime grt: type, rate: test_utils.Rate, expected_bytes: usize) !void {
+    if (rate.sent_bytes != expected_bytes or
+        rate.received_bytes != expected_bytes or
+        rate.missing_packets != 0 or
+        rate.duplicate_packets != 0 or
+        rate.total_mismatches != 0)
+    {
+        grt.std.debug.print(
+            "giznet integration transfer failed: expected_bytes={d} sent_bytes={d} received_bytes={d} expected_packets={d} received_packets={d} missing_packets={d} duplicate_packets={d} mismatches={d}\n",
+            .{
+                expected_bytes,
+                rate.sent_bytes,
+                rate.received_bytes,
+                rate.expected_packets,
+                rate.received_packets,
+                rate.missing_packets,
+                rate.duplicate_packets,
+                rate.total_mismatches,
+            },
+        );
+    }
     try grt.std.testing.expectEqual(expected_bytes, rate.sent_bytes);
     try grt.std.testing.expectEqual(expected_bytes, rate.received_bytes);
     try grt.std.testing.expectEqual(@as(u64, 0), rate.missing_packets);
+    try grt.std.testing.expectEqual(@as(u64, 0), rate.duplicate_packets);
     try grt.std.testing.expectEqual(@as(u64, 0), rate.total_mismatches);
 }

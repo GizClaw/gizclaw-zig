@@ -46,6 +46,7 @@ pub fn runSinglePeerTransfer(
     const payload_size: usize = 1024;
     const packet_size = SessionType.legacy_packet_size_capacity;
     const Engine = EngineType.make(grt, packet_size, cipher_kind);
+    const EngineHarness = EngineWithPools(grt, Engine, packet_size);
     const rekey_after_messages_usize: usize = if (rekey_after_messages == glib.std.math.maxInt(u64))
         0
     else
@@ -70,8 +71,8 @@ pub fn runSinglePeerTransfer(
     };
 
     const Harness = struct {
-        initiator: *Engine,
-        responder: *Engine,
+        initiator: *EngineHarness,
+        responder: *EngineHarness,
         initiator_key: Key,
         responder_key: Key,
         initiator_endpoint: AddrPort,
@@ -112,23 +113,23 @@ pub fn runSinglePeerTransfer(
 
         fn handleOutbound(self: *@This(), side: Side, packet: *OutboundPacket) !void {
             const target_side = opposite(side);
-            const target_engine = self.engine(target_side);
+            const target_engine = self.engineHarness(target_side);
             const remote_endpoint = self.endpoint(side);
 
             if (packet.state == .prepared) {
                 try OutboundPacket.encrypt(grt, cipher_kind, packet);
             }
 
-            const inbound = try target_engine.getInboundPacket();
+            const inbound = try target_engine.allocInboundPacket();
+            errdefer inbound.deinit();
             if (inbound.bufRef().len < packet.len) return error.BufferTooSmall;
 
             @memcpy(inbound.bufRef()[0..packet.len], packet.bytes());
             inbound.len = packet.len;
             inbound.remote_endpoint = remote_endpoint;
 
-            try target_engine.drive(.{ .inbound_packet = inbound }, self.callback(target_side));
+            try target_engine.engine.drive(.{ .inbound_packet = inbound }, self.callback(target_side));
             packet.deinit();
-            if (inbound.state != .initial) inbound.deinit();
         }
 
         fn handleInbound(self: *@This(), side: Side, packet: *InboundPacket) !void {
@@ -171,13 +172,13 @@ pub fn runSinglePeerTransfer(
         fn sendFromInitiator(self: *@This(), chunk_index: usize) !void {
             var packet_buffer: [payload_size]u8 = undefined;
             fillSinglePeerPayload(chunk_index, packet_buffer[0..]);
-            const packet = try self.initiator.getOutboundPacket();
+            const packet = try self.initiator.allocOutboundPacket();
             errdefer packet.deinit();
             if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
             @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
             packet.len = packet_buffer.len;
             packet.remote_static = self.responder_key;
-            try self.initiator.drive(.{
+            try self.initiator.engine.drive(.{
                 .send_data = packet,
             }, self.callback(.initiator));
         }
@@ -185,13 +186,20 @@ pub fn runSinglePeerTransfer(
         fn driveTicksUntilEstablished(self: *@This(), target_events: usize, max_rounds: usize) !void {
             var round: usize = 0;
             while (self.established_events < target_events and round < max_rounds) : (round += 1) {
-                try self.initiator.drive(.{ .tick = {} }, self.callback(.initiator));
-                try self.responder.drive(.{ .tick = {} }, self.callback(.responder));
+                try self.initiator.engine.drive(.{ .tick = {} }, self.callback(.initiator));
+                try self.responder.engine.drive(.{ .tick = {} }, self.callback(.responder));
             }
             try grt.std.testing.expectEqual(target_events, self.established_events);
         }
 
         fn engine(self: *@This(), side: Side) *Engine {
+            return switch (side) {
+                .initiator => &self.initiator.engine,
+                .responder => &self.responder.engine,
+            };
+        }
+
+        fn engineHarness(self: *@This(), side: Side) *EngineHarness {
             return switch (side) {
                 .initiator => self.initiator,
                 .responder => self.responder,
@@ -218,25 +226,25 @@ pub fn runSinglePeerTransfer(
     const initiator_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 51001);
     const responder_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 51002);
 
-    var initiator = try Engine.init(grt.std.testing.allocator, initiator_pair, .{
+    var initiator_harness = try EngineHarness.init(grt.std.testing.allocator, initiator_pair, .{
         .max_peers = 1,
         .max_pending = 1,
         .rekey_after_messages = rekey_after_messages,
         .rekey_after_time = no_rekey_after_time,
     });
-    defer initiator.deinit();
+    defer initiator_harness.deinit();
 
-    var responder = try Engine.init(grt.std.testing.allocator, responder_pair, .{
+    var responder_harness = try EngineHarness.init(grt.std.testing.allocator, responder_pair, .{
         .max_peers = 1,
         .max_pending = 1,
         .rekey_after_messages = rekey_after_messages,
         .rekey_after_time = no_rekey_after_time,
     });
-    defer responder.deinit();
+    defer responder_harness.deinit();
 
     var harness: Harness = .{
-        .initiator = &initiator,
-        .responder = &responder,
+        .initiator = &initiator_harness,
+        .responder = &responder_harness,
         .initiator_key = initiator_pair.public,
         .responder_key = responder_pair.public,
         .initiator_endpoint = initiator_endpoint,
@@ -254,7 +262,7 @@ pub fn runSinglePeerTransfer(
     harness.responder_callback_ctx = &responder_callback_ctx;
 
     const start_ns = grt.time.instant.now();
-    try initiator.drive(.{
+    try initiator_harness.engine.drive(.{
         .initiate_handshake = .{
             .remote_key = responder_pair.public,
             .remote_endpoint = responder_endpoint,
@@ -274,11 +282,11 @@ pub fn runSinglePeerTransfer(
     try grt.std.testing.expectEqual(chunk_count, harness.received_packets);
     try grt.std.testing.expectEqual(total_transfer_bytes, harness.received_bytes);
     try grt.std.testing.expectEqual(2 * (1 + expected_rekey_count), harness.established_events);
-    try grt.std.testing.expectEqual(if (expected_rekey_count == 0) @as(usize, 1) else @as(usize, 2), initiator.stats.session_count);
-    try grt.std.testing.expectEqual(if (expected_rekey_count == 0) @as(usize, 1) else @as(usize, 2), responder.stats.session_count);
-    try grt.std.testing.expectEqual(@as(usize, 0), initiator.stats.pending_handshake_count);
-    try grt.std.testing.expectEqual(@as(usize, 0), responder.stats.pending_handshake_count);
-    try grt.std.testing.expect(responder.stats.transfer_rx >= @as(u64, @intCast(total_transfer_bytes)));
+    try grt.std.testing.expectEqual(if (expected_rekey_count == 0) @as(usize, 1) else @as(usize, 2), initiator_harness.engine.stats.session_count);
+    try grt.std.testing.expectEqual(if (expected_rekey_count == 0) @as(usize, 1) else @as(usize, 2), responder_harness.engine.stats.session_count);
+    try grt.std.testing.expectEqual(@as(usize, 0), initiator_harness.engine.stats.pending_handshake_count);
+    try grt.std.testing.expectEqual(@as(usize, 0), responder_harness.engine.stats.pending_handshake_count);
+    try grt.std.testing.expect(responder_harness.engine.stats.transfer_rx >= @as(u64, @intCast(total_transfer_bytes)));
 
     const elapsed_ns: u64 = @intCast(grt.time.instant.sub(end_ns, start_ns));
     const bytes_per_second = if (elapsed_ns == 0 or total_transfer_bytes == 0)
@@ -294,8 +302,8 @@ pub fn runSinglePeerTransfer(
         .received_bytes = harness.received_bytes,
         .established_events = harness.established_events,
         .rekey_count = expected_rekey_count,
-        .initiator_session_count = initiator.stats.session_count,
-        .responder_session_count = responder.stats.session_count,
+        .initiator_session_count = initiator_harness.engine.stats.session_count,
+        .responder_session_count = responder_harness.engine.stats.session_count,
     };
 }
 
@@ -309,6 +317,7 @@ pub fn runMultiPeerBidirectionalRekey(
     const payload_size: usize = 1024;
     const packet_size = SessionType.legacy_packet_size_capacity;
     const Engine = EngineType.make(grt, packet_size, cipher_kind);
+    const EngineHarness = EngineWithPools(grt, Engine, packet_size);
     const rekey_after_messages_usize: usize = @intCast(rekey_after_messages);
     const packets_per_peer: usize = total_transfer_bytes_per_peer / payload_size;
     const expected_rekey_count_per_relation: usize = packets_per_peer / rekey_after_messages_usize;
@@ -335,14 +344,14 @@ pub fn runMultiPeerBidirectionalRekey(
     };
 
     const Harness = struct {
-        left_hub: *Engine,
-        right_hub: *Engine,
+        left_hub: *EngineHarness,
+        right_hub: *EngineHarness,
         left_hub_key: Key,
         right_hub_key: Key,
         left_hub_endpoint: AddrPort,
         right_hub_endpoint: AddrPort,
-        left_leaves: *[peer_count]Engine,
-        right_leaves: *[peer_count]Engine,
+        left_leaves: *[peer_count]EngineHarness,
+        right_leaves: *[peer_count]EngineHarness,
         left_leaf_pairs: *const [peer_count]KeyPair,
         right_leaf_pairs: *const [peer_count]KeyPair,
         left_leaf_endpoints: *const [peer_count]AddrPort,
@@ -387,22 +396,22 @@ pub fn runMultiPeerBidirectionalRekey(
 
         fn handleOutbound(self: *@This(), source: NodeId, packet: *OutboundPacket) !void {
             const target = try self.lookupNodeByEndpoint(packet.remote_endpoint);
-            const target_engine = self.engine(target);
+            const target_engine = self.engineHarness(target);
             const remote_endpoint = self.endpoint(source);
 
             if (packet.state == .prepared) {
                 try OutboundPacket.encrypt(grt, cipher_kind, packet);
             }
 
-            const inbound = try target_engine.getInboundPacket();
+            const inbound = try target_engine.allocInboundPacket();
+            errdefer inbound.deinit();
             if (inbound.bufRef().len < packet.len) return error.BufferTooSmall;
             @memcpy(inbound.bufRef()[0..packet.len], packet.bytes());
             inbound.len = packet.len;
             inbound.remote_endpoint = remote_endpoint;
 
-            try target_engine.drive(.{ .inbound_packet = inbound }, self.callback(target));
+            try target_engine.engine.drive(.{ .inbound_packet = inbound }, self.callback(target));
             packet.deinit();
-            if (inbound.state != .initial) inbound.deinit();
         }
 
         fn handleInbound(self: *@This(), node_id: NodeId, packet: *InboundPacket) !void {
@@ -457,6 +466,15 @@ pub fn runMultiPeerBidirectionalRekey(
 
         fn engine(self: *@This(), node_id: NodeId) *Engine {
             return switch (node_id.kind) {
+                .left_hub => &self.left_hub.engine,
+                .right_hub => &self.right_hub.engine,
+                .left_leaf => &self.left_leaves[node_id.index].engine,
+                .right_leaf => &self.right_leaves[node_id.index].engine,
+            };
+        }
+
+        fn engineHarness(self: *@This(), node_id: NodeId) *EngineHarness {
+            return switch (node_id.kind) {
                 .left_hub => self.left_hub,
                 .right_hub => self.right_hub,
                 .left_leaf => &self.left_leaves[node_id.index],
@@ -497,13 +515,13 @@ pub fn runMultiPeerBidirectionalRekey(
         fn sendFromLeftHub(self: *@This(), peer_index: usize, chunk_index: usize) !void {
             var packet_buffer: [payload_size]u8 = undefined;
             fillMultiPeerPayload(.left_to_right, peer_index, chunk_index, packet_buffer[0..]);
-            const packet = try self.left_hub.getOutboundPacket();
+            const packet = try self.left_hub.allocOutboundPacket();
             errdefer packet.deinit();
             if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
             @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
             packet.len = packet_buffer.len;
             packet.remote_static = self.right_leaf_pairs[peer_index].public;
-            try self.left_hub.drive(.{
+            try self.left_hub.engine.drive(.{
                 .send_data = packet,
             }, self.callback(.{ .kind = .left_hub }));
         }
@@ -511,13 +529,13 @@ pub fn runMultiPeerBidirectionalRekey(
         fn sendFromRightHub(self: *@This(), peer_index: usize, chunk_index: usize) !void {
             var packet_buffer: [payload_size]u8 = undefined;
             fillMultiPeerPayload(.right_to_left, peer_index, chunk_index, packet_buffer[0..]);
-            const packet = try self.right_hub.getOutboundPacket();
+            const packet = try self.right_hub.allocOutboundPacket();
             errdefer packet.deinit();
             if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
             @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
             packet.len = packet_buffer.len;
             packet.remote_static = self.left_leaf_pairs[peer_index].public;
-            try self.right_hub.drive(.{
+            try self.right_hub.engine.drive(.{
                 .send_data = packet,
             }, self.callback(.{ .kind = .right_hub }));
         }
@@ -525,11 +543,11 @@ pub fn runMultiPeerBidirectionalRekey(
         fn driveAllTicksUntilEstablished(self: *@This(), target_events: usize, max_rounds: usize) !void {
             var round: usize = 0;
             while (self.established_events < target_events and round < max_rounds) : (round += 1) {
-                try self.left_hub.drive(.{ .tick = {} }, self.callback(.{ .kind = .left_hub }));
-                try self.right_hub.drive(.{ .tick = {} }, self.callback(.{ .kind = .right_hub }));
+                try self.left_hub.engine.drive(.{ .tick = {} }, self.callback(.{ .kind = .left_hub }));
+                try self.right_hub.engine.drive(.{ .tick = {} }, self.callback(.{ .kind = .right_hub }));
                 for (0..peer_count) |index| {
-                    try self.left_leaves[index].drive(.{ .tick = {} }, self.callback(.{ .kind = .left_leaf, .index = index }));
-                    try self.right_leaves[index].drive(.{ .tick = {} }, self.callback(.{ .kind = .right_leaf, .index = index }));
+                    try self.left_leaves[index].engine.drive(.{ .tick = {} }, self.callback(.{ .kind = .left_leaf, .index = index }));
+                    try self.right_leaves[index].engine.drive(.{ .tick = {} }, self.callback(.{ .kind = .right_leaf, .index = index }));
                 }
             }
             try grt.std.testing.expectEqual(target_events, self.established_events);
@@ -541,28 +559,30 @@ pub fn runMultiPeerBidirectionalRekey(
     const left_hub_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 53001);
     const right_hub_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 53002);
 
-    var left_hub = try Engine.init(grt.std.testing.allocator, left_hub_pair, .{
+    var left_hub_harness = try EngineHarness.init(grt.std.testing.allocator, left_hub_pair, .{
         .max_peers = peer_count,
         .max_pending = peer_count,
         .rekey_after_messages = rekey_after_messages,
         .rekey_after_time = no_rekey_after_time,
     });
-    errdefer left_hub.deinit();
+    errdefer left_hub_harness.deinit();
+    const left_hub = &left_hub_harness.engine;
 
-    var right_hub = try Engine.init(grt.std.testing.allocator, right_hub_pair, .{
+    var right_hub_harness = try EngineHarness.init(grt.std.testing.allocator, right_hub_pair, .{
         .max_peers = peer_count,
         .max_pending = peer_count,
         .rekey_after_messages = rekey_after_messages,
         .rekey_after_time = no_rekey_after_time,
     });
-    errdefer right_hub.deinit();
+    errdefer right_hub_harness.deinit();
+    const right_hub = &right_hub_harness.engine;
 
     var left_leaf_pairs: [peer_count]KeyPair = undefined;
     var right_leaf_pairs: [peer_count]KeyPair = undefined;
     var left_leaf_endpoints: [peer_count]AddrPort = undefined;
     var right_leaf_endpoints: [peer_count]AddrPort = undefined;
-    var left_leaves: [peer_count]Engine = undefined;
-    var right_leaves: [peer_count]Engine = undefined;
+    var left_leaves: [peer_count]EngineHarness = undefined;
+    var right_leaves: [peer_count]EngineHarness = undefined;
     var left_leaf_init_count: usize = 0;
     var right_leaf_init_count: usize = 0;
     errdefer {
@@ -570,8 +590,8 @@ pub fn runMultiPeerBidirectionalRekey(
         while (index < left_leaf_init_count) : (index += 1) left_leaves[index].deinit();
         index = 0;
         while (index < right_leaf_init_count) : (index += 1) right_leaves[index].deinit();
-        right_hub.deinit();
-        left_hub.deinit();
+        right_hub_harness.deinit();
+        left_hub_harness.deinit();
     }
 
     for (0..peer_count) |index| {
@@ -580,7 +600,7 @@ pub fn runMultiPeerBidirectionalRekey(
         left_leaf_endpoints[index] = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, @intCast(53100 + index));
         right_leaf_endpoints[index] = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, @intCast(53200 + index));
 
-        left_leaves[index] = try Engine.init(grt.std.testing.allocator, left_leaf_pairs[index], .{
+        left_leaves[index] = try EngineHarness.init(grt.std.testing.allocator, left_leaf_pairs[index], .{
             .max_peers = 1,
             .max_pending = 1,
             .rekey_after_messages = rekey_after_messages,
@@ -588,7 +608,7 @@ pub fn runMultiPeerBidirectionalRekey(
         });
         left_leaf_init_count += 1;
 
-        right_leaves[index] = try Engine.init(grt.std.testing.allocator, right_leaf_pairs[index], .{
+        right_leaves[index] = try EngineHarness.init(grt.std.testing.allocator, right_leaf_pairs[index], .{
             .max_peers = 1,
             .max_pending = 1,
             .rekey_after_messages = rekey_after_messages,
@@ -600,13 +620,13 @@ pub fn runMultiPeerBidirectionalRekey(
     defer {
         for (&left_leaves) |*engine| engine.deinit();
         for (&right_leaves) |*engine| engine.deinit();
-        right_hub.deinit();
-        left_hub.deinit();
+        right_hub_harness.deinit();
+        left_hub_harness.deinit();
     }
 
     var harness: Harness = .{
-        .left_hub = &left_hub,
-        .right_hub = &right_hub,
+        .left_hub = &left_hub_harness,
+        .right_hub = &right_hub_harness,
         .left_hub_key = left_hub_pair.public,
         .right_hub_key = right_hub_pair.public,
         .left_hub_endpoint = left_hub_endpoint,
@@ -686,11 +706,11 @@ pub fn runMultiPeerBidirectionalRekey(
     for (0..peer_count) |index| {
         try grt.std.testing.expectEqual(packets_per_peer, harness.left_leaf_received_packets[index]);
         try grt.std.testing.expectEqual(packets_per_peer, harness.right_leaf_received_packets[index]);
-        try grt.std.testing.expectEqual(if (expected_rekey_count_per_relation == 0) @as(usize, 1) else @as(usize, 2), left_leaves[index].stats.session_count);
-        try grt.std.testing.expectEqual(if (expected_rekey_count_per_relation == 0) @as(usize, 1) else @as(usize, 2), right_leaves[index].stats.session_count);
+        try grt.std.testing.expectEqual(if (expected_rekey_count_per_relation == 0) @as(usize, 1) else @as(usize, 2), left_leaves[index].engine.stats.session_count);
+        try grt.std.testing.expectEqual(if (expected_rekey_count_per_relation == 0) @as(usize, 1) else @as(usize, 2), right_leaves[index].engine.stats.session_count);
 
-        const left_leaf_peer = left_leaves[index].peers.get(right_hub_pair.public) orelse return error.SessionNotFound;
-        const right_leaf_peer = right_leaves[index].peers.get(left_hub_pair.public) orelse return error.SessionNotFound;
+        const left_leaf_peer = left_leaves[index].engine.peers.get(right_hub_pair.public) orelse return error.SessionNotFound;
+        const right_leaf_peer = right_leaves[index].engine.peers.get(left_hub_pair.public) orelse return error.SessionNotFound;
         if (expected_rekey_count_per_relation == 0) {
             try grt.std.testing.expect(left_leaf_peer.current != null);
             try grt.std.testing.expect(right_leaf_peer.current != null);
@@ -717,6 +737,58 @@ pub fn runMultiPeerBidirectionalRekey(
         .rekey_count_per_relation = expected_rekey_count_per_relation,
         .left_hub_session_count = left_hub.stats.session_count,
         .right_hub_session_count = right_hub.stats.session_count,
+    };
+}
+
+fn EngineWithPools(
+    comptime grt: type,
+    comptime Engine: type,
+    comptime packet_size: usize,
+) type {
+    return struct {
+        inbound_pool: InboundPacket.Pool,
+        outbound_pool: OutboundPacket.Pool,
+        engine: Engine,
+
+        const Self = @This();
+
+        pub fn init(
+            allocator: glib.std.mem.Allocator,
+            local_static: KeyPair,
+            config: EngineType.Config,
+        ) !Self {
+            const inbound_pool = try InboundPacket.initPool(grt, allocator, packet_size);
+            errdefer inbound_pool.deinit();
+
+            const outbound_pool = try OutboundPacket.initPool(grt, allocator, packet_size);
+            errdefer outbound_pool.deinit();
+
+            const engine = try Engine.init(allocator, local_static, config, .{
+                .inbound = inbound_pool,
+                .outbound = outbound_pool,
+            });
+            errdefer engine.deinit();
+
+            return .{
+                .inbound_pool = inbound_pool,
+                .outbound_pool = outbound_pool,
+                .engine = engine,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.engine.deinit();
+            self.outbound_pool.deinit();
+            self.inbound_pool.deinit();
+        }
+
+        pub fn allocInboundPacket(self: *Self) !*InboundPacket {
+            return self.inbound_pool.get() orelse error.OutOfMemory;
+        }
+
+        pub fn allocOutboundPacket(self: *Self) !*OutboundPacket {
+            return self.outbound_pool.get() orelse error.OutOfMemory;
+        }
     };
 }
 

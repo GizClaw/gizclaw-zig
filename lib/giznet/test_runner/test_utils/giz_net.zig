@@ -485,6 +485,10 @@ pub fn Fixture(
                 }
             };
 
+            const SharedState = struct {
+                writer_done: grt.std.atomic.Value(u8) = grt.std.atomic.Value(u8).init(0),
+            };
+
             const WriterTask = struct {
                 rw: ReadWriter,
                 expected_lens: []const u16,
@@ -493,8 +497,11 @@ pub fn Fixture(
                 err: ?anyerror = null,
                 checksum: u64 = 0,
                 next_seq: u32 = 0,
+                shared: *SharedState,
 
                 fn run(task: *@This()) void {
+                    defer task.shared.writer_done.store(1, .seq_cst);
+
                     var buf: [transfer_chunk_bytes]u8 = undefined;
                     while (@as(usize, @intCast(task.next_seq)) < task.expected_lens.len) {
                         const seq_idx: usize = @intCast(task.next_seq);
@@ -527,51 +534,61 @@ pub fn Fixture(
 
             const ReaderTask = struct {
                 rw: ReadWriter,
-                total: usize,
                 expected_lens: []const u16,
                 seen_packets: []bool,
+                drain_timeout: glib.time.duration.Duration,
                 transferred: usize = 0,
                 err: ?anyerror = null,
                 checksum: u64 = 0,
                 missing_packets: u64 = 0,
+                duplicate_packets: u64 = 0,
                 total_mismatches: u64 = 0,
                 received_packets: usize = 0,
+                shared: *SharedState,
 
                 fn run(task: *@This()) void {
                     var buf: [transfer_chunk_bytes]u8 = undefined;
-                    while (task.transferred < task.total) {
-                        const read_n = task.rw.read(&buf) catch |err| {
-                            task.err = err;
-                            return;
+                    while (task.received_packets < task.expected_lens.len) {
+                        const read_n = task.rw.readTimeout(&buf, task.drain_timeout) catch |err| switch (err) {
+                            error.Timeout => {
+                                if (task.shared.writer_done.load(.seq_cst) != 0) break;
+                                continue;
+                            },
+                            error.ConnClosed, error.Closed, error.EndOfStream => break,
+                            else => {
+                                task.err = err;
+                                return;
+                            },
                         };
                         if (read_n < transfer_seq_bytes) {
-                            task.err = error.ShortRead;
-                            return;
+                            task.total_mismatches += 1;
+                            continue;
                         }
 
                         const got_seq = TransferPacket.decodeSeq(buf[0..transfer_seq_bytes]);
                         const seq_idx: usize = @intCast(got_seq);
                         if (seq_idx >= task.expected_lens.len) {
                             task.total_mismatches += 1;
-                            task.err = error.TestUnexpectedResult;
-                            return;
+                            continue;
                         }
                         if (task.seen_packets[seq_idx]) {
-                            task.total_mismatches += 1;
-                            task.err = error.TestUnexpectedResult;
-                            return;
+                            task.duplicate_packets += 1;
+                            continue;
                         }
                         if (read_n != task.expected_lens[seq_idx]) {
                             task.total_mismatches += 1;
-                            task.err = error.TestUnexpectedResult;
-                            return;
+                            continue;
                         }
+                        var payload_ok = true;
                         for (buf[transfer_seq_bytes..read_n]) |byte| {
                             if (byte != 0x5a) {
-                                task.total_mismatches += 1;
-                                task.err = error.TestUnexpectedResult;
-                                return;
+                                payload_ok = false;
+                                break;
                             }
+                        }
+                        if (!payload_ok) {
+                            task.total_mismatches += 1;
+                            continue;
                         }
 
                         task.seen_packets[seq_idx] = true;
@@ -586,16 +603,19 @@ pub fn Fixture(
                 }
             };
 
+            var shared: SharedState = .{};
             var writer_task: WriterTask = .{
                 .rw = rw,
                 .expected_lens = expected_lens,
                 .yield_every = self.config.transfer_yield_every,
+                .shared = &shared,
             };
             var reader_task: ReaderTask = .{
                 .rw = rw,
-                .total = size,
                 .expected_lens = expected_lens,
                 .seen_packets = seen_packets,
+                .drain_timeout = glib.time.duration.Second,
+                .shared = &shared,
             };
 
             const start_ns = grt.time.instant.now();
@@ -607,8 +627,6 @@ pub fn Fixture(
 
             if (writer_task.err) |err| return err;
             if (reader_task.err) |err| return err;
-            if (writer_task.transferred != size or reader_task.transferred != size) return error.TestUnexpectedResult;
-            if (reader_task.missing_packets != 0 or reader_task.total_mismatches != 0) return error.TestUnexpectedResult;
 
             grt.std.mem.doNotOptimizeAway(writer_task.checksum);
             grt.std.mem.doNotOptimizeAway(reader_task.checksum);
@@ -629,6 +647,7 @@ pub fn Fixture(
                 .expected_packets = @intCast(packet_count),
                 .received_packets = @intCast(reader_task.received_packets),
                 .missing_packets = reader_task.missing_packets,
+                .duplicate_packets = reader_task.duplicate_packets,
                 .total_mismatches = reader_task.total_mismatches,
             };
         }

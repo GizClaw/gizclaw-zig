@@ -46,7 +46,6 @@ pub fn make(comptime grt: type) type {
         };
         pub const DriveOutput = union(enum) {
             peer_port: PeerPort,
-            inbound_delivered: void,
             outbound: *PacketOutbound,
             next_tick_deadline: glib.time.instant.Time,
         };
@@ -96,15 +95,13 @@ pub fn make(comptime grt: type) type {
                                 } });
                             }
                             try peer_result.peer.deliverPacket(frame);
-                            try callback.handle(.{ .inbound_delivered = {} });
                         },
                         .kcp => {
-                            frame.deinit();
                             return error.ServiceEngineKcpNotImplemented;
                         },
                         .close => {
-                            frame.deinit();
                             _ = self.peers.remove(packet.remote_static);
+                            frame.deinit();
                         },
                     }
                 },

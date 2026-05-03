@@ -59,6 +59,11 @@ pub const DriveInput = union(enum) {
     tick: void,
 };
 
+pub const PacketPools = struct {
+    inbound: InboundPacket.Pool,
+    outbound: OutboundPacket.Pool,
+};
+
 pub const Stats = struct {
     peer_count: usize = 0,
     pending_handshake_count: usize = 0,
@@ -129,6 +134,7 @@ pub fn make(
             allocator: grt.std.mem.Allocator,
             local_static: KeyPair,
             config: Engine.Config,
+            packet_pools: Engine.PacketPools,
         ) !Self {
             const normalized_config = Engine.normalizeConfig(config);
             var timer_slots: []TimerSlot = &[_]TimerSlot{};
@@ -137,12 +143,6 @@ pub fn make(
             }
             errdefer if (timer_slots.len != 0) allocator.free(timer_slots);
             for (timer_slots) |*slot| slot.* = .{};
-
-            const inbound_pool = try InboundPacket.initPool(grt, allocator, packet_size_capacity);
-            errdefer inbound_pool.deinit();
-
-            const outbound_pool = try OutboundPacket.initPool(grt, allocator, packet_size_capacity);
-            errdefer outbound_pool.deinit();
 
             return .{
                 .allocator = allocator,
@@ -157,8 +157,8 @@ pub fn make(
                     .session_cleanup = normalized_config.session_cleanup,
                     .rekey_after_messages = normalized_config.rekey_after_messages,
                 }),
-                .inbound_pool = inbound_pool,
-                .outbound_pool = outbound_pool,
+                .inbound_pool = packet_pools.inbound,
+                .outbound_pool = packet_pools.outbound,
                 .timer_slots = timer_slots,
             };
         }
@@ -167,24 +167,6 @@ pub fn make(
             if (self.timer_slots.len != 0) self.allocator.free(self.timer_slots);
             self.timer_slots = &.{};
             self.peers.deinit();
-            self.inbound_pool.deinit();
-            self.outbound_pool.deinit();
-        }
-
-        /// Acquire an engine-owned inbound packet in `.initial` state.
-        ///
-        /// The caller is expected to fill:
-        /// - `packet.len`
-        /// - `packet.bufRef()[0..len]`
-        /// - `packet.remote_endpoint`
-        ///
-        /// before calling `drive()`.
-        pub fn getInboundPacket(self: *Self) !*InboundPacket {
-            return self.inbound_pool.get() orelse error.OutOfMemory;
-        }
-
-        pub fn getOutboundPacket(self: *Self) !*OutboundPacket {
-            return self.outbound_pool.get() orelse error.OutOfMemory;
         }
 
         /// Single engine drive entrypoint.
@@ -313,7 +295,9 @@ pub fn make(
             return switch (try Handshake.parseMessageType(packet.bytes())) {
                 .init => {
                     const outbound = try self.consumeInit(packet, on_result);
+                    errdefer outbound.deinit();
                     try self.emitEvent(on_result, .{ .outbound = outbound });
+                    packet.deinit();
                 },
                 .response => try self.consumeResponse(packet, on_result),
             };
@@ -396,6 +380,7 @@ pub fn make(
             try self.emitEvent(on_result, .{ .established = peer.key });
 
             packet.state = .consumed;
+            packet.deinit();
         }
 
         fn consumeTransport(
@@ -424,6 +409,8 @@ pub fn make(
             packet.state = .consumed;
             if (packet.len != 0) {
                 try self.emitEvent(on_result, .{ .inbound = packet });
+            } else {
+                packet.deinit();
             }
         }
 
@@ -720,19 +707,17 @@ pub fn make(
             on_result: Engine.Callback,
             event: Engine.DriveOutput,
         ) !void {
+            const outbound_transfer_len: ?u64 = switch (event) {
+                .outbound => |packet| if (packet.kind == .handshake or packet.state == .ready_to_send)
+                    @as(u64, @intCast(packet.len))
+                else
+                    null,
+                else => null,
+            };
+
             try on_result.handle(event);
 
-            switch (event) {
-                .outbound => |packet| {
-                    if (packet.kind == .handshake or packet.state == .ready_to_send) {
-                        self.stats.transfer_tx +%= @as(u64, @intCast(packet.len));
-                    }
-                },
-                .inbound => |_| {},
-                .established => {},
-                .offline => {},
-                .next_tick_deadline => {},
-            }
+            if (outbound_transfer_len) |len| self.stats.transfer_tx +%= len;
         }
 
         pub fn instantNow() glib.time.instant.Time {
@@ -762,6 +747,54 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
     const giznet = @import("../../giznet.zig");
 
     const Cases = struct {
+        fn TestEngine(comptime EngineType: type, comptime packet_size: usize) type {
+            return struct {
+                inbound_pool: InboundPacket.Pool,
+                outbound_pool: OutboundPacket.Pool,
+                engine: EngineType,
+
+                const Self = @This();
+
+                pub fn init(
+                    allocator: glib.std.mem.Allocator,
+                    local_static: KeyPair,
+                    config: Engine.Config,
+                ) !Self {
+                    const inbound_pool = try InboundPacket.initPool(grt, allocator, packet_size);
+                    errdefer inbound_pool.deinit();
+
+                    const outbound_pool = try OutboundPacket.initPool(grt, allocator, packet_size);
+                    errdefer outbound_pool.deinit();
+
+                    const engine = try EngineType.init(allocator, local_static, config, .{
+                        .inbound = inbound_pool,
+                        .outbound = outbound_pool,
+                    });
+                    errdefer engine.deinit();
+
+                    return .{
+                        .inbound_pool = inbound_pool,
+                        .outbound_pool = outbound_pool,
+                        .engine = engine,
+                    };
+                }
+
+                pub fn deinit(self: *Self) void {
+                    self.engine.deinit();
+                    self.outbound_pool.deinit();
+                    self.inbound_pool.deinit();
+                }
+
+                pub fn allocInboundPacket(self: *Self) !*InboundPacket {
+                    return self.inbound_pool.get() orelse error.OutOfMemory;
+                }
+
+                pub fn allocOutboundPacket(self: *Self) !*OutboundPacket {
+                    return self.outbound_pool.get() orelse error.OutOfMemory;
+                }
+            };
+        }
+
         fn offlineDeadlineMarksPeerOffline(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             _ = allocator;
             try runOfflineDeadlineFlow();
@@ -813,12 +846,13 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2902);
             const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52102);
 
-            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
+            var engine_harness = try TestEngine(EngineType, packet_size).init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .offline_timeout = 0,
             });
-            defer engine.deinit();
+            defer engine_harness.deinit();
+            const engine = &engine_harness.engine;
 
             const now = EngineType.instantNow();
             const peer = try engine.peers.getOrCreate(remote_pair.public);
@@ -893,13 +927,14 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2912);
             const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52112);
 
-            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
+            var engine_harness = try TestEngine(EngineType, packet_size).init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .keepalive_timeout = 0,
                 .offline_timeout = 10 * glib.time.duration.Second,
             });
-            defer engine.deinit();
+            defer engine_harness.deinit();
+            const engine = &engine_harness.engine;
 
             const receive_now = blk: {
                 const start_now = EngineType.instantNow();
@@ -982,11 +1017,12 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2917);
             const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52116);
 
-            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
+            var engine_harness = try TestEngine(EngineType, packet_size).init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
             });
-            defer engine.deinit();
+            defer engine_harness.deinit();
+            const engine = &engine_harness.engine;
 
             const CallbackState = struct {
                 outbound_packet: ?*OutboundPacket = null,
@@ -1052,12 +1088,13 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2922);
             const remote_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52122);
 
-            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
+            var engine_harness = try TestEngine(EngineType, packet_size).init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .offline_timeout = 10 * glib.time.duration.Second,
             });
-            defer engine.deinit();
+            defer engine_harness.deinit();
+            const engine = &engine_harness.engine;
 
             const sent_now = blk: {
                 const start_now = EngineType.instantNow();
@@ -1143,7 +1180,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const local_pair = giznet.noise.KeyPair.seed(any_lib, 2926);
             const remote_pair = giznet.noise.KeyPair.seed(any_lib, 2927);
 
-            var engine = try EngineType.init(grt.std.testing.allocator, local_pair, .{
+            var engine_harness = try TestEngine(EngineType, packet_size).init(grt.std.testing.allocator, local_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .rekey_after_time = -1,
@@ -1154,7 +1191,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 .offline_timeout = -1,
                 .session_cleanup = -1,
             });
-            defer engine.deinit();
+            defer engine_harness.deinit();
+            const engine = &engine_harness.engine;
 
             try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), engine.config.rekey_after_time);
             try grt.std.testing.expectEqual(@as(glib.time.duration.Duration, 0), engine.config.reject_after_time);
@@ -1173,6 +1211,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const any_lib = grt;
             const packet_size = SessionType.legacy_packet_size_capacity;
             const EngineType = make(any_lib, packet_size, cipher_kind);
+            const EngineHarness = TestEngine(EngineType, packet_size);
             const payload_size: usize = 1024;
             const total_transfer_bytes: usize = 10 * 1024;
             const total_packet_count: usize = total_transfer_bytes / payload_size;
@@ -1186,21 +1225,23 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const initiator_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52001);
             const responder_endpoint = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 52002);
 
-            var initiator = try EngineType.init(grt.std.testing.allocator, initiator_pair, .{
+            var initiator_harness = try EngineHarness.init(grt.std.testing.allocator, initiator_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .rekey_after_messages = trigger_message_count,
                 .rekey_after_time = no_rekey_after_time,
             });
-            defer initiator.deinit();
+            defer initiator_harness.deinit();
 
-            var responder = try EngineType.init(grt.std.testing.allocator, responder_pair, .{
+            var responder_harness = try EngineHarness.init(grt.std.testing.allocator, responder_pair, .{
                 .max_peers = 1,
                 .max_pending = 1,
                 .rekey_after_messages = trigger_message_count,
                 .rekey_after_time = no_rekey_after_time,
             });
-            defer responder.deinit();
+            defer responder_harness.deinit();
+            const initiator = &initiator_harness.engine;
+            const responder = &responder_harness.engine;
 
             const Side = enum {
                 initiator,
@@ -1213,8 +1254,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             };
 
             const Harness = struct {
-                initiator: *EngineType,
-                responder: *EngineType,
+                initiator: *EngineHarness,
+                responder: *EngineHarness,
                 initiator_key: Key,
                 responder_key: Key,
                 initiator_endpoint: AddrPort,
@@ -1256,21 +1297,21 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
                 fn handleOutbound(self: *@This(), side: Side, packet: *OutboundPacket) !void {
                     const target_side = opposite(side);
-                    const target_engine = self.engine(target_side);
+                    const target_engine = self.engineHarness(target_side);
                     const remote_endpoint = self.endpoint(side);
 
                     if (packet.state == .prepared) {
                         try OutboundPacket.encrypt(any_lib, cipher_kind, packet);
                     }
 
-                    const inbound = try target_engine.getInboundPacket();
+                    const inbound = try target_engine.allocInboundPacket();
                     if (inbound.bufRef().len < packet.len) return error.BufferTooSmall;
 
                     @memcpy(inbound.bufRef()[0..packet.len], packet.bytes());
                     inbound.len = packet.len;
                     inbound.remote_endpoint = remote_endpoint;
 
-                    try target_engine.drive(.{ .inbound_packet = inbound }, self.callback(target_side));
+                    try target_engine.engine.drive(.{ .inbound_packet = inbound }, self.callback(target_side));
                     packet.deinit();
                     if (inbound.state != .initial) {
                         inbound.deinit();
@@ -1322,6 +1363,13 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
                 fn engine(self: *@This(), side: Side) *EngineType {
                     return switch (side) {
+                        .initiator => &self.initiator.engine,
+                        .responder => &self.responder.engine,
+                    };
+                }
+
+                fn engineHarness(self: *@This(), side: Side) *EngineHarness {
+                    return switch (side) {
                         .initiator => self.initiator,
                         .responder => self.responder,
                     };
@@ -1351,21 +1399,21 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 fn sendFromInitiator(self: *@This(), chunk_index: usize) !void {
                     var packet_buffer: [payload_size]u8 = undefined;
                     fillPayload(chunk_index, packet_buffer[0..]);
-                    const packet = try self.initiator.getOutboundPacket();
+                    const packet = try self.initiator.allocOutboundPacket();
                     errdefer packet.deinit();
                     if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
                     @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
                     packet.len = packet_buffer.len;
                     packet.remote_static = self.responder_key;
-                    try self.initiator.drive(.{
+                    try self.initiator.engine.drive(.{
                         .send_data = packet,
                     }, self.callback(.initiator));
                 }
             };
 
             var harness: Harness = .{
-                .initiator = &initiator,
-                .responder = &responder,
+                .initiator = &initiator_harness,
+                .responder = &responder_harness,
                 .initiator_key = initiator_pair.public,
                 .responder_key = responder_pair.public,
                 .initiator_endpoint = initiator_endpoint,

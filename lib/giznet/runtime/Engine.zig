@@ -89,6 +89,8 @@ pub fn make(
         input: InputChannel,
         accept: AcceptChannel,
         local_static: NoiseKey,
+        inbound_pool: PacketInbound.Pool,
+        outbound_pool: PacketOutbound.Pool,
         noise: NoiseEngine,
         service: ServiceEngine,
         stats: Stats = .{},
@@ -112,7 +114,16 @@ pub fn make(
             var accept = try AcceptChannel.make(allocator, config.accept_channel_capacity);
             errdefer accept.deinit();
 
-            var noise = try NoiseEngine.init(allocator, config.local_static, config.noise);
+            const inbound_pool = try PacketInbound.initPool(grt, allocator, packet_size_capacity);
+            errdefer inbound_pool.deinit();
+
+            const outbound_pool = try PacketOutbound.initPool(grt, allocator, packet_size_capacity);
+            errdefer outbound_pool.deinit();
+
+            var noise = try NoiseEngine.init(allocator, config.local_static, config.noise, .{
+                .inbound = inbound_pool,
+                .outbound = outbound_pool,
+            });
             errdefer noise.deinit();
 
             var service = ServiceEngine.init(allocator, config.service);
@@ -124,6 +135,8 @@ pub fn make(
                 .input = channel,
                 .accept = accept,
                 .local_static = config.local_static.public,
+                .inbound_pool = inbound_pool,
+                .outbound_pool = outbound_pool,
                 .noise = noise,
                 .service = service,
                 .on_error = config.on_error,
@@ -131,15 +144,20 @@ pub fn make(
         }
 
         pub fn deinit(self: *Self) void {
+            self.close() catch {};
+            self.join();
             if (self.timer) |timer| {
                 timer.deinit();
                 self.timer = null;
             }
+            self.drainInput();
             self.service.deinit();
             self.noise.deinit();
             self.drainAcceptedConns();
             self.accept.deinit();
             self.input.deinit();
+            self.outbound_pool.deinit();
+            self.inbound_pool.deinit();
         }
 
         pub fn startDrive(self: *Self, spawn_config: grt.std.Thread.SpawnConfig) !void {
@@ -233,8 +251,8 @@ pub fn make(
 
         fn readLoop(self: *Self) void {
             while (!self.closed.load(.acquire)) {
-                const packet = self.noise.getInboundPacket() catch |err| {
-                    self.on_error.handle(err);
+                const packet = self.inbound_pool.get() orelse {
+                    self.on_error.handle(error.OutOfMemory);
                     return;
                 };
                 errdefer packet.deinit();
@@ -273,21 +291,10 @@ pub fn make(
             if (self.closed.load(.acquire) and input != .close) return error.RuntimeEngineClosed;
             switch (input) {
                 .udp_inbound => |packet| {
-                    var inbound_delivered = false;
-                    var callback = NoiseCallback{
-                        .runtime = self,
-                        .inbound_delivered = &inbound_delivered,
-                    };
-                    self.noise.drive(.{ .inbound_packet = packet }, callback.callback()) catch |err| {
-                        if (!inbound_delivered) packet.deinit();
-                        return err;
-                    };
-                    if (inbound_delivered) return;
-                    switch (packet.state) {
-                        .consumed => packet.deinit(),
-                        .service_delivered => {},
-                        else => return error.InvalidInboundPacketState,
-                    }
+                    errdefer packet.deinit();
+
+                    var callback = NoiseCallback{ .runtime = self };
+                    try self.noise.drive(.{ .inbound_packet = packet }, callback.callback());
                     return;
                 },
                 .initiate_handshake => |request| {
@@ -320,7 +327,7 @@ pub fn make(
                 },
             }
 
-            const packet = try self.noise.getOutboundPacket();
+            const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer packet.deinit();
             packet.remote_static = switch (input) {
                 .write_direct => |request| request.remote_static,
@@ -377,9 +384,24 @@ pub fn make(
             }
         }
 
+        fn drainInput(self: *Self) void {
+            while (true) {
+                const result = self.input.recvTimeout(0) catch break;
+                if (!result.ok) break;
+                self.releaseDriveInput(result.value);
+            }
+        }
+
+        fn releaseDriveInput(self: *Self, input: DriveInput) void {
+            switch (input) {
+                .udp_inbound => |packet| packet.deinit(),
+                .write_direct => |request| self.allocator.free(request.payload),
+                else => {},
+            }
+        }
+
         const NoiseCallback = struct {
             runtime: *Self,
-            inbound_delivered: ?*bool = null,
 
             fn callback(self: *@This()) NoiseEngineType.Callback {
                 return .{ .ctx = self, .call = call };
@@ -389,30 +411,24 @@ pub fn make(
                 const self: *@This() = @ptrCast(@alignCast(ctx));
                 switch (output) {
                     .outbound => |packet| {
-                        defer packet.deinit();
                         if (packet.state != .ready_to_send) {
                             try PacketOutbound.encrypt(grt, cipher_kind, packet);
                         }
                         const bytes = packet.bytes();
                         const written = try self.runtime.conn.writeTo(bytes, packet.remote_endpoint);
                         if (written != bytes.len) return error.ShortUdpWrite;
+                        packet.deinit();
                         _ = self.runtime.stats.udp_tx_packets.fetchAdd(1, .monotonic);
                     },
                     .inbound => |packet| {
                         switch (packet.state) {
                             .prepared => {
                                 try PacketInbound.decrtpy(grt, cipher_kind, packet);
-                                var noise_callback = NoiseCallback{
-                                    .runtime = self.runtime,
-                                    .inbound_delivered = self.inbound_delivered,
-                                };
+                                var noise_callback = NoiseCallback{ .runtime = self.runtime };
                                 return self.runtime.noise.drive(.{ .inbound_packet = packet }, noise_callback.callback());
                             },
                             .ready_to_consume, .consumed => {
-                                var service_callback = ServiceCallback{
-                                    .runtime = self.runtime,
-                                    .inbound_delivered = self.inbound_delivered,
-                                };
+                                var service_callback = ServiceCallback{ .runtime = self.runtime };
                                 return self.runtime.service.drive(.{ .inbound = packet }, service_callback.callback());
                             },
                             .initial,
@@ -434,7 +450,6 @@ pub fn make(
 
         const ServiceCallback = struct {
             runtime: *Self,
-            inbound_delivered: ?*bool = null,
 
             fn callback(self: *@This()) ServiceEngine.Callback {
                 return .{ .ctx = self, .call = call };
@@ -456,9 +471,6 @@ pub fn make(
                             return error.RuntimeAcceptChannelClosed;
                         }
                         _ = self.runtime.stats.active_peers.fetchAdd(1, .monotonic);
-                    },
-                    .inbound_delivered => {
-                        if (self.inbound_delivered) |delivered| delivered.* = true;
                     },
                     .outbound => |packet| {
                         var noise_callback = NoiseCallback{ .runtime = self.runtime };
