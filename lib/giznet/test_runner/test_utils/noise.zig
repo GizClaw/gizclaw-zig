@@ -9,6 +9,7 @@ const Key = @import("../../noise/Key.zig");
 const KeyPair = @import("../../noise/KeyPair.zig");
 const OutboundPacket = @import("../../packet/Outbound.zig");
 const SessionType = @import("../../noise/Session.zig");
+const rate_utils = @import("rate.zig");
 
 const MultiPeerDirection = enum(u8) {
     left_to_right = 1,
@@ -289,15 +290,12 @@ pub fn runSinglePeerTransfer(
     try grt.std.testing.expect(responder_harness.engine.stats.transfer_rx >= @as(u64, @intCast(total_transfer_bytes)));
 
     const elapsed_ns: u64 = @intCast(grt.time.instant.sub(end_ns, start_ns));
-    const bytes_per_second = if (elapsed_ns == 0 or total_transfer_bytes == 0)
-        0
-    else
-        @as(u64, @intCast((@as(u128, total_transfer_bytes) * @as(u128, grt.time.duration.Second)) / @as(u128, elapsed_ns)));
+    const bytes_per_second = rate_utils.bytesPerSecond(@intCast(total_transfer_bytes), elapsed_ns);
     return .{
         .bytes = total_transfer_bytes,
         .elapsed_ns = elapsed_ns,
         .bytes_per_second = bytes_per_second,
-        .mbps = @divTrunc(bytes_per_second * 8, 1_000_000),
+        .mbps = rate_utils.mbps(bytes_per_second),
         .received_packets = harness.received_packets,
         .received_bytes = harness.received_bytes,
         .established_events = harness.established_events,

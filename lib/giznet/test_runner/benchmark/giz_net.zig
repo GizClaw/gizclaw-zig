@@ -2,6 +2,7 @@ const glib = @import("glib");
 const testing_api = glib.testing;
 
 const bench = @import("test_utils/common.zig");
+const rate_utils = @import("../test_utils/rate.zig");
 const NoiseCipher = @import("../../noise/Cipher.zig");
 const Session = @import("../../noise/Session.zig");
 const test_utils = @import("../test_utils/giz_net.zig");
@@ -221,10 +222,13 @@ fn runConcurrentUdpTransfer(
     const loss_percent_milli: u64 = if (state.expected_packets == 0)
         0
     else
-        @intCast(@divTrunc(
-            @as(u128, state.missing_packets) * 100_000 + @as(u128, state.expected_packets / 2),
-            @as(u128, state.expected_packets),
-        ));
+        @divTrunc(
+            rate_utils.addSaturatingU64(
+                rate_utils.mulSaturatingU64(state.missing_packets, 100_000),
+                state.expected_packets / 2,
+            ),
+            state.expected_packets,
+        );
     const loss_percent_whole = @divTrunc(loss_percent_milli, 1000);
     const loss_percent_frac = loss_percent_milli % 1000;
     grt.std.debug.print(

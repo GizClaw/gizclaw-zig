@@ -2,6 +2,7 @@ const glib = @import("glib");
 const testing_api = glib.testing;
 
 const NoiseRunner = @import("integration/noise.zig");
+const ServiceRunner = @import("integration/service.zig");
 const GizNetRunner = @import("integration/giz_net.zig");
 
 pub fn make(comptime grt: type) testing_api.TestRunner {
@@ -16,6 +17,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             _ = allocator;
 
             t.run("noise", NoiseRunner.make(grt));
+            t.run("service", ServiceRunner.make(grt));
             t.run("giz_net", GizNetRunner.make(grt));
             return true;
         }

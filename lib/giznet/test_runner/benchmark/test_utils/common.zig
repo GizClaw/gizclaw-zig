@@ -1,3 +1,5 @@
+const rate_utils = @import("../../test_utils/rate.zig");
+
 pub const Tier = enum {
     smoke,
     regular,
@@ -30,23 +32,23 @@ pub fn runLoop(comptime grt: type, config: Config, state: anytype, body: anytype
 }
 
 pub fn payloadBytesPerSecond(comptime grt: type, config: Config, elapsed_ns: u64, payload_bytes_per_op: usize) u64 {
+    _ = grt;
     if (elapsed_ns == 0 or payload_bytes_per_op == 0) return 0;
     const iterations_u64: u64 = @intCast(config.iterations);
-    return @as(u64, @intCast((@as(u128, iterations_u64) * @as(u128, payload_bytes_per_op) * @as(u128, grt.time.duration.Second)) / @as(u128, elapsed_ns)));
+    const payload_bytes_u64: u64 = @intCast(payload_bytes_per_op);
+    const total_payload_bytes = rate_utils.mulSaturatingU64(iterations_u64, payload_bytes_u64);
+    return rate_utils.bytesPerSecond(total_payload_bytes, elapsed_ns);
 }
 
 pub fn payloadMbps(comptime grt: type, config: Config, elapsed_ns: u64, payload_bytes_per_op: usize) u64 {
     const payload_bps = payloadBytesPerSecond(grt, config, elapsed_ns, payload_bytes_per_op);
-    return @divTrunc(payload_bps * 8, 1_000_000);
+    return rate_utils.mbps(payload_bps);
 }
 
 pub fn print(comptime grt: type, label: []const u8, config: Config, elapsed_ns: u64, report: Report) void {
     const iterations_u64: u64 = @intCast(config.iterations);
     const ns_per_op = if (iterations_u64 == 0) 0 else @divTrunc(elapsed_ns, iterations_u64);
-    const ops_per_s = if (elapsed_ns == 0)
-        0
-    else
-        @as(u64, @intCast((@as(u128, iterations_u64) * @as(u128, grt.time.duration.Second)) / @as(u128, elapsed_ns)));
+    const ops_per_s = rate_utils.opsPerSecond(iterations_u64, elapsed_ns);
     const payload_bytes_per_s = payloadBytesPerSecond(grt, config, elapsed_ns, report.payload_bytes_per_op);
     const payload_mbps = payloadMbps(grt, config, elapsed_ns, report.payload_bytes_per_op);
 

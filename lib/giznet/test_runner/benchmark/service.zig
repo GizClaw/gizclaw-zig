@@ -1,9 +1,8 @@
 const glib = @import("glib");
 const testing_api = glib.testing;
 
-const NoiseRunner = @import("benchmark/noise.zig");
-const ServiceRunner = @import("benchmark/service.zig");
-const GizNetRunner = @import("benchmark/giz_net.zig");
+const KcpStreamRunner = @import("service/kcp_stream.zig");
+const KcpStreamRealUdpRunner = @import("service/kcp_stream_real_udp.zig");
 
 pub fn make(comptime grt: type) testing_api.TestRunner {
     const Runner = struct {
@@ -16,9 +15,8 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             _ = self;
             _ = allocator;
 
-            t.run("noise", NoiseRunner.make(grt));
-            t.run("service", ServiceRunner.make(grt));
-            t.run("giz_net", GizNetRunner.make(grt));
+            t.run("kcp_stream", KcpStreamRunner.make(grt));
+            t.run("kcp_stream_real_udp", KcpStreamRealUdpRunner.make(grt));
             return true;
         }
 

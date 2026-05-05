@@ -6,6 +6,7 @@ const NoiseEngine = @import("../../noise/Engine.zig");
 const RuntimeEngine = @import("../../runtime/Engine.zig");
 const ServiceEngine = @import("../../service/Engine.zig");
 const Session = @import("../../noise/Session.zig");
+const rate_utils = @import("rate.zig");
 
 pub const default_accept_timeout: glib.time.duration.Duration = 2 * glib.time.duration.Second;
 pub const copy_buffer_bytes: usize = 1024;
@@ -435,16 +436,13 @@ pub fn Fixture(
             grt.std.mem.doNotOptimizeAway(reader_task.checksum);
 
             const elapsed_ns: u64 = @intCast(glib.time.instant.sub(end_ns, start_ns));
-            const bytes_per_second = if (elapsed_ns == 0)
-                0
-            else
-                @as(u64, @intCast((@as(u128, size) * @as(u128, glib.time.duration.Second)) / @as(u128, elapsed_ns)));
+            const bytes_per_second = rate_utils.bytesPerSecond(@intCast(size), elapsed_ns);
 
             return .{
                 .bytes = size,
                 .elapsed_ns = elapsed_ns,
                 .bytes_per_second = bytes_per_second,
-                .mbps = @divTrunc(bytes_per_second * 8, 1_000_000),
+                .mbps = rate_utils.mbps(bytes_per_second),
                 .sent_bytes = writer_task.transferred,
                 .received_bytes = reader_task.transferred,
             };
@@ -632,16 +630,13 @@ pub fn Fixture(
             grt.std.mem.doNotOptimizeAway(reader_task.checksum);
 
             const elapsed_ns: u64 = @intCast(glib.time.instant.sub(end_ns, start_ns));
-            const bytes_per_second = if (elapsed_ns == 0)
-                0
-            else
-                @as(u64, @intCast((@as(u128, size) * @as(u128, glib.time.duration.Second)) / @as(u128, elapsed_ns)));
+            const bytes_per_second = rate_utils.bytesPerSecond(@intCast(size), elapsed_ns);
 
             return .{
                 .bytes = size,
                 .elapsed_ns = elapsed_ns,
                 .bytes_per_second = bytes_per_second,
-                .mbps = @divTrunc(bytes_per_second * 8, 1_000_000),
+                .mbps = rate_utils.mbps(bytes_per_second),
                 .sent_bytes = writer_task.transferred,
                 .received_bytes = reader_task.transferred,
                 .expected_packets = @intCast(packet_count),
@@ -839,16 +834,13 @@ pub fn Fixture(
             grt.std.mem.doNotOptimizeAway(reader_task.checksum);
 
             const elapsed_ns: u64 = @intCast(glib.time.instant.sub(end_ns, start_ns));
-            const bytes_per_second = if (elapsed_ns == 0 or reader_task.transferred == 0)
-                0
-            else
-                @as(u64, @intCast((@as(u128, reader_task.transferred) * @as(u128, glib.time.duration.Second)) / @as(u128, elapsed_ns)));
+            const bytes_per_second = rate_utils.bytesPerSecond(@intCast(reader_task.transferred), elapsed_ns);
 
             return .{
                 .bytes = reader_task.transferred,
                 .elapsed_ns = elapsed_ns,
                 .bytes_per_second = bytes_per_second,
-                .mbps = @divTrunc(bytes_per_second * 8, 1_000_000),
+                .mbps = rate_utils.mbps(bytes_per_second),
                 .sent_bytes = writer_task.transferred,
                 .received_bytes = reader_task.transferred,
                 .expected_packets = @intCast(packet_count),
