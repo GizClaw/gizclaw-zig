@@ -2,18 +2,23 @@ const glib = @import("glib");
 
 const Key = @import("../noise/Key.zig");
 const NoiseMessage = @import("../noise/Message.zig");
-const PacketInbound = @import("../packet/Inbound.zig");
+const packet = @import("../packet.zig");
+const KcpStreamType = @import("KcpStream.zig");
 
 pub const Config = struct {
     packet_channel_capacity: usize = 32,
+    stream_accept_channel_capacity: usize = 32,
 };
 
 pub fn make(comptime grt: type) type {
-    const PacketChannelType = grt.sync.Channel(*PacketInbound);
+    const KcpStream = KcpStreamType.make(grt);
+    const PacketChannelType = grt.sync.Channel(*packet.Inbound);
+    const StreamAcceptChannelType = grt.sync.Channel(KcpStream.Port);
 
     return struct {
         remote_static: Key,
         packet_ch: PacketChannel,
+        stream_accept_ch: StreamAcceptChannelType,
         closed: bool = false,
 
         const Self = @This();
@@ -24,37 +29,51 @@ pub fn make(comptime grt: type) type {
             remote_static: Key,
             config: Config,
         ) !Self {
+            var packet_ch = try PacketChannel.make(allocator, config.packet_channel_capacity);
+            errdefer packet_ch.deinit();
+
             return .{
                 .remote_static = remote_static,
-                .packet_ch = try PacketChannel.make(allocator, config.packet_channel_capacity),
+                .packet_ch = packet_ch,
+                .stream_accept_ch = try StreamAcceptChannelType.make(allocator, config.stream_accept_channel_capacity),
             };
         }
 
         pub fn deinit(self: *Self) void {
             self.close();
             self.drainPackets();
+            self.drainStreams();
+            self.stream_accept_ch.deinit();
             self.packet_ch.deinit();
         }
 
-        pub fn deliverPacket(self: *Self, packet: *PacketInbound) !void {
+        pub fn deliverPacket(self: *Self, inbound: *packet.Inbound) !void {
             if (self.closed) return error.PeerClosed;
 
-            const previous_state = packet.state;
-            packet.state = .service_delivered;
-            const send_result = self.packet_ch.sendTimeout(packet, 0) catch |err| {
-                packet.state = previous_state;
+            const previous_state = inbound.state;
+            inbound.state = .service_delivered;
+            const send_result = self.packet_ch.sendTimeout(inbound, 0) catch |err| {
+                inbound.state = previous_state;
                 return err;
             };
             if (!send_result.ok) {
-                packet.state = previous_state;
+                inbound.state = previous_state;
                 return error.PacketChannelFull;
             }
+        }
+
+        pub fn deliverStream(self: *Self, port: KcpStream.Port) !void {
+            if (self.closed) return error.PeerClosed;
+
+            const send_result = try self.stream_accept_ch.sendTimeout(port, 0);
+            if (!send_result.ok) return error.StreamAcceptChannelFull;
         }
 
         fn close(self: *Self) void {
             if (self.closed) return;
             self.closed = true;
             self.packet_ch.close();
+            self.stream_accept_ch.close();
         }
 
         fn drainPackets(self: *Self) void {
@@ -62,6 +81,13 @@ pub fn make(comptime grt: type) type {
                 const result = self.packet_ch.recvTimeout(0) catch break;
                 if (!result.ok) break;
                 result.value.deinit();
+            }
+        }
+
+        fn drainStreams(self: *Self) void {
+            while (true) {
+                const result = self.stream_accept_ch.recvTimeout(0) catch break;
+                if (!result.ok) break;
             }
         }
     };
@@ -95,7 +121,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
         fn tryCase(comptime any_lib: type) !void {
             _ = any_lib;
 
-            var pool = try PacketInbound.initPool(grt, grt.std.testing.allocator, 2560);
+            var pool = try packet.Inbound.initPool(grt, grt.std.testing.allocator, 2560);
             defer pool.deinit();
 
             const Peer = make(grt);
@@ -105,23 +131,23 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             });
             defer peer.deinit();
 
-            const packet = try makePacket(pool, &[_]u8{7} ++ "ping");
-            try peer.deliverPacket(packet);
+            const pkt = try makePacket(pool, &[_]u8{7} ++ "ping");
+            try peer.deliverPacket(pkt);
 
             const result = try peer.packet_ch.recvTimeout(0);
             try grt.std.testing.expect(result.ok);
             result.value.deinit();
         }
 
-        fn makePacket(pool: PacketInbound.Pool, data: []const u8) !*PacketInbound {
-            const packet = pool.get() orelse return error.OutOfMemory;
-            const plaintext_buf = packet.bufRef()[NoiseMessage.TransportHeaderSize..];
+        fn makePacket(pool: packet.Inbound.Pool, data: []const u8) !*packet.Inbound {
+            const inbound = pool.get() orelse return error.OutOfMemory;
+            const plaintext_buf = inbound.bufRef()[NoiseMessage.TransportHeaderSize..];
             if (plaintext_buf.len < data.len) return error.BufferTooSmall;
             @memcpy(plaintext_buf[0..data.len], data);
-            packet.len = data.len;
-            packet.kind = .transport;
-            packet.state = .ready_to_consume;
-            return packet;
+            inbound.len = data.len;
+            inbound.kind = .transport;
+            inbound.state = .ready_to_consume;
+            return inbound;
         }
     };
 

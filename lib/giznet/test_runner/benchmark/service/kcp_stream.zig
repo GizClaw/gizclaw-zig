@@ -4,8 +4,7 @@ const testing_api = glib.testing;
 const bench = @import("../test_utils/common.zig");
 const Key = @import("../../../noise/Key.zig");
 const NoiseMessage = @import("../../../noise/Message.zig");
-const PacketInbound = @import("../../../packet/Inbound.zig");
-const PacketOutbound = @import("../../../packet/Outbound.zig");
+const packet = @import("../../../packet.zig");
 const KcpStreamType = @import("../../../service/KcpStream.zig");
 
 const packet_size_capacity = 64 * 1024;
@@ -20,6 +19,10 @@ const stream_config = KcpStreamType.Config{
     .kcp_interval = 10,
     .kcp_resend = 2,
     .kcp_no_congestion_control = 1,
+    .kcp_send_window = 1024,
+    .kcp_recv_window = 1024,
+    .max_pending_segments = 1024,
+    .resume_pending_segments = 768,
 };
 
 pub fn make(comptime grt: type) testing_api.TestRunner {
@@ -149,8 +152,7 @@ fn StreamPair(comptime grt: type) type {
 
     return struct {
         allocator: grt.std.mem.Allocator,
-        inbound_pool: PacketInbound.Pool,
-        outbound_pool: PacketOutbound.Pool,
+        pools: packet.Pools,
         client: Stream,
         server: Stream,
         client_to_server: PacketQueue,
@@ -179,16 +181,19 @@ fn StreamPair(comptime grt: type) type {
             self.ticks = 0;
             self.checksum = 0;
 
-            self.inbound_pool = try PacketInbound.initPool(grt, allocator, packet_size_capacity);
-            errdefer self.inbound_pool.deinit();
+            self.pools = packet.Pools{
+                .inbound = try packet.Inbound.initPool(grt, allocator, packet_size_capacity),
+                .outbound = undefined,
+            };
+            errdefer self.pools.inbound.deinit();
 
-            self.outbound_pool = try PacketOutbound.initPool(grt, allocator, packet_size_capacity);
-            errdefer self.outbound_pool.deinit();
+            self.pools.outbound = try packet.Outbound.initPool(grt, allocator, packet_size_capacity);
+            errdefer self.pools.outbound.deinit();
 
-            self.client = try Stream.init(allocator, remote_key, service_id, stream_id, &self.inbound_pool, &self.outbound_pool, stream_config);
+            self.client = try Stream.init(allocator, remote_key, service_id, stream_id, &self.pools, stream_config);
             errdefer self.client.deinit();
 
-            self.server = try Stream.init(allocator, remote_key, service_id, stream_id, &self.inbound_pool, &self.outbound_pool, stream_config);
+            self.server = try Stream.init(allocator, remote_key, service_id, stream_id, &self.pools, stream_config);
         }
 
         fn deinit(self: *Self) void {
@@ -196,8 +201,8 @@ fn StreamPair(comptime grt: type) type {
             self.client_to_server.deinit();
             self.server.deinit();
             self.client.deinit();
-            self.outbound_pool.deinit();
-            self.inbound_pool.deinit();
+            self.pools.outbound.deinit();
+            self.pools.inbound.deinit();
         }
 
         fn transfer(self: *Self, direction: TransferDirection, bytes: usize) !void {
@@ -205,15 +210,28 @@ fn StreamPair(comptime grt: type) type {
             const received_target = received_start + bytes;
             var sent: usize = 0;
             while (sent < bytes) {
-                const n = @min(chunk_size, bytes - sent);
-                const packet = try self.makeWritePacket(n, sent);
+                var source_port = switch (direction) {
+                    .client_to_server => self.client.port(),
+                    .server_to_client => self.server.port(),
+                };
+                const requested_len = @min(chunk_size, bytes - sent);
+                var granted_len: usize = 0;
+                while (granted_len == 0) {
+                    try source_port.setWriteDeadline(glib.time.instant.add(grt.time.instant.now(), glib.time.duration.Second));
+                    granted_len = try source_port.waitWritable(@intCast(@min(requested_len, grt.std.math.maxInt(u32))));
+                    _ = try self.tick(direction);
+                    try self.pump();
+                }
+
+                const n = @min(granted_len, requested_len);
+                const pkt = try self.makeWritePacket(n, sent);
                 switch (direction) {
-                    .client_to_server => self.client.drive(.{ .outbound = packet }, self.clientOutputCallback()) catch |err| {
-                        packet.deinit();
+                    .client_to_server => self.client.drive(.{ .outbound = pkt }, self.clientOutputCallback()) catch |err| {
+                        pkt.deinit();
                         return err;
                     },
-                    .server_to_client => self.server.drive(.{ .outbound = packet }, self.serverOutputCallback()) catch |err| {
-                        packet.deinit();
+                    .server_to_client => self.server.drive(.{ .outbound = pkt }, self.serverOutputCallback()) catch |err| {
+                        pkt.deinit();
                         return err;
                     },
                 }
@@ -265,8 +283,8 @@ fn StreamPair(comptime grt: type) type {
             callback: Stream.Callback,
             receive_direction: TransferDirection,
         ) !void {
-            for (queue.packets.items) |packet| {
-                const write = switch (packet.service_data orelse return error.PayloadNotParsed) {
+            for (queue.packets.items) |pkt| {
+                const write = switch (pkt.service_data orelse return error.PayloadNotParsed) {
                     .write_stream => |data| data,
                     else => return error.UnexpectedServiceData,
                 };
@@ -281,14 +299,15 @@ fn StreamPair(comptime grt: type) type {
         }
 
         fn drainReceived(self: *Self, direction: TransferDirection) !usize {
-            const port = switch (direction) {
+            var port = switch (direction) {
                 .client_to_server => self.server.port(),
                 .server_to_client => self.client.port(),
             };
 
             var received: usize = 0;
+            try port.setReadDeadline(grt.time.instant.now());
             while (true) {
-                const result = port.recvTimeout(0) catch break;
+                const result = port.recv() catch break;
                 if (!result.ok) break;
                 defer result.value.deinit();
                 const data = result.value.bytes();
@@ -299,42 +318,42 @@ fn StreamPair(comptime grt: type) type {
             return received;
         }
 
-        fn makeWritePacket(self: *Self, len: usize, offset: usize) !*PacketOutbound {
-            const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
-            errdefer packet.deinit();
+        fn makeWritePacket(self: *Self, len: usize, offset: usize) !*packet.Outbound {
+            const pkt = self.pools.outbound.get() orelse return error.OutOfMemory;
+            errdefer pkt.deinit();
 
-            const payload_buf = packet.transportPlaintextBufRef();
+            const payload_buf = pkt.transportPlaintextBufRef();
             if (payload_buf.len < len) return error.BufferTooSmall;
             fillPayload(payload_buf[0..len], offset);
 
-            packet.remote_static = remote_key;
-            packet.len = len;
-            packet.service_data = .{ .write_stream = .{
+            pkt.remote_static = remote_key;
+            pkt.len = len;
+            pkt.service_data = .{ .write_stream = .{
                 .service = service_id,
                 .stream = stream_id,
                 .payload = payload_buf[0..len],
             } };
-            return packet;
+            return pkt;
         }
 
-        fn makeKcpInbound(self: *Self, frame: []const u8) !*PacketInbound {
-            const packet = self.inbound_pool.get() orelse return error.OutOfMemory;
-            errdefer packet.deinit();
+        fn makeKcpInbound(self: *Self, frame: []const u8) !*packet.Inbound {
+            const pkt = self.pools.inbound.get() orelse return error.OutOfMemory;
+            errdefer pkt.deinit();
 
-            const payload_buf = packet.bufRef()[NoiseMessage.TransportHeaderSize..];
+            const payload_buf = pkt.bufRef()[NoiseMessage.TransportHeaderSize..];
             if (payload_buf.len < frame.len) return error.BufferTooSmall;
             @memcpy(payload_buf[0..frame.len], frame);
 
-            packet.remote_static = remote_key;
-            packet.len = frame.len;
-            packet.kind = .transport;
-            packet.state = .ready_to_consume;
-            packet.service_data = .{ .kcp = .{
+            pkt.remote_static = remote_key;
+            pkt.len = frame.len;
+            pkt.kind = .transport;
+            pkt.state = .ready_to_consume;
+            pkt.service_data = .{ .kcp = .{
                 .service = service_id,
                 .stream = stream_id,
                 .frame = payload_buf[0..frame.len],
             } };
-            return packet;
+            return pkt;
         }
 
         fn clientOutputCallback(self: *Self) Stream.Callback {
@@ -357,8 +376,8 @@ fn StreamPair(comptime grt: type) type {
 
         fn handleOutput(_: *Self, queue: *PacketQueue, output: KcpStreamType.DriveOutput) !void {
             switch (output) {
-                .outbound => |packet| {
-                    try queue.push(packet);
+                .outbound => |pkt| {
+                    try queue.push(pkt);
                 },
                 .next_tick_deadline => {},
             }
@@ -368,7 +387,7 @@ fn StreamPair(comptime grt: type) type {
 
 const PacketQueue = struct {
     allocator: glib.std.mem.Allocator,
-    packets: glib.std.ArrayList(*PacketOutbound) = .empty,
+    packets: glib.std.ArrayList(*packet.Outbound) = .empty,
 
     const Self = @This();
 
@@ -385,13 +404,13 @@ const PacketQueue = struct {
         return self.packets.items.len;
     }
 
-    fn push(self: *Self, packet: *PacketOutbound) !void {
-        try self.packets.append(self.allocator, packet);
+    fn push(self: *Self, pkt: *packet.Outbound) !void {
+        try self.packets.append(self.allocator, pkt);
     }
 
     fn clear(self: *Self) void {
-        for (self.packets.items) |packet| {
-            packet.deinit();
+        for (self.packets.items) |pkt| {
+            pkt.deinit();
         }
         self.packets.clearRetainingCapacity();
     }

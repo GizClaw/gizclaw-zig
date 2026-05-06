@@ -3,6 +3,7 @@
 const glib = @import("glib");
 
 const Key = @import("noise/Key.zig");
+const Stream = @import("Stream.zig");
 
 const Conn = @This();
 
@@ -18,6 +19,8 @@ pub const VTable = struct {
     read: *const fn (ptr: *anyopaque, buf: []u8) anyerror!ReadResult,
     readTimeout: *const fn (ptr: *anyopaque, buf: []u8, timeout: glib.time.duration.Duration) anyerror!ReadResult,
     write: *const fn (ptr: *anyopaque, protocol: u8, payload: []const u8) anyerror!usize,
+    openStream: *const fn (ptr: *anyopaque, service: u64) anyerror!Stream,
+    accept: *const fn (ptr: *anyopaque, timeout: ?glib.time.duration.Duration) anyerror!Stream,
     close: *const fn (ptr: *anyopaque) anyerror!void,
     deinit: *const fn (ptr: *anyopaque) void,
     localStatic: *const fn (ptr: *anyopaque) Key,
@@ -34,6 +37,14 @@ pub fn readTimeout(self: Conn, buf: []u8, timeout: glib.time.duration.Duration) 
 
 pub fn write(self: Conn, protocol: u8, payload: []const u8) anyerror!usize {
     return self.vtable.write(self.ptr, protocol, payload);
+}
+
+pub fn openStream(self: Conn, service: u64) anyerror!Stream {
+    return self.vtable.openStream(self.ptr, service);
+}
+
+pub fn accept(self: Conn, timeout: ?glib.time.duration.Duration) anyerror!Stream {
+    return self.vtable.accept(self.ptr, timeout);
 }
 
 pub fn close(self: Conn) anyerror!void {
@@ -78,6 +89,16 @@ pub fn init(ptr: anytype) Conn {
             return self.write(protocol, payload);
         }
 
+        fn openStreamFn(raw_ptr: *anyopaque, service: u64) anyerror!Stream {
+            const self: *Impl = @ptrCast(@alignCast(raw_ptr));
+            return self.openStream(service);
+        }
+
+        fn acceptFn(raw_ptr: *anyopaque, timeout: ?glib.time.duration.Duration) anyerror!Stream {
+            const self: *Impl = @ptrCast(@alignCast(raw_ptr));
+            return self.accept(timeout);
+        }
+
         fn closeFn(raw_ptr: *anyopaque) anyerror!void {
             const self: *Impl = @ptrCast(@alignCast(raw_ptr));
             return self.close();
@@ -102,6 +123,8 @@ pub fn init(ptr: anytype) Conn {
             .read = readFn,
             .readTimeout = readTimeoutFn,
             .write = writeFn,
+            .openStream = openStreamFn,
+            .accept = acceptFn,
             .close = closeFn,
             .deinit = deinitFn,
             .localStatic = localStaticFn,

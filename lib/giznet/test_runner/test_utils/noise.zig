@@ -4,10 +4,9 @@ const AddrPort = glib.net.netip.AddrPort;
 const giznet = @import("../../../giznet.zig");
 const Cipher = @import("../../noise/Cipher.zig");
 const EngineType = @import("../../noise/Engine.zig");
-const InboundPacket = @import("../../packet/Inbound.zig");
 const Key = @import("../../noise/Key.zig");
 const KeyPair = @import("../../noise/KeyPair.zig");
-const OutboundPacket = @import("../../packet/Outbound.zig");
+const packet = @import("../../packet.zig");
 const SessionType = @import("../../noise/Session.zig");
 const rate_utils = @import("rate.zig");
 
@@ -104,44 +103,44 @@ pub fn runSinglePeerTransfer(
 
         fn handleResult(self: *@This(), side: Side, result: EngineType.DriveOutput) !void {
             switch (result) {
-                .outbound => |packet| try self.handleOutbound(side, packet),
-                .inbound => |packet| try self.handleInbound(side, packet),
+                .outbound => |pkt| try self.handleOutbound(side, pkt),
+                .inbound => |pkt| try self.handleInbound(side, pkt),
                 .established => |remote_key| try self.handleEstablished(side, remote_key),
                 .offline => return error.UnexpectedOffline,
                 .next_tick_deadline => |_| self.next_tick_events += 1,
             }
         }
 
-        fn handleOutbound(self: *@This(), side: Side, packet: *OutboundPacket) !void {
+        fn handleOutbound(self: *@This(), side: Side, outbound: *packet.Outbound) !void {
             const target_side = opposite(side);
             const target_engine = self.engineHarness(target_side);
             const remote_endpoint = self.endpoint(side);
 
-            if (packet.state == .prepared) {
-                try OutboundPacket.encrypt(grt, cipher_kind, packet);
+            if (outbound.state == .prepared) {
+                try packet.Outbound.encrypt(grt, cipher_kind, outbound);
             }
 
             const inbound = try target_engine.allocInboundPacket();
             errdefer inbound.deinit();
-            if (inbound.bufRef().len < packet.len) return error.BufferTooSmall;
+            if (inbound.bufRef().len < outbound.len) return error.BufferTooSmall;
 
-            @memcpy(inbound.bufRef()[0..packet.len], packet.bytes());
-            inbound.len = packet.len;
+            @memcpy(inbound.bufRef()[0..outbound.len], outbound.bytes());
+            inbound.len = outbound.len;
             inbound.remote_endpoint = remote_endpoint;
 
             try target_engine.engine.drive(.{ .inbound_packet = inbound }, self.callback(target_side));
-            packet.deinit();
+            outbound.deinit();
         }
 
-        fn handleInbound(self: *@This(), side: Side, packet: *InboundPacket) !void {
-            switch (packet.state) {
+        fn handleInbound(self: *@This(), side: Side, inbound: *packet.Inbound) !void {
+            switch (inbound.state) {
                 .prepared => {
-                    try InboundPacket.decrtpy(grt, cipher_kind, packet);
-                    try self.engine(side).drive(.{ .inbound_packet = packet }, self.callback(side));
+                    try packet.Inbound.decrtpy(grt, cipher_kind, inbound);
+                    try self.engine(side).drive(.{ .inbound_packet = inbound }, self.callback(side));
                 },
                 .consumed => {
-                    try self.verifyConsumedInbound(side, packet);
-                    packet.deinit();
+                    try self.verifyConsumedInbound(side, inbound);
+                    inbound.deinit();
                 },
                 else => return error.UnexpectedInboundPacketState,
             }
@@ -155,32 +154,32 @@ pub fn runSinglePeerTransfer(
             }
         }
 
-        fn verifyConsumedInbound(self: *@This(), side: Side, packet: *InboundPacket) !void {
+        fn verifyConsumedInbound(self: *@This(), side: Side, inbound: *packet.Inbound) !void {
             if (side != .responder) return error.UnexpectedInboundOnInitiator;
 
             var expected_payload: [payload_size]u8 = undefined;
             fillSinglePeerPayload(self.received_packets, expected_payload[0..]);
 
-            try grt.std.testing.expectEqual(@as(usize, payload_size), packet.len);
-            try grt.std.testing.expect(packet.remote_static.eql(self.initiator_key));
-            try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.initiator_endpoint));
-            try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], packet.bytes()));
+            try grt.std.testing.expectEqual(@as(usize, payload_size), inbound.len);
+            try grt.std.testing.expect(inbound.remote_static.eql(self.initiator_key));
+            try grt.std.testing.expect(giznet.eqlAddrPort(inbound.remote_endpoint, self.initiator_endpoint));
+            try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], inbound.bytes()));
 
             self.received_packets += 1;
-            self.received_bytes += packet.len;
+            self.received_bytes += inbound.len;
         }
 
         fn sendFromInitiator(self: *@This(), chunk_index: usize) !void {
             var packet_buffer: [payload_size]u8 = undefined;
             fillSinglePeerPayload(chunk_index, packet_buffer[0..]);
-            const packet = try self.initiator.allocOutboundPacket();
-            errdefer packet.deinit();
-            if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
-            @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
-            packet.len = packet_buffer.len;
-            packet.remote_static = self.responder_key;
+            const pkt = try self.initiator.allocOutboundPacket();
+            errdefer pkt.deinit();
+            if (pkt.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
+            @memcpy(pkt.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
+            pkt.len = packet_buffer.len;
+            pkt.remote_static = self.responder_key;
             try self.initiator.engine.drive(.{
-                .send_data = packet,
+                .send_data = pkt,
             }, self.callback(.initiator));
         }
 
@@ -384,43 +383,43 @@ pub fn runMultiPeerBidirectionalRekey(
 
         fn handleResult(self: *@This(), source: NodeId, result: EngineType.DriveOutput) !void {
             switch (result) {
-                .outbound => |packet| try self.handleOutbound(source, packet),
-                .inbound => |packet| try self.handleInbound(source, packet),
+                .outbound => |pkt| try self.handleOutbound(source, pkt),
+                .inbound => |pkt| try self.handleInbound(source, pkt),
                 .established => |remote_key| try self.handleEstablished(source, remote_key),
                 .offline => return error.UnexpectedOffline,
                 .next_tick_deadline => |_| self.next_tick_events += 1,
             }
         }
 
-        fn handleOutbound(self: *@This(), source: NodeId, packet: *OutboundPacket) !void {
-            const target = try self.lookupNodeByEndpoint(packet.remote_endpoint);
+        fn handleOutbound(self: *@This(), source: NodeId, outbound: *packet.Outbound) !void {
+            const target = try self.lookupNodeByEndpoint(outbound.remote_endpoint);
             const target_engine = self.engineHarness(target);
             const remote_endpoint = self.endpoint(source);
 
-            if (packet.state == .prepared) {
-                try OutboundPacket.encrypt(grt, cipher_kind, packet);
+            if (outbound.state == .prepared) {
+                try packet.Outbound.encrypt(grt, cipher_kind, outbound);
             }
 
             const inbound = try target_engine.allocInboundPacket();
             errdefer inbound.deinit();
-            if (inbound.bufRef().len < packet.len) return error.BufferTooSmall;
-            @memcpy(inbound.bufRef()[0..packet.len], packet.bytes());
-            inbound.len = packet.len;
+            if (inbound.bufRef().len < outbound.len) return error.BufferTooSmall;
+            @memcpy(inbound.bufRef()[0..outbound.len], outbound.bytes());
+            inbound.len = outbound.len;
             inbound.remote_endpoint = remote_endpoint;
 
             try target_engine.engine.drive(.{ .inbound_packet = inbound }, self.callback(target));
-            packet.deinit();
+            outbound.deinit();
         }
 
-        fn handleInbound(self: *@This(), node_id: NodeId, packet: *InboundPacket) !void {
-            switch (packet.state) {
+        fn handleInbound(self: *@This(), node_id: NodeId, inbound: *packet.Inbound) !void {
+            switch (inbound.state) {
                 .prepared => {
-                    try InboundPacket.decrtpy(grt, cipher_kind, packet);
-                    try self.engine(node_id).drive(.{ .inbound_packet = packet }, self.callback(node_id));
+                    try packet.Inbound.decrtpy(grt, cipher_kind, inbound);
+                    try self.engine(node_id).drive(.{ .inbound_packet = inbound }, self.callback(node_id));
                 },
                 .consumed => {
-                    try self.verifyConsumedInbound(node_id, packet);
-                    packet.deinit();
+                    try self.verifyConsumedInbound(node_id, inbound);
+                    inbound.deinit();
                 },
                 else => return error.UnexpectedInboundPacketState,
             }
@@ -436,26 +435,26 @@ pub fn runMultiPeerBidirectionalRekey(
             }
         }
 
-        fn verifyConsumedInbound(self: *@This(), node_id: NodeId, packet: *InboundPacket) !void {
+        fn verifyConsumedInbound(self: *@This(), node_id: NodeId, inbound: *packet.Inbound) !void {
             var expected_payload: [payload_size]u8 = undefined;
 
             switch (node_id.kind) {
                 .right_leaf => {
                     const chunk_index = self.right_leaf_received_packets[node_id.index];
                     fillMultiPeerPayload(.left_to_right, node_id.index, chunk_index, expected_payload[0..]);
-                    try grt.std.testing.expectEqual(@as(usize, payload_size), packet.len);
-                    try grt.std.testing.expect(packet.remote_static.eql(self.left_hub_key));
-                    try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.left_hub_endpoint));
-                    try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], packet.bytes()));
+                    try grt.std.testing.expectEqual(@as(usize, payload_size), inbound.len);
+                    try grt.std.testing.expect(inbound.remote_static.eql(self.left_hub_key));
+                    try grt.std.testing.expect(giznet.eqlAddrPort(inbound.remote_endpoint, self.left_hub_endpoint));
+                    try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], inbound.bytes()));
                     self.right_leaf_received_packets[node_id.index] += 1;
                 },
                 .left_leaf => {
                     const chunk_index = self.left_leaf_received_packets[node_id.index];
                     fillMultiPeerPayload(.right_to_left, node_id.index, chunk_index, expected_payload[0..]);
-                    try grt.std.testing.expectEqual(@as(usize, payload_size), packet.len);
-                    try grt.std.testing.expect(packet.remote_static.eql(self.right_hub_key));
-                    try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.right_hub_endpoint));
-                    try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], packet.bytes()));
+                    try grt.std.testing.expectEqual(@as(usize, payload_size), inbound.len);
+                    try grt.std.testing.expect(inbound.remote_static.eql(self.right_hub_key));
+                    try grt.std.testing.expect(giznet.eqlAddrPort(inbound.remote_endpoint, self.right_hub_endpoint));
+                    try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], inbound.bytes()));
                     self.left_leaf_received_packets[node_id.index] += 1;
                 },
                 .left_hub, .right_hub => return error.UnexpectedInboundOnHub,
@@ -513,28 +512,28 @@ pub fn runMultiPeerBidirectionalRekey(
         fn sendFromLeftHub(self: *@This(), peer_index: usize, chunk_index: usize) !void {
             var packet_buffer: [payload_size]u8 = undefined;
             fillMultiPeerPayload(.left_to_right, peer_index, chunk_index, packet_buffer[0..]);
-            const packet = try self.left_hub.allocOutboundPacket();
-            errdefer packet.deinit();
-            if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
-            @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
-            packet.len = packet_buffer.len;
-            packet.remote_static = self.right_leaf_pairs[peer_index].public;
+            const pkt = try self.left_hub.allocOutboundPacket();
+            errdefer pkt.deinit();
+            if (pkt.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
+            @memcpy(pkt.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
+            pkt.len = packet_buffer.len;
+            pkt.remote_static = self.right_leaf_pairs[peer_index].public;
             try self.left_hub.engine.drive(.{
-                .send_data = packet,
+                .send_data = pkt,
             }, self.callback(.{ .kind = .left_hub }));
         }
 
         fn sendFromRightHub(self: *@This(), peer_index: usize, chunk_index: usize) !void {
             var packet_buffer: [payload_size]u8 = undefined;
             fillMultiPeerPayload(.right_to_left, peer_index, chunk_index, packet_buffer[0..]);
-            const packet = try self.right_hub.allocOutboundPacket();
-            errdefer packet.deinit();
-            if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
-            @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
-            packet.len = packet_buffer.len;
-            packet.remote_static = self.left_leaf_pairs[peer_index].public;
+            const pkt = try self.right_hub.allocOutboundPacket();
+            errdefer pkt.deinit();
+            if (pkt.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
+            @memcpy(pkt.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
+            pkt.len = packet_buffer.len;
+            pkt.remote_static = self.left_leaf_pairs[peer_index].public;
             try self.right_hub.engine.drive(.{
-                .send_data = packet,
+                .send_data = pkt,
             }, self.callback(.{ .kind = .right_hub }));
         }
 
@@ -744,8 +743,8 @@ fn EngineWithPools(
     comptime packet_size: usize,
 ) type {
     return struct {
-        inbound_pool: InboundPacket.Pool,
-        outbound_pool: OutboundPacket.Pool,
+        inbound_pool: packet.Inbound.Pool,
+        outbound_pool: packet.Outbound.Pool,
         engine: Engine,
 
         const Self = @This();
@@ -755,10 +754,10 @@ fn EngineWithPools(
             local_static: KeyPair,
             config: EngineType.Config,
         ) !Self {
-            const inbound_pool = try InboundPacket.initPool(grt, allocator, packet_size);
+            const inbound_pool = try packet.Inbound.initPool(grt, allocator, packet_size);
             errdefer inbound_pool.deinit();
 
-            const outbound_pool = try OutboundPacket.initPool(grt, allocator, packet_size);
+            const outbound_pool = try packet.Outbound.initPool(grt, allocator, packet_size);
             errdefer outbound_pool.deinit();
 
             const engine = try Engine.init(allocator, local_static, config, .{
@@ -780,11 +779,11 @@ fn EngineWithPools(
             self.inbound_pool.deinit();
         }
 
-        pub fn allocInboundPacket(self: *Self) !*InboundPacket {
+        pub fn allocInboundPacket(self: *Self) !*packet.Inbound {
             return self.inbound_pool.get() orelse error.OutOfMemory;
         }
 
-        pub fn allocOutboundPacket(self: *Self) !*OutboundPacket {
+        pub fn allocOutboundPacket(self: *Self) !*packet.Outbound {
             return self.outbound_pool.get() orelse error.OutOfMemory;
         }
     };

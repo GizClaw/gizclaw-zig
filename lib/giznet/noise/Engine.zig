@@ -3,11 +3,10 @@ const AddrPort = glib.net.netip.AddrPort;
 
 const Cipher = @import("Cipher.zig");
 const HandshakeType = @import("Handshake.zig");
-const InboundPacket = @import("../packet/Inbound.zig");
 const Key = @import("Key.zig");
 const KeyPair = @import("KeyPair.zig");
 const Message = @import("Message.zig");
-const OutboundPacket = @import("../packet/Outbound.zig");
+const packet = @import("../packet.zig");
 const PeerType = @import("Peer.zig");
 const PeerTableType = @import("PeerTable.zig");
 const SessionType = @import("Session.zig");
@@ -39,8 +38,8 @@ pub const Config = struct {
 };
 
 pub const DriveOutput = union(enum) {
-    outbound: *OutboundPacket,
-    inbound: *InboundPacket,
+    outbound: *packet.Outbound,
+    inbound: *packet.Inbound,
     established: Key,
     offline: Key,
     next_tick_deadline: glib.time.instant.Time,
@@ -53,15 +52,10 @@ pub const InitiateHandshake = struct {
 };
 
 pub const DriveInput = union(enum) {
-    inbound_packet: *InboundPacket,
-    send_data: *OutboundPacket,
+    inbound_packet: *packet.Inbound,
+    send_data: *packet.Outbound,
     initiate_handshake: InitiateHandshake,
     tick: void,
-};
-
-pub const PacketPools = struct {
-    inbound: InboundPacket.Pool,
-    outbound: OutboundPacket.Pool,
 };
 
 pub const Stats = struct {
@@ -115,8 +109,8 @@ pub fn make(
         local_static: KeyPair,
         config: Engine.Config,
         peers: PeerTable,
-        inbound_pool: InboundPacket.Pool,
-        outbound_pool: OutboundPacket.Pool,
+        inbound_pool: packet.Inbound.Pool,
+        outbound_pool: packet.Outbound.Pool,
         next_session_index: u32 = 1,
         timer_treap: TimerTreap = .{},
         timer_slots: []TimerSlot = &.{},
@@ -134,7 +128,7 @@ pub fn make(
             allocator: grt.std.mem.Allocator,
             local_static: KeyPair,
             config: Engine.Config,
-            packet_pools: Engine.PacketPools,
+            packet_pools: packet.Pools,
         ) !Self {
             const normalized_config = Engine.normalizeConfig(config);
             var timer_slots: []TimerSlot = &[_]TimerSlot{};
@@ -177,9 +171,9 @@ pub fn make(
         /// - successful drive calls run `tick()` afterwards
         /// - failed drive actions return early and do not advance timers
         /// - `.inbound_packet` is implemented
-        /// - `.send_data` emits a prepared outbound transport packet and
+        /// - `.send_data` emits a prepared outbound transport pkt and
         ///   leaves encryption to the caller
-        /// - `.initiate_handshake` emits a ready-to-send handshake packet
+        /// - `.initiate_handshake` emits a ready-to-send handshake pkt
         /// - `.tick` is a no-op input that exists only to drive the shared
         ///   timer tail
         pub fn drive(
@@ -194,14 +188,14 @@ pub fn make(
             }
 
             try switch (input) {
-                .inbound_packet => |packet| inbound: {
-                    if (packet.state == .initial) {
-                        self.stats.transfer_rx +%= @as(u64, @intCast(packet.len));
+                .inbound_packet => |pkt| inbound: {
+                    if (pkt.state == .initial) {
+                        self.stats.transfer_rx +%= @as(u64, @intCast(pkt.len));
                     }
 
-                    break :inbound switch (packet.state) {
-                        .initial => self.triageInbound(packet, on_result),
-                        .ready_to_consume => self.consumeInbound(packet, on_result),
+                    break :inbound switch (pkt.state) {
+                        .initial => self.triageInbound(pkt, on_result),
+                        .ready_to_consume => self.consumeInbound(pkt, on_result),
 
                         .prepared => error.InboundPacketRequiresDecrypt,
                         .consumed => error.InboundPacketConsumed,
@@ -242,76 +236,76 @@ pub fn make(
 
         fn triageInbound(
             self: *Self,
-            packet: *InboundPacket,
+            pkt: *packet.Inbound,
             on_result: Engine.Callback,
         ) !void {
-            const kind = try inferInboundKind(packet);
+            const kind = try inferInboundKind(pkt);
 
             return switch (kind) {
-                .handshake => self.consumeInbound(packet, on_result),
-                .transport => self.prepareTransport(packet, on_result),
+                .handshake => self.consumeInbound(pkt, on_result),
+                .transport => self.prepareTransport(pkt, on_result),
                 .unknown => error.InvalidInboundPacketKind,
             };
         }
 
         fn prepareTransport(
             self: *Self,
-            packet: *InboundPacket,
+            pkt: *packet.Inbound,
             on_result: Engine.Callback,
         ) !void {
-            const transport = Message.parseTransportMessage(packet.bytes()) catch return error.InvalidTransportPacket;
+            const transport = Message.parseTransportMessage(pkt.bytes()) catch return error.InvalidTransportPacket;
             const peer = self.peers.findBySessionIndex(transport.receiver_index) orelse return error.SessionNotFound;
             const session = peer.sessionByLocalIndex(transport.receiver_index) orelse return error.SessionNotFound;
 
-            packet.state = .prepared;
-            packet.remote_static = peer.key;
-            packet.session_key = session.recvKey();
-            packet.local_session_index = session.localIndex();
-            packet.remote_session_index = session.remoteIndex();
-            packet.counter = transport.counter;
+            pkt.state = .prepared;
+            pkt.remote_static = peer.key;
+            pkt.session_key = session.recvKey();
+            pkt.local_session_index = session.localIndex();
+            pkt.remote_session_index = session.remoteIndex();
+            pkt.counter = transport.counter;
 
-            try self.emitEvent(on_result, .{ .inbound = packet });
+            try self.emitEvent(on_result, .{ .inbound = pkt });
         }
 
         fn consumeInbound(
             self: *Self,
-            packet: *InboundPacket,
+            pkt: *packet.Inbound,
             on_result: Engine.Callback,
         ) !void {
-            errdefer packet.state = .consume_failed;
+            errdefer pkt.state = .consume_failed;
 
-            return switch (packet.kind) {
-                .handshake => self.consumeHandshake(packet, on_result),
-                .transport => self.consumeTransport(packet, on_result),
+            return switch (pkt.kind) {
+                .handshake => self.consumeHandshake(pkt, on_result),
+                .transport => self.consumeTransport(pkt, on_result),
                 .unknown => error.InvalidInboundPacketKind,
             };
         }
 
         fn consumeHandshake(
             self: *Self,
-            packet: *InboundPacket,
+            pkt: *packet.Inbound,
             on_result: Engine.Callback,
         ) !void {
-            return switch (try Handshake.parseMessageType(packet.bytes())) {
+            return switch (try Handshake.parseMessageType(pkt.bytes())) {
                 .init => {
-                    const outbound = try self.consumeInit(packet, on_result);
+                    const outbound = try self.consumeInit(pkt, on_result);
                     errdefer outbound.deinit();
                     try self.emitEvent(on_result, .{ .outbound = outbound });
-                    packet.deinit();
+                    pkt.deinit();
                 },
-                .response => try self.consumeResponse(packet, on_result),
+                .response => try self.consumeResponse(pkt, on_result),
             };
         }
 
         fn consumeInit(
             self: *Self,
-            packet: *InboundPacket,
+            pkt: *packet.Inbound,
             on_result: Engine.Callback,
-        ) !*OutboundPacket {
+        ) !*packet.Outbound {
             const outbound_packet = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer outbound_packet.deinit();
 
-            var handshake = Handshake.readInit(self.local_static, packet.bytes()) catch return error.InvalidHandshakeMessage;
+            var handshake = Handshake.readInit(self.local_static, pkt.bytes()) catch return error.InvalidHandshakeMessage;
             const peer_key = handshake.peerKey();
             const peer = try self.peers.getOrCreate(peer_key);
 
@@ -319,7 +313,7 @@ pub fn make(
             const written = try handshake.writeResponse(responder_session_index, outbound_packet.bufRef());
             const material = try handshake.sessionMaterial();
             const now_time = Self.instantNow();
-            const endpoint = packet.remote_endpoint;
+            const endpoint = pkt.remote_endpoint;
             const session = Session.init(.{
                 .local_index = responder_session_index,
                 .remote_index = handshake.remoteSessionIndex(),
@@ -343,25 +337,25 @@ pub fn make(
             outbound_packet.remote_static = peer_key;
             outbound_packet.state = .ready_to_send;
 
-            packet.state = .consumed;
+            pkt.state = .consumed;
             return outbound_packet;
         }
 
         fn consumeResponse(
             self: *Self,
-            packet: *InboundPacket,
+            pkt: *packet.Inbound,
             on_result: Engine.Callback,
         ) !void {
-            const response = try Handshake.parseResponse(packet.bytes());
+            const response = try Handshake.parseResponse(pkt.bytes());
             const peer = self.peers.findPendingHandshakeByLocalSessionIndex(response.initiator_session_index) orelse return error.HandshakeNotFound;
             const pending_handshake = if (peer.pending_handshake) |*pending_handshake| pending_handshake else return error.HandshakeNotFound;
 
             var handshake = pending_handshake.handshake;
-            try handshake.readResponse(packet.bytes());
+            try handshake.readResponse(pkt.bytes());
             const material = try handshake.sessionMaterial();
 
             const now_time = Self.instantNow();
-            const endpoint = packet.remote_endpoint;
+            const endpoint = pkt.remote_endpoint;
             const session = Session.init(.{
                 .local_index = handshake.localSessionIndex(),
                 .remote_index = handshake.remoteSessionIndex(),
@@ -379,26 +373,26 @@ pub fn make(
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
             try self.emitEvent(on_result, .{ .established = peer.key });
 
-            packet.state = .consumed;
-            packet.deinit();
+            pkt.state = .consumed;
+            pkt.deinit();
         }
 
         fn consumeTransport(
             self: *Self,
-            packet: *InboundPacket,
+            pkt: *packet.Inbound,
             on_result: Engine.Callback,
         ) !void {
-            if (packet.state != .ready_to_consume) return error.InboundPacketRequiresDecrypt;
+            if (pkt.state != .ready_to_consume) return error.InboundPacketRequiresDecrypt;
 
-            const peer = self.peers.findBySessionIndex(packet.local_session_index) orelse return error.SessionNotFound;
-            if (!peer.key.eql(packet.remote_static)) return error.PeerMismatch;
+            const peer = self.peers.findBySessionIndex(pkt.local_session_index) orelse return error.SessionNotFound;
+            if (!peer.key.eql(pkt.remote_static)) return error.PeerMismatch;
 
-            const session = peer.sessionByLocalIndex(packet.local_session_index) orelse return error.SessionNotFound;
-            if (session.remoteIndex() != packet.remote_session_index) return error.SessionIndexMismatch;
+            const session = peer.sessionByLocalIndex(pkt.local_session_index) orelse return error.SessionNotFound;
+            if (session.remoteIndex() != pkt.remote_session_index) return error.SessionIndexMismatch;
 
             const now_time = Self.instantNow();
-            try session.commitRecv(packet.counter, now_time);
-            peer.endpoint = packet.remote_endpoint;
+            try session.commitRecv(pkt.counter, now_time);
+            peer.endpoint = pkt.remote_endpoint;
             peer.last_received = now_time;
             peer.markOnline(now_time);
             if (peer.current) |*current| current.setEndpoint(peer.endpoint);
@@ -406,16 +400,16 @@ pub fn make(
             peer.updateTimers(now_time, 1);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
 
-            packet.state = .consumed;
-            if (packet.len != 0) {
-                try self.emitEvent(on_result, .{ .inbound = packet });
+            pkt.state = .consumed;
+            if (pkt.len != 0) {
+                try self.emitEvent(on_result, .{ .inbound = pkt });
             } else {
-                packet.deinit();
+                pkt.deinit();
             }
         }
 
-        fn inferInboundKind(packet: *InboundPacket) !InboundPacket.Kind {
-            const kind: InboundPacket.Kind = switch (try Message.getMessageType(packet.bytes())) {
+        fn inferInboundKind(pkt: *packet.Inbound) !packet.Inbound.Kind {
+            const kind: packet.Inbound.Kind = switch (try Message.getMessageType(pkt.bytes())) {
                 Message.MessageTypeHandshakeInit,
                 Message.MessageTypeHandshakeResp,
                 => .handshake,
@@ -423,7 +417,7 @@ pub fn make(
                 else => return error.InvalidInboundPacketKind,
             };
 
-            packet.kind = kind;
+            pkt.kind = kind;
             return kind;
         }
 
@@ -437,28 +431,28 @@ pub fn make(
 
         fn createDataOutbound(
             self: *Self,
-            packet: *OutboundPacket,
+            pkt: *packet.Outbound,
             on_result: Engine.Callback,
         ) !void {
-            packet.state = .prepared;
-            packet.kind = .transport;
-            if (packet.transportPlaintextBufRef().len < packet.len) return error.BufferTooSmall;
+            pkt.state = .prepared;
+            pkt.kind = .transport;
+            if (pkt.transportPlaintextBufRef().len < pkt.len) return error.BufferTooSmall;
 
-            const peer = self.peers.get(packet.remote_static) orelse return error.SessionNotFound;
+            const peer = self.peers.get(pkt.remote_static) orelse return error.SessionNotFound;
             const session = if (peer.current) |*session| session else return error.SessionNotFound;
             const sent = Self.instantNow();
             const counter = try session.claimSendCounter(sent);
 
-            packet.remote_endpoint = session.endpointValue();
-            packet.remote_static = peer.key;
-            packet.session_key = session.sendKey();
-            packet.remote_session_index = session.remoteIndex();
-            packet.counter = counter;
+            pkt.remote_endpoint = session.endpointValue();
+            pkt.remote_static = peer.key;
+            pkt.session_key = session.sendKey();
+            pkt.remote_session_index = session.remoteIndex();
+            pkt.counter = counter;
 
             peer.last_sent = sent;
             peer.updateTimers(sent, 1);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
-            try self.emitEvent(on_result, .{ .outbound = packet });
+            try self.emitEvent(on_result, .{ .outbound = pkt });
         }
 
         fn createInitiateHandshakeOutbound(
@@ -470,10 +464,10 @@ pub fn make(
             if (peer.pending_handshake != null) return error.HandshakeInProgress;
             if (self.peers.pendingCount() >= self.config.max_pending) return error.PendingHandshakeLimitReached;
 
-            const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
-            errdefer packet.deinit();
-            try self.startPendingHandshake(peer, request.remote_endpoint, request.keepalive_interval, Self.instantNow(), packet);
-            try self.emitEvent(on_result, .{ .outbound = packet });
+            const pkt = self.outbound_pool.get() orelse return error.OutOfMemory;
+            errdefer pkt.deinit();
+            try self.startPendingHandshake(peer, request.remote_endpoint, request.keepalive_interval, Self.instantNow(), pkt);
+            try self.emitEvent(on_result, .{ .outbound = pkt });
         }
 
         fn tickNode(
@@ -571,24 +565,24 @@ pub fn make(
         }
 
         fn emitKeepalive(self: *Self, peer_key: Key, on_result: Engine.Callback) !void {
-            const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
-            errdefer packet.deinit();
+            const pkt = self.outbound_pool.get() orelse return error.OutOfMemory;
+            errdefer pkt.deinit();
             const peer = self.peers.get(peer_key) orelse return error.SessionNotFound;
             const session = if (peer.current) |*session| session else return error.SessionNotFound;
             const sent = Self.instantNow();
             const counter = try session.claimSendCounter(sent);
-            packet.len = 0;
-            packet.state = .prepared;
-            packet.kind = .transport;
-            packet.remote_endpoint = session.endpointValue();
-            packet.remote_static = peer.key;
-            packet.session_key = session.sendKey();
-            packet.remote_session_index = session.remoteIndex();
-            packet.counter = counter;
+            pkt.len = 0;
+            pkt.state = .prepared;
+            pkt.kind = .transport;
+            pkt.remote_endpoint = session.endpointValue();
+            pkt.remote_static = peer.key;
+            pkt.session_key = session.sendKey();
+            pkt.remote_session_index = session.remoteIndex();
+            pkt.counter = counter;
             peer.last_sent = sent;
             peer.updateTimers(sent, 1);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
-            try self.emitEvent(on_result, .{ .outbound = packet });
+            try self.emitEvent(on_result, .{ .outbound = pkt });
         }
 
         fn startPendingHandshake(
@@ -597,41 +591,41 @@ pub fn make(
             endpoint: AddrPort,
             keepalive_interval: ?glib.time.duration.Duration,
             now: glib.time.instant.Time,
-            packet: *OutboundPacket,
+            pkt: *packet.Outbound,
         ) !void {
             const local_session_index = try self.allocateSessionIndex();
             var handshake = try Handshake.initInitiator(self.local_static, peer.key, local_session_index);
-            const written = try handshake.writeInit(packet.bufRef());
+            const written = try handshake.writeInit(pkt.bufRef());
 
             peer.startPendingHandshake(self.local_static.public, endpoint, local_session_index, handshake, keepalive_interval, now);
             peer.updateTimers(now, 0);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
-            packet.len = written;
-            packet.kind = .handshake;
-            packet.remote_endpoint = endpoint;
-            packet.remote_static = peer.key;
-            packet.state = .ready_to_send;
+            pkt.len = written;
+            pkt.kind = .handshake;
+            pkt.remote_endpoint = endpoint;
+            pkt.remote_static = peer.key;
+            pkt.state = .ready_to_send;
         }
 
         fn emitBeginRekey(self: *Self, peer_key: Key, on_result: Engine.Callback) !void {
             const peer = self.peers.get(peer_key) orelse return;
             if (peer.pending_handshake != null) return;
 
-            const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
-            errdefer packet.deinit();
-            try self.startPendingHandshake(peer, peer.endpoint, peer.keepalive_interval, Self.instantNow(), packet);
-            try self.emitEvent(on_result, .{ .outbound = packet });
+            const pkt = self.outbound_pool.get() orelse return error.OutOfMemory;
+            errdefer pkt.deinit();
+            try self.startPendingHandshake(peer, peer.endpoint, peer.keepalive_interval, Self.instantNow(), pkt);
+            try self.emitEvent(on_result, .{ .outbound = pkt });
         }
 
         fn emitRetryHandshake(self: *Self, local_session_index: u32, on_result: Engine.Callback) !void {
             const peer = self.peers.findPendingHandshakeByLocalSessionIndex(local_session_index) orelse return;
             const pending_handshake = if (peer.pending_handshake) |pending_handshake| pending_handshake else return;
 
-            const packet = self.outbound_pool.get() orelse return error.OutOfMemory;
-            errdefer packet.deinit();
+            const pkt = self.outbound_pool.get() orelse return error.OutOfMemory;
+            errdefer pkt.deinit();
             peer.clearPendingHandshake();
-            try self.startPendingHandshake(peer, pending_handshake.endpoint, peer.keepalive_interval, Self.instantNow(), packet);
-            try self.emitEvent(on_result, .{ .outbound = packet });
+            try self.startPendingHandshake(peer, pending_handshake.endpoint, peer.keepalive_interval, Self.instantNow(), pkt);
+            try self.emitEvent(on_result, .{ .outbound = pkt });
         }
 
         fn expirePendingHandshake(self: *Self, local_session_index: u32) void {
@@ -708,8 +702,8 @@ pub fn make(
             event: Engine.DriveOutput,
         ) !void {
             const outbound_transfer_len: ?u64 = switch (event) {
-                .outbound => |packet| if (packet.kind == .handshake or packet.state == .ready_to_send)
-                    @as(u64, @intCast(packet.len))
+                .outbound => |pkt| if (pkt.kind == .handshake or pkt.state == .ready_to_send)
+                    @as(u64, @intCast(pkt.len))
                 else
                     null,
                 else => null,
@@ -749,8 +743,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
     const Cases = struct {
         fn TestEngine(comptime EngineType: type, comptime packet_size: usize) type {
             return struct {
-                inbound_pool: InboundPacket.Pool,
-                outbound_pool: OutboundPacket.Pool,
+                inbound_pool: packet.Inbound.Pool,
+                outbound_pool: packet.Outbound.Pool,
                 engine: EngineType,
 
                 const Self = @This();
@@ -760,10 +754,10 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                     local_static: KeyPair,
                     config: Engine.Config,
                 ) !Self {
-                    const inbound_pool = try InboundPacket.initPool(grt, allocator, packet_size);
+                    const inbound_pool = try packet.Inbound.initPool(grt, allocator, packet_size);
                     errdefer inbound_pool.deinit();
 
-                    const outbound_pool = try OutboundPacket.initPool(grt, allocator, packet_size);
+                    const outbound_pool = try packet.Outbound.initPool(grt, allocator, packet_size);
                     errdefer outbound_pool.deinit();
 
                     const engine = try EngineType.init(allocator, local_static, config, .{
@@ -785,11 +779,11 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                     self.inbound_pool.deinit();
                 }
 
-                pub fn allocInboundPacket(self: *Self) !*InboundPacket {
+                pub fn allocInboundPacket(self: *Self) !*packet.Inbound {
                     return self.inbound_pool.get() orelse error.OutOfMemory;
                 }
 
-                pub fn allocOutboundPacket(self: *Self) !*OutboundPacket {
+                pub fn allocOutboundPacket(self: *Self) !*packet.Outbound {
                     return self.outbound_pool.get() orelse error.OutOfMemory;
                 }
             };
@@ -906,12 +900,12 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                             try grt.std.testing.expect(remote_key.eql(self.expected_remote_key));
                             self.offline_count += 1;
                         },
-                        .outbound => |packet| {
-                            packet.deinit();
+                        .outbound => |pkt| {
+                            pkt.deinit();
                             return error.UnexpectedOutbound;
                         },
-                        .inbound => |packet| {
-                            packet.deinit();
+                        .inbound => |pkt| {
+                            pkt.deinit();
                             return error.UnexpectedInbound;
                         },
                         .established => return error.UnexpectedEstablished,
@@ -978,7 +972,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try engine.syncPeerTimerEntry(peer);
 
             const CallbackState = struct {
-                keepalive_packet: ?*OutboundPacket = null,
+                keepalive_packet: ?*packet.Outbound = null,
                 next_tick_events: usize = 0,
 
                 fn callback(self: *@This()) Engine.Callback {
@@ -991,15 +985,15 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 fn callbackFn(ctx: *anyopaque, result: Engine.DriveOutput) anyerror!void {
                     const self: *@This() = @ptrCast(@alignCast(ctx));
                     switch (result) {
-                        .outbound => |packet| {
+                        .outbound => |pkt| {
                             if (self.keepalive_packet != null) {
-                                packet.deinit();
+                                pkt.deinit();
                                 return error.UnexpectedMultipleOutbounds;
                             }
-                            self.keepalive_packet = packet;
+                            self.keepalive_packet = pkt;
                         },
-                        .inbound => |packet| {
-                            packet.deinit();
+                        .inbound => |pkt| {
+                            pkt.deinit();
                             return error.UnexpectedInbound;
                         },
                         .established => return error.UnexpectedEstablished,
@@ -1012,14 +1006,14 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             var callback_state: CallbackState = .{};
             try engine.drive(.{ .tick = {} }, callback_state.callback());
 
-            const packet = callback_state.keepalive_packet orelse return error.MissingKeepalivePacket;
-            defer packet.deinit();
+            const keepalive_packet = callback_state.keepalive_packet orelse return error.MissingKeepalivePacket;
+            defer keepalive_packet.deinit();
 
-            try grt.std.testing.expectEqual(OutboundPacket.Kind.transport, packet.kind);
-            try grt.std.testing.expectEqual(OutboundPacket.State.prepared, packet.state);
-            try grt.std.testing.expectEqual(@as(usize, 0), packet.len);
-            try grt.std.testing.expect(packet.remote_static.eql(remote_pair.public));
-            try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
+            try grt.std.testing.expectEqual(packet.Outbound.Kind.transport, keepalive_packet.kind);
+            try grt.std.testing.expectEqual(packet.Outbound.State.prepared, keepalive_packet.state);
+            try grt.std.testing.expectEqual(@as(usize, 0), keepalive_packet.len);
+            try grt.std.testing.expect(keepalive_packet.remote_static.eql(remote_pair.public));
+            try grt.std.testing.expect(giznet.eqlAddrPort(keepalive_packet.remote_endpoint, remote_endpoint));
         }
 
         fn runInitiateHandshakeKeepaliveConfigFlow() !void {
@@ -1040,7 +1034,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const engine = &engine_harness.engine;
 
             const CallbackState = struct {
-                outbound_packet: ?*OutboundPacket = null,
+                outbound_packet: ?*packet.Outbound = null,
 
                 fn callback(self: *@This()) Engine.Callback {
                     return .{
@@ -1052,15 +1046,15 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 fn callbackFn(ctx: *anyopaque, result: Engine.DriveOutput) anyerror!void {
                     const self: *@This() = @ptrCast(@alignCast(ctx));
                     switch (result) {
-                        .outbound => |packet| {
+                        .outbound => |pkt| {
                             if (self.outbound_packet != null) {
-                                packet.deinit();
+                                pkt.deinit();
                                 return error.UnexpectedMultipleOutbounds;
                             }
-                            self.outbound_packet = packet;
+                            self.outbound_packet = pkt;
                         },
-                        .inbound => |packet| {
-                            packet.deinit();
+                        .inbound => |pkt| {
+                            pkt.deinit();
                             return error.UnexpectedInbound;
                         },
                         .established => return error.UnexpectedEstablished,
@@ -1079,17 +1073,17 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 },
             }, callback_state.callback());
 
-            const packet = callback_state.outbound_packet orelse return error.MissingHandshakePacket;
-            defer packet.deinit();
+            const outbound_packet = callback_state.outbound_packet orelse return error.MissingHandshakePacket;
+            defer outbound_packet.deinit();
 
             const peer = engine.peers.get(remote_pair.public) orelse return error.MissingPeer;
             try grt.std.testing.expect(peer.pending_handshake != null);
             try grt.std.testing.expect(peer.persistent_keepalive);
             try grt.std.testing.expectEqual(@as(?glib.time.duration.Duration, 17 * glib.time.duration.MilliSecond), peer.keepalive_interval);
-            try grt.std.testing.expectEqual(OutboundPacket.Kind.handshake, packet.kind);
-            try grt.std.testing.expectEqual(OutboundPacket.State.ready_to_send, packet.state);
-            try grt.std.testing.expect(packet.remote_static.eql(remote_pair.public));
-            try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
+            try grt.std.testing.expectEqual(packet.Outbound.Kind.handshake, outbound_packet.kind);
+            try grt.std.testing.expectEqual(packet.Outbound.State.ready_to_send, outbound_packet.state);
+            try grt.std.testing.expect(outbound_packet.remote_static.eql(remote_pair.public));
+            try grt.std.testing.expect(giznet.eqlAddrPort(outbound_packet.remote_endpoint, remote_endpoint));
         }
 
         fn runPersistentKeepaliveFlow() !void {
@@ -1140,7 +1134,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try engine.syncPeerTimerEntry(peer);
 
             const CallbackState = struct {
-                keepalive_packet: ?*OutboundPacket = null,
+                keepalive_packet: ?*packet.Outbound = null,
                 next_tick_events: usize = 0,
 
                 fn callback(self: *@This()) Engine.Callback {
@@ -1153,15 +1147,15 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 fn callbackFn(ctx: *anyopaque, result: Engine.DriveOutput) anyerror!void {
                     const self: *@This() = @ptrCast(@alignCast(ctx));
                     switch (result) {
-                        .outbound => |packet| {
+                        .outbound => |pkt| {
                             if (self.keepalive_packet != null) {
-                                packet.deinit();
+                                pkt.deinit();
                                 return error.UnexpectedMultipleOutbounds;
                             }
-                            self.keepalive_packet = packet;
+                            self.keepalive_packet = pkt;
                         },
-                        .inbound => |packet| {
-                            packet.deinit();
+                        .inbound => |pkt| {
+                            pkt.deinit();
                             return error.UnexpectedInbound;
                         },
                         .established => return error.UnexpectedEstablished,
@@ -1176,14 +1170,14 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 try engine.drive(.{ .tick = {} }, callback_state.callback());
             }
 
-            const packet = callback_state.keepalive_packet orelse return error.MissingKeepalivePacket;
-            defer packet.deinit();
+            const keepalive_packet = callback_state.keepalive_packet orelse return error.MissingKeepalivePacket;
+            defer keepalive_packet.deinit();
 
-            try grt.std.testing.expectEqual(OutboundPacket.Kind.transport, packet.kind);
-            try grt.std.testing.expectEqual(OutboundPacket.State.prepared, packet.state);
-            try grt.std.testing.expectEqual(@as(usize, 0), packet.len);
-            try grt.std.testing.expect(packet.remote_static.eql(remote_pair.public));
-            try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, remote_endpoint));
+            try grt.std.testing.expectEqual(packet.Outbound.Kind.transport, keepalive_packet.kind);
+            try grt.std.testing.expectEqual(packet.Outbound.State.prepared, keepalive_packet.state);
+            try grt.std.testing.expectEqual(@as(usize, 0), keepalive_packet.len);
+            try grt.std.testing.expect(keepalive_packet.remote_static.eql(remote_pair.public));
+            try grt.std.testing.expect(giznet.eqlAddrPort(keepalive_packet.remote_endpoint, remote_endpoint));
         }
 
         fn runNegativeDurationNormalizationFlow() !void {
@@ -1254,20 +1248,20 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 now,
             ), true, now);
 
-            const packet = try engine_harness.allocOutboundPacket();
-            errdefer packet.deinit();
-            packet.remote_static = remote_pair.public;
+            const pkt = try engine_harness.allocOutboundPacket();
+            errdefer pkt.deinit();
+            pkt.remote_static = remote_pair.public;
             const payload = "owned on error";
-            if (packet.transportPlaintextBufRef().len < payload.len) return error.BufferTooSmall;
-            @memcpy(packet.transportPlaintextBufRef()[0..payload.len], payload);
-            packet.len = payload.len;
+            if (pkt.transportPlaintextBufRef().len < payload.len) return error.BufferTooSmall;
+            @memcpy(pkt.transportPlaintextBufRef()[0..payload.len], payload);
+            pkt.len = payload.len;
 
             var callback_state: OwnershipCallbackState = .{ .fail_outbound = true };
             try grt.std.testing.expectError(
                 error.InjectOutboundFailure,
-                engine.drive(.{ .send_data = packet }, callback_state.callback()),
+                engine.drive(.{ .send_data = pkt }, callback_state.callback()),
             );
-            packet.deinit();
+            pkt.deinit();
         }
 
         fn runTransportCallbackErrorOwnershipFlow() !void {
@@ -1290,13 +1284,13 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             try installEstablishedPeer(EngineType, Session, engine, local_pair.public, remote_pair.public, remote_endpoint, 51, 52);
 
-            const packet = try makeReadyTransportInbound(&engine_harness, remote_pair.public, remote_endpoint, 51, 52, 0, "emit then fail");
-            defer packet.deinit();
+            const pkt = try makeReadyTransportInbound(&engine_harness, remote_pair.public, remote_endpoint, 51, 52, 0, "emit then fail");
+            defer pkt.deinit();
 
             var callback_state: OwnershipCallbackState = .{ .fail_inbound = true };
             try grt.std.testing.expectError(
                 error.InjectInboundFailure,
-                engine.drive(.{ .inbound_packet = packet }, callback_state.callback()),
+                engine.drive(.{ .inbound_packet = pkt }, callback_state.callback()),
             );
         }
 
@@ -1320,9 +1314,9 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             try installEstablishedPeer(EngineType, Session, engine, local_pair.public, remote_pair.public, remote_endpoint, 61, 62);
 
-            const packet = try makeReadyTransportInbound(&engine_harness, remote_pair.public, remote_endpoint, 61, 62, 0, "");
+            const pkt = try makeReadyTransportInbound(&engine_harness, remote_pair.public, remote_endpoint, 61, 62, 0, "");
             var callback_state: OwnershipCallbackState = .{};
-            try engine.drive(.{ .inbound_packet = packet }, callback_state.callback());
+            try engine.drive(.{ .inbound_packet = pkt }, callback_state.callback());
             try grt.std.testing.expectEqual(@as(usize, 0), callback_state.inbound_count);
         }
 
@@ -1406,44 +1400,44 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
                 fn handleResult(self: *@This(), side: Side, result: Engine.DriveOutput) !void {
                     switch (result) {
-                        .outbound => |packet| try self.handleOutbound(side, packet),
-                        .inbound => |packet| try self.handleInbound(side, packet),
+                        .outbound => |pkt| try self.handleOutbound(side, pkt),
+                        .inbound => |pkt| try self.handleInbound(side, pkt),
                         .established => |remote_key| try self.handleEstablished(side, remote_key),
                         .offline => |remote_key| try self.handleOffline(side, remote_key),
                         .next_tick_deadline => |_| self.next_tick_events += 1,
                     }
                 }
 
-                fn handleOutbound(self: *@This(), side: Side, packet: *OutboundPacket) !void {
+                fn handleOutbound(self: *@This(), side: Side, outbound: *packet.Outbound) !void {
                     const target_side = opposite(side);
                     const target_engine = self.engineHarness(target_side);
                     const remote_endpoint = self.endpoint(side);
 
-                    if (packet.state == .prepared) {
-                        try OutboundPacket.encrypt(any_lib, cipher_kind, packet);
+                    if (outbound.state == .prepared) {
+                        try packet.Outbound.encrypt(any_lib, cipher_kind, outbound);
                     }
 
                     const inbound = try target_engine.allocInboundPacket();
                     errdefer inbound.deinit();
-                    if (inbound.bufRef().len < packet.len) return error.BufferTooSmall;
+                    if (inbound.bufRef().len < outbound.len) return error.BufferTooSmall;
 
-                    @memcpy(inbound.bufRef()[0..packet.len], packet.bytes());
-                    inbound.len = packet.len;
+                    @memcpy(inbound.bufRef()[0..outbound.len], outbound.bytes());
+                    inbound.len = outbound.len;
                     inbound.remote_endpoint = remote_endpoint;
 
                     try target_engine.engine.drive(.{ .inbound_packet = inbound }, self.callback(target_side));
-                    packet.deinit();
+                    outbound.deinit();
                 }
 
-                fn handleInbound(self: *@This(), side: Side, packet: *InboundPacket) !void {
-                    switch (packet.state) {
+                fn handleInbound(self: *@This(), side: Side, inbound: *packet.Inbound) !void {
+                    switch (inbound.state) {
                         .prepared => {
-                            try InboundPacket.decrtpy(any_lib, cipher_kind, packet);
-                            try self.engine(side).drive(.{ .inbound_packet = packet }, self.callback(side));
+                            try packet.Inbound.decrtpy(any_lib, cipher_kind, inbound);
+                            try self.engine(side).drive(.{ .inbound_packet = inbound }, self.callback(side));
                         },
                         .consumed => {
-                            try self.verifyConsumedInbound(side, packet);
-                            packet.deinit();
+                            try self.verifyConsumedInbound(side, inbound);
+                            inbound.deinit();
                         },
                         else => return error.UnexpectedInboundPacketState,
                     }
@@ -1463,19 +1457,19 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                     self.offline_events += 1;
                 }
 
-                fn verifyConsumedInbound(self: *@This(), side: Side, packet: *InboundPacket) !void {
+                fn verifyConsumedInbound(self: *@This(), side: Side, inbound: *packet.Inbound) !void {
                     if (side != .responder) return error.UnexpectedInboundOnInitiator;
 
                     var expected_payload: [payload_size]u8 = undefined;
                     fillPayload(self.received_packets, expected_payload[0..]);
 
-                    try grt.std.testing.expectEqual(@as(usize, payload_size), packet.len);
-                    try grt.std.testing.expect(packet.remote_static.eql(self.initiator_key));
-                    try grt.std.testing.expect(giznet.eqlAddrPort(packet.remote_endpoint, self.initiator_endpoint));
-                    try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], packet.bytes()));
+                    try grt.std.testing.expectEqual(@as(usize, payload_size), inbound.len);
+                    try grt.std.testing.expect(inbound.remote_static.eql(self.initiator_key));
+                    try grt.std.testing.expect(giznet.eqlAddrPort(inbound.remote_endpoint, self.initiator_endpoint));
+                    try grt.std.testing.expect(glib.std.mem.eql(u8, expected_payload[0..], inbound.bytes()));
 
                     self.received_packets += 1;
-                    self.received_bytes += packet.len;
+                    self.received_bytes += inbound.len;
                 }
 
                 fn engine(self: *@This(), side: Side) *EngineType {
@@ -1516,14 +1510,14 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 fn sendFromInitiator(self: *@This(), chunk_index: usize) !void {
                     var packet_buffer: [payload_size]u8 = undefined;
                     fillPayload(chunk_index, packet_buffer[0..]);
-                    const packet = try self.initiator.allocOutboundPacket();
-                    errdefer packet.deinit();
-                    if (packet.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
-                    @memcpy(packet.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
-                    packet.len = packet_buffer.len;
-                    packet.remote_static = self.responder_key;
+                    const pkt = try self.initiator.allocOutboundPacket();
+                    errdefer pkt.deinit();
+                    if (pkt.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
+                    @memcpy(pkt.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
+                    pkt.len = packet_buffer.len;
+                    pkt.remote_static = self.responder_key;
                     try self.initiator.engine.drive(.{
-                        .send_data = packet,
+                        .send_data = pkt,
                     }, self.callback(.initiator));
                 }
             };
@@ -1615,15 +1609,15 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             fn call(ctx: *anyopaque, result: Engine.DriveOutput) anyerror!void {
                 const self: *@This() = @ptrCast(@alignCast(ctx));
                 switch (result) {
-                    .outbound => |packet| {
+                    .outbound => |pkt| {
                         self.outbound_count += 1;
                         if (self.fail_outbound) return error.InjectOutboundFailure;
-                        packet.deinit();
+                        pkt.deinit();
                     },
-                    .inbound => |packet| {
+                    .inbound => |pkt| {
                         self.inbound_count += 1;
                         if (self.fail_inbound) return error.InjectInboundFailure;
-                        packet.deinit();
+                        pkt.deinit();
                     },
                     .established => {},
                     .offline => {},
@@ -1665,22 +1659,22 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             remote_index: u32,
             counter: u64,
             payload: []const u8,
-        ) !*InboundPacket {
-            const packet = try engine_harness.allocInboundPacket();
-            errdefer packet.deinit();
+        ) !*packet.Inbound {
+            const inbound = try engine_harness.allocInboundPacket();
+            errdefer inbound.deinit();
 
-            const plaintext = packet.bufRef()[Message.TransportHeaderSize..];
+            const plaintext = inbound.bufRef()[Message.TransportHeaderSize..];
             if (plaintext.len < payload.len) return error.BufferTooSmall;
             @memcpy(plaintext[0..payload.len], payload);
-            packet.len = payload.len;
-            packet.kind = .transport;
-            packet.state = .ready_to_consume;
-            packet.remote_static = remote_key;
-            packet.remote_endpoint = endpoint;
-            packet.local_session_index = local_index;
-            packet.remote_session_index = remote_index;
-            packet.counter = counter;
-            return packet;
+            inbound.len = payload.len;
+            inbound.kind = .transport;
+            inbound.state = .ready_to_consume;
+            inbound.remote_static = remote_key;
+            inbound.remote_endpoint = endpoint;
+            inbound.local_session_index = local_index;
+            inbound.remote_session_index = remote_index;
+            inbound.counter = counter;
+            return inbound;
         }
 
         fn makeSession(
