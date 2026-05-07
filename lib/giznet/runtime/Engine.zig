@@ -683,20 +683,36 @@ pub fn make(
             runtime: *Self,
             port: ServiceEngine.StreamPort,
             closed: grt.std.atomic.Value(bool) = grt.std.atomic.Value(bool).init(false),
+            pending_inbound: ?*packet.Inbound = null,
+            pending_offset: usize = 0,
 
             pub fn read(self: *@This(), buf: []u8) !usize {
                 if (self.closed.load(.acquire)) return error.StreamClosed;
+                if (buf.len == 0) return 0;
 
-                const result = try self.port.recv();
-                if (!result.ok) return error.StreamClosed;
+                var total: usize = self.readPending(buf);
+                if (total == buf.len) return total;
 
-                const inbound = result.value;
-                defer inbound.deinit();
+                if (total == 0) {
+                    const result = try self.port.recv();
+                    if (!result.ok) return error.StreamClosed;
+                    self.pending_inbound = result.value;
+                    self.pending_offset = 0;
+                    total += self.readPending(buf[total..]);
+                    if (total == buf.len) return total;
+                }
 
-                const payload = inbound.bytes();
-                if (buf.len < payload.len) return error.BufferTooSmall;
-                @memcpy(buf[0..payload.len], payload);
-                return payload.len;
+                while (total < buf.len and self.pending_inbound == null) {
+                    const result = self.port.recvTimeout(0) catch |err| switch (err) {
+                        error.Timeout => break,
+                    };
+                    if (!result.ok) break;
+                    self.pending_inbound = result.value;
+                    self.pending_offset = 0;
+                    total += self.readPending(buf[total..]);
+                }
+
+                return total;
             }
 
             pub fn setReadDeadline(self: *@This(), deadline: glib.time.instant.Time) !void {
@@ -771,7 +787,25 @@ pub fn make(
 
             pub fn deinit(self: *@This()) void {
                 self.close() catch {};
+                self.freePendingInbound();
                 self.runtime.allocator.destroy(self);
+            }
+
+            fn readPending(self: *@This(), buf: []u8) usize {
+                const inbound = self.pending_inbound orelse return 0;
+                const pending = inbound.bytes()[self.pending_offset..];
+                const n = @min(buf.len, pending.len);
+                @memcpy(buf[0..n], pending[0..n]);
+                self.pending_offset += n;
+                if (self.pending_offset == inbound.bytes().len) self.freePendingInbound();
+                return n;
+            }
+
+            fn freePendingInbound(self: *@This()) void {
+                const inbound = self.pending_inbound orelse return;
+                inbound.deinit();
+                self.pending_inbound = null;
+                self.pending_offset = 0;
             }
         };
 

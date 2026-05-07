@@ -1,6 +1,7 @@
 const glib = @import("glib");
 const testing_api = glib.testing;
 
+const giznet = @import("../../../giznet.zig");
 const test_utils = @import("../test_utils/giz_net.zig");
 
 const transfer_bytes: usize = 10 * 1024 * 1024;
@@ -27,6 +28,18 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             };
             runStreamRoundtrip(grt, PairFixture, allocator) catch |err| {
                 t.logErrorf("integration/giznet/giz_net stream_roundtrip failed: {}", .{err});
+                return false;
+            };
+            runStreamSmallBufferRead(grt, PairFixture, allocator) catch |err| {
+                t.logErrorf("integration/giznet/giz_net stream_small_buffer_read failed: {}", .{err});
+                return false;
+            };
+            runStreamLargeBufferReadDrainsReadyData(grt, PairFixture, allocator) catch |err| {
+                t.logErrorf("integration/giznet/giz_net stream_large_buffer_read_drains_ready_data failed: {}", .{err});
+                return false;
+            };
+            runNetListenerAcceptsStream(grt, PairFixture, allocator) catch |err| {
+                t.logErrorf("integration/giznet/giz_net net_listener_accepts_stream failed: {}", .{err});
                 return false;
             };
             runStreamReadDeadlineWake(grt, PairFixture, allocator) catch |err| {
@@ -116,6 +129,106 @@ fn runStreamRoundtrip(
     const read_n = try reader.read(&buf);
     try grt.std.testing.expectEqual(payload.len, read_n);
     try grt.std.testing.expectEqualSlices(u8, payload, buf[0..read_n]);
+}
+
+fn runStreamSmallBufferRead(
+    comptime grt: type,
+    comptime Fixture: type,
+    allocator: grt.std.mem.Allocator,
+) !void {
+    var fixture = try Fixture.init(allocator, .{});
+    defer fixture.deinit();
+
+    const pair = try fixture.connect(0, 1);
+    defer pair.deinit();
+
+    const service_id: u64 = 15;
+    const payload = "stream-read-must-not-require-caller-buffer-to-fit-payload";
+
+    const writer = try pair.a.openStream(service_id);
+    defer writer.deinit();
+    try writeAll(writer, payload);
+
+    const reader = try pair.b.accept(fixture.config.accept_timeout);
+    defer reader.deinit();
+    try reader.setReadDeadline(glib.time.instant.add(grt.time.instant.now(), fixture.config.accept_timeout));
+
+    var received: [payload.len]u8 = undefined;
+    var total: usize = 0;
+    var small_buf: [5]u8 = undefined;
+    while (total < payload.len) {
+        const n = try reader.read(&small_buf);
+        if (n == 0) return error.TestUnexpectedResult;
+        if (total + n > received.len) return error.TestUnexpectedResult;
+        @memcpy(received[total..][0..n], small_buf[0..n]);
+        total += n;
+    }
+
+    try grt.std.testing.expectEqualSlices(u8, payload, received[0..total]);
+}
+
+fn runStreamLargeBufferReadDrainsReadyData(
+    comptime grt: type,
+    comptime Fixture: type,
+    allocator: grt.std.mem.Allocator,
+) !void {
+    var fixture = try Fixture.init(allocator, .{});
+    defer fixture.deinit();
+
+    const pair = try fixture.connect(0, 1);
+    defer pair.deinit();
+
+    const service_id: u64 = 16;
+    const chunks = [_][]const u8{ "aa", "bbb", "cccc" };
+    const expected = "aabbbcccc";
+
+    const writer = try pair.a.openStream(service_id);
+    defer writer.deinit();
+    for (chunks) |chunk| try writeAll(writer, chunk);
+
+    const reader = try pair.b.accept(fixture.config.accept_timeout);
+    defer reader.deinit();
+    try reader.setReadDeadline(glib.time.instant.add(grt.time.instant.now(), fixture.config.accept_timeout));
+
+    // Give the runtime a chance to deliver all already-written KCP payloads.
+    // The read under test must not block for these extra chunks; it drains only
+    // data that is ready via recvTimeout(0).
+    grt.std.Thread.sleep(@intCast(50 * glib.time.duration.MilliSecond));
+
+    var buf: [64]u8 = undefined;
+    const n = try reader.read(&buf);
+    try grt.std.testing.expectEqual(expected.len, n);
+    try grt.std.testing.expectEqualSlices(u8, expected, buf[0..n]);
+}
+
+fn runNetListenerAcceptsStream(
+    comptime grt: type,
+    comptime Fixture: type,
+    allocator: grt.std.mem.Allocator,
+) !void {
+    var fixture = try Fixture.init(allocator, .{});
+    defer fixture.deinit();
+
+    const pair = try fixture.connect(0, 1);
+    defer pair.deinit();
+
+    var listener_impl = giznet.Listener.make(grt).init(allocator, pair.b);
+    defer listener_impl.deinit();
+    const listener = listener_impl.listener();
+
+    const service_id: u64 = 17;
+    const payload = "listener-stream";
+    const writer = try pair.a.openStream(service_id);
+    defer writer.deinit();
+    try writeAll(writer, payload);
+
+    var net_conn = try listener.accept();
+    defer net_conn.deinit();
+    net_conn.setReadDeadline(glib.time.instant.add(grt.time.instant.now(), fixture.config.accept_timeout));
+
+    var buf: [64]u8 = undefined;
+    const n = try net_conn.read(&buf);
+    try grt.std.testing.expectEqualStrings(payload, buf[0..n]);
 }
 
 fn runStreamReadDeadlineWake(
@@ -602,6 +715,15 @@ fn runMultiPairConcurrentTransfer(
     for (0..multi_pair_count) |idx| {
         if (tasks[idx].err) |err| return err;
         try expectRate(grt, tasks[idx].rate, transfer_bytes);
+    }
+}
+
+fn writeAll(stream: anytype, payload: []const u8) !void {
+    var offset: usize = 0;
+    while (offset < payload.len) {
+        const written = try stream.write(payload[offset..]);
+        if (written == 0) return error.ShortWrite;
+        offset += written;
     }
 }
 

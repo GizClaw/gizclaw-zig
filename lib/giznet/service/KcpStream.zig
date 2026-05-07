@@ -100,6 +100,17 @@ pub fn make(comptime grt: type) type {
                 }
             }
 
+            pub fn recvTimeout(self: *Port, timeout: glib.time.duration.Duration) !RecvResult {
+                while (true) {
+                    const result = try self.read_ch.recvTimeout(timeout);
+                    if (!result.ok) return .{ .value = undefined, .ok = false };
+                    switch (result.value) {
+                        .data => |pkt| return .{ .value = pkt, .ok = true },
+                        .read_interrupt => {},
+                    }
+                }
+            }
+
             pub fn setReadDeadline(self: *Port, deadline: glib.time.instant.Time) !void {
                 self.read_deadline.store(@intCast(deadline), .release);
                 self.wakeRead();
