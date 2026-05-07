@@ -1,7 +1,6 @@
 const glib = @import("glib");
 const testing_api = glib.testing;
 
-const giznet = @import("../../../giznet.zig");
 const test_utils = @import("../test_utils/giz_net.zig");
 
 const transfer_bytes: usize = 10 * 1024 * 1024;
@@ -36,10 +35,6 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             };
             runStreamLargeBufferReadDrainsReadyData(grt, PairFixture, allocator) catch |err| {
                 t.logErrorf("integration/giznet/giz_net stream_large_buffer_read_drains_ready_data failed: {}", .{err});
-                return false;
-            };
-            runNetListenerAcceptsStream(grt, PairFixture, allocator) catch |err| {
-                t.logErrorf("integration/giznet/giz_net net_listener_accepts_stream failed: {}", .{err});
                 return false;
             };
             runStreamReadDeadlineWake(grt, PairFixture, allocator) catch |err| {
@@ -199,36 +194,6 @@ fn runStreamLargeBufferReadDrainsReadyData(
     const n = try reader.read(&buf);
     try grt.std.testing.expectEqual(expected.len, n);
     try grt.std.testing.expectEqualSlices(u8, expected, buf[0..n]);
-}
-
-fn runNetListenerAcceptsStream(
-    comptime grt: type,
-    comptime Fixture: type,
-    allocator: grt.std.mem.Allocator,
-) !void {
-    var fixture = try Fixture.init(allocator, .{});
-    defer fixture.deinit();
-
-    const pair = try fixture.connect(0, 1);
-    defer pair.deinit();
-
-    var listener_impl = giznet.Listener.make(grt).init(allocator, pair.b);
-    defer listener_impl.deinit();
-    const listener = listener_impl.listener();
-
-    const service_id: u64 = 17;
-    const payload = "listener-stream";
-    const writer = try pair.a.openStream(service_id);
-    defer writer.deinit();
-    try writeAll(writer, payload);
-
-    var net_conn = try listener.accept();
-    defer net_conn.deinit();
-    net_conn.setReadDeadline(glib.time.instant.add(grt.time.instant.now(), fixture.config.accept_timeout));
-
-    var buf: [64]u8 = undefined;
-    const n = try net_conn.read(&buf);
-    try grt.std.testing.expectEqualStrings(payload, buf[0..n]);
 }
 
 fn runStreamReadDeadlineWake(

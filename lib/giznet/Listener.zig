@@ -3,12 +3,13 @@
 const glib = @import("glib");
 
 const Conn = @import("Conn.zig");
-const Stream = @import("Stream.zig");
+const stream_conn_mod = @import("StreamConn.zig");
 
 pub fn make(comptime grt: type) type {
     const Allocator = grt.std.mem.Allocator;
     const NetConn = grt.net.Conn;
     const NetListener = grt.net.Listener;
+    const StreamConn = stream_conn_mod.make(grt);
 
     return struct {
         allocator: Allocator,
@@ -62,12 +63,7 @@ pub fn make(comptime grt: type) type {
 
                 if (self.closed.load(.acquire)) return error.Closed;
 
-                const stream_conn = self.allocator.create(StreamConn) catch return error.OutOfMemory;
-                stream_conn.* = .{
-                    .allocator = self.allocator,
-                    .stream = stream,
-                };
-                return NetConn.init(stream_conn);
+                return StreamConn.init(self.allocator, stream) catch return error.OutOfMemory;
             }
             return error.Closed;
         }
@@ -80,62 +76,5 @@ pub fn make(comptime grt: type) type {
             self.close();
             self.* = undefined;
         }
-
-        const StreamConn = struct {
-            allocator: Allocator,
-            stream: Stream,
-            closed: grt.std.atomic.Value(bool) = grt.std.atomic.Value(bool).init(false),
-
-            pub fn read(self: *StreamConn, buf: []u8) NetConn.ReadError!usize {
-                if (self.closed.load(.acquire)) return error.EndOfStream;
-                if (buf.len == 0) return 0;
-                return self.stream.read(buf) catch |err| switch (err) {
-                    error.StreamClosed,
-                    error.KcpStreamClosed,
-                    error.ConnClosed,
-                    => return error.EndOfStream,
-                    error.Timeout => return error.TimedOut,
-                    error.BufferTooSmall => return error.ShortRead,
-                    error.ConnectionReset => return error.ConnectionReset,
-                    error.ConnectionRefused => return error.ConnectionRefused,
-                    error.BrokenPipe => return error.BrokenPipe,
-                    else => return error.Unexpected,
-                };
-            }
-
-            pub fn write(self: *StreamConn, buf: []const u8) NetConn.WriteError!usize {
-                if (self.closed.load(.acquire)) return error.BrokenPipe;
-                if (buf.len == 0) return 0;
-                return self.stream.write(buf) catch |err| switch (err) {
-                    error.StreamClosed,
-                    error.KcpStreamClosed,
-                    error.ConnClosed,
-                    => return error.BrokenPipe,
-                    error.Timeout => return error.TimedOut,
-                    error.ConnectionReset => return error.ConnectionReset,
-                    error.ConnectionRefused => return error.ConnectionRefused,
-                    error.BrokenPipe => return error.BrokenPipe,
-                    else => return error.Unexpected,
-                };
-            }
-
-            pub fn close(self: *StreamConn) void {
-                if (self.closed.swap(true, .acq_rel)) return;
-                self.stream.close() catch {};
-            }
-
-            pub fn deinit(self: *StreamConn) void {
-                self.stream.deinit();
-                self.allocator.destroy(self);
-            }
-
-            pub fn setReadDeadline(self: *StreamConn, deadline: ?glib.time.instant.Time) void {
-                self.stream.setReadDeadline(deadline orelse 0) catch {};
-            }
-
-            pub fn setWriteDeadline(self: *StreamConn, deadline: ?glib.time.instant.Time) void {
-                self.stream.setWriteDeadline(deadline orelse 0) catch {};
-            }
-        };
     };
 }

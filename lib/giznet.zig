@@ -12,8 +12,10 @@ pub const runtime = runtime_ns;
 pub const service = service_ns;
 pub const GizNet = @import("giznet/GizNet.zig");
 pub const Conn = @import("giznet/Conn.zig");
+pub const HttpTransport = @import("giznet/HttpTransport.zig");
 pub const Listener = @import("giznet/Listener.zig");
 pub const Stream = @import("giznet/Stream.zig");
+pub const StreamConn = @import("giznet/StreamConn.zig");
 pub const DialOptions = @import("giznet/DialOptions.zig");
 pub const Key = noise_ns.Key;
 pub const KeyPair = noise_ns.KeyPair;
@@ -40,8 +42,10 @@ pub fn make(comptime grt: type) type {
     return struct {
         pub const GizNet = @import("giznet/GizNet.zig");
         pub const Conn = @import("giznet/Conn.zig");
+        pub const HttpTransport = @import("giznet/HttpTransport.zig").make(grt);
         pub const Listener = @import("giznet/Listener.zig").make(grt);
         pub const Stream = @import("giznet/Stream.zig");
+        pub const StreamConn = @import("giznet/StreamConn.zig").make(grt);
         pub const DialOptions = @import("giznet/DialOptions.zig");
         pub const Key = noise_ns.Key;
         pub const KeyPair = noise_ns.KeyPair;

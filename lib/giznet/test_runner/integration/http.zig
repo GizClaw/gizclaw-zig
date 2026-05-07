@@ -1,11 +1,12 @@
 const glib = @import("glib");
 const testing_api = glib.testing;
 
-const NoiseRunner = @import("integration/noise.zig");
-const ServiceRunner = @import("integration/service.zig");
-const GizNetRunner = @import("integration/giz_net.zig");
-const HttpRunner = @import("integration/http.zig");
-const ListenerRunner = @import("integration/listener.zig");
+const DuplexRunner = @import("http/duplex.zig");
+const DownloadRunner = @import("http/download.zig");
+const GetRunner = @import("http/get.zig");
+const KeepAliveRunner = @import("http/keep_alive.zig");
+const UnsupportedSchemeRunner = @import("http/unsupported_scheme.zig");
+const UploadRunner = @import("http/upload.zig");
 
 pub fn make(comptime grt: type) testing_api.TestRunner {
     const Runner = struct {
@@ -16,13 +17,15 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
 
         pub fn run(self: *@This(), t: *testing_api.T, allocator: grt.std.mem.Allocator) bool {
             _ = self;
-            _ = allocator;
 
-            t.run("noise", NoiseRunner.make(grt));
-            t.run("service", ServiceRunner.make(grt));
-            t.run("giz_net", GizNetRunner.make(grt));
-            t.run("listener", ListenerRunner.make(grt));
-            t.run("http", HttpRunner.make(grt));
+            t.run("get", GetRunner.make(grt));
+            t.run("upload", UploadRunner.make(grt));
+            t.run("download", DownloadRunner.make(grt));
+            t.run("duplex", DuplexRunner.make(grt));
+            t.run("keep_alive", KeepAliveRunner.make(grt));
+            t.run("unsupported_scheme", UnsupportedSchemeRunner.make(grt));
+
+            _ = allocator;
             return true;
         }
 
