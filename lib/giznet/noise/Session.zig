@@ -8,10 +8,6 @@ const Cipher = @import("Cipher.zig");
 
 pub const min_packet_size_capacity: usize = Message.TransportHeaderSize + Message.tag_size;
 
-// Preserve the historic 1024-byte payload budget for callers
-// that still expose the old fixed-capacity API.
-pub const legacy_packet_size_capacity: usize = min_packet_size_capacity + 1024;
-
 pub fn make(
     comptime grt: type,
     comptime packet_size_capacity_value: usize,
@@ -348,7 +344,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
         }
 
         fn tryCase(comptime any_lib: type) !void {
-            const Session = make(any_lib, legacy_packet_size_capacity, Cipher.default_kind);
+            const packet_size_capacity = min_packet_size_capacity + 1024;
+            const Session = make(any_lib, packet_size_capacity, Cipher.default_kind);
 
             const send_key = giznet.noise.Key{ .bytes = [_]u8{0x11} ** 32 };
             const recv_key = giznet.noise.Key{ .bytes = [_]u8{0x22} ** 32 };

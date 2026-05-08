@@ -884,7 +884,7 @@ pub fn Fixture(
 pub fn DefaultFixture(comptime grt: type, comptime seeds: []const u32) type {
     return Fixture(
         grt,
-        Session.legacy_packet_size_capacity,
+        Session.min_packet_size_capacity + 1024,
         NoiseCipher.default_kind,
         seeds,
     );

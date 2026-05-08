@@ -8,7 +8,6 @@ const Uvarint = @import("../service/Uvarint.zig");
 
 const PoolType = glib.sync.Pool;
 const AddrPort = glib.net.netip.AddrPort;
-const legacy_packet_size_capacity = SessionType.legacy_packet_size_capacity;
 
 const Inbound = @This();
 
@@ -326,9 +325,10 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
         }
 
         fn tryDecryptTransportCase(comptime any_lib: type) !void {
-            const Session = SessionType.make(any_lib, legacy_packet_size_capacity, Cipher.default_kind);
+            const packet_size_capacity = SessionType.min_packet_size_capacity + 1024;
+            const Session = SessionType.make(any_lib, packet_size_capacity, Cipher.default_kind);
             const CipherSuite = Cipher.make(any_lib, Cipher.default_kind);
-            var pool = try initPool(any_lib, grt.std.testing.allocator, legacy_packet_size_capacity);
+            var pool = try initPool(any_lib, grt.std.testing.allocator, packet_size_capacity);
             defer pool.deinit();
 
             const packet = pool.get() orelse return error.TestExpectedPacket;
@@ -352,7 +352,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 ciphertext_storage[0..],
             );
 
-            var wire: [legacy_packet_size_capacity]u8 = undefined;
+            var wire: [packet_size_capacity]u8 = undefined;
             const wire_len = try Message.buildTransportMessage(
                 receiver_index,
                 counter,

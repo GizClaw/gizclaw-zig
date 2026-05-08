@@ -4,8 +4,12 @@ const Cipher = @import("Cipher.zig");
 const Key = @import("Key.zig");
 const PeerType = @import("Peer.zig");
 
-pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
-    const Peer = PeerType.make(grt, cipher_kind);
+pub fn make(
+    comptime grt: type,
+    comptime packet_size_capacity: usize,
+    comptime cipher_kind: Cipher.Kind,
+) type {
+    const Peer = PeerType.make(grt, packet_size_capacity, cipher_kind);
 
     return struct {
         allocator: grt.std.mem.Allocator,
@@ -143,11 +147,12 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
         }
 
         fn tryCase(comptime any_lib: type) !void {
-            const PeerTable = make(any_lib, Cipher.default_kind);
+            const packet_size_capacity = @import("Session.zig").min_packet_size_capacity + 1024;
+            const PeerTable = make(any_lib, packet_size_capacity, Cipher.default_kind);
             const Handshake = @import("Handshake.zig").make(any_lib, Cipher.default_kind);
             const Session = @import("Session.zig").make(
                 any_lib,
-                @import("Session.zig").legacy_packet_size_capacity,
+                packet_size_capacity,
                 Cipher.default_kind,
             );
             const key_a = giznet.noise.KeyPair.seed(any_lib, 51);

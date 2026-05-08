@@ -18,8 +18,11 @@ pub const PeerTimerConfig = struct {
     rekey_after_messages: u64,
 };
 
-pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
-    const packet_size_capacity = SessionType.legacy_packet_size_capacity;
+pub fn make(
+    comptime grt: type,
+    comptime packet_size_capacity: usize,
+    comptime cipher_kind: Cipher.Kind,
+) type {
     const Handshake = HandshakeType.make(grt, cipher_kind);
     const Session = SessionType.make(grt, packet_size_capacity, cipher_kind);
 
@@ -281,9 +284,10 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
         }
 
         fn tryCase(comptime any_lib: type) !void {
-            const Peer = make(any_lib, Cipher.default_kind);
+            const packet_size_capacity = SessionType.min_packet_size_capacity + 1024;
+            const Peer = make(any_lib, packet_size_capacity, Cipher.default_kind);
             const Handshake = HandshakeType.make(any_lib, Cipher.default_kind);
-            const Session = SessionType.make(any_lib, SessionType.legacy_packet_size_capacity, Cipher.default_kind);
+            const Session = SessionType.make(any_lib, packet_size_capacity, Cipher.default_kind);
             const initiator_pair = giznet.noise.KeyPair.seed(any_lib, 31);
             const responder_pair = giznet.noise.KeyPair.seed(any_lib, 41);
             const endpoint_one = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 3010);

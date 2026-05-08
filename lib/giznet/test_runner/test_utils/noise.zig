@@ -44,7 +44,7 @@ pub fn runSinglePeerTransfer(
     comptime rekey_after_messages: u64,
 ) !SinglePeerReport {
     const payload_size: usize = 1024;
-    const packet_size = SessionType.legacy_packet_size_capacity;
+    const packet_size = SessionType.min_packet_size_capacity + 1024;
     const Engine = EngineType.make(grt, packet_size, cipher_kind);
     const EngineHarness = EngineWithPools(grt, Engine, packet_size);
     const rekey_after_messages_usize: usize = if (rekey_after_messages == glib.std.math.maxInt(u64))
@@ -117,7 +117,7 @@ pub fn runSinglePeerTransfer(
             const remote_endpoint = self.endpoint(side);
 
             if (outbound.state == .prepared) {
-                try packet.Outbound.encrypt(grt, cipher_kind, outbound);
+                try packet.Outbound.encrypt(grt, packet_size, cipher_kind, outbound);
             }
 
             const inbound = try target_engine.allocInboundPacket();
@@ -312,7 +312,7 @@ pub fn runMultiPeerBidirectionalRekey(
     comptime rekey_after_messages: u64,
 ) !MultiPeerReport {
     const payload_size: usize = 1024;
-    const packet_size = SessionType.legacy_packet_size_capacity;
+    const packet_size = SessionType.min_packet_size_capacity + 1024;
     const Engine = EngineType.make(grt, packet_size, cipher_kind);
     const EngineHarness = EngineWithPools(grt, Engine, packet_size);
     const rekey_after_messages_usize: usize = @intCast(rekey_after_messages);
@@ -397,7 +397,7 @@ pub fn runMultiPeerBidirectionalRekey(
             const remote_endpoint = self.endpoint(source);
 
             if (outbound.state == .prepared) {
-                try packet.Outbound.encrypt(grt, cipher_kind, outbound);
+                try packet.Outbound.encrypt(grt, packet_size, cipher_kind, outbound);
             }
 
             const inbound = try target_engine.allocInboundPacket();

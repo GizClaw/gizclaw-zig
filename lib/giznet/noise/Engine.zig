@@ -83,8 +83,8 @@ pub fn make(
 ) type {
     const Order = grt.std.math.Order;
     const Handshake = HandshakeType.make(grt, cipher_kind);
-    const Peer = PeerType.make(grt, cipher_kind);
-    const PeerTable = PeerTableType.make(grt, cipher_kind);
+    const Peer = PeerType.make(grt, packet_size_capacity, cipher_kind);
+    const PeerTable = PeerTableType.make(grt, packet_size_capacity, cipher_kind);
     const Session = SessionType.make(grt, packet_size_capacity, cipher_kind);
     const TimerTreapKey = struct {
         due: glib.time.instant.Time,
@@ -846,7 +846,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn runOfflineDeadlineFlow() !void {
             const any_lib = grt;
-            const packet_size = SessionType.legacy_packet_size_capacity;
+            const packet_size = SessionType.min_packet_size_capacity + 1024;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
             const Session = SessionType.make(any_lib, packet_size, cipher_kind);
@@ -927,7 +927,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn runPassiveKeepaliveFlow() !void {
             const any_lib = grt;
-            const packet_size = SessionType.legacy_packet_size_capacity;
+            const packet_size = SessionType.min_packet_size_capacity + 1024;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
             const Session = SessionType.make(any_lib, packet_size, cipher_kind);
@@ -1018,7 +1018,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn runInitiateHandshakeKeepaliveConfigFlow() !void {
             const any_lib = grt;
-            const packet_size = SessionType.legacy_packet_size_capacity;
+            const packet_size = SessionType.min_packet_size_capacity + 1024;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
 
@@ -1088,7 +1088,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn runPersistentKeepaliveFlow() !void {
             const any_lib = grt;
-            const packet_size = SessionType.legacy_packet_size_capacity;
+            const packet_size = SessionType.min_packet_size_capacity + 1024;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
             const Session = SessionType.make(any_lib, packet_size, cipher_kind);
@@ -1182,7 +1182,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn runNegativeDurationNormalizationFlow() !void {
             const any_lib = grt;
-            const packet_size = SessionType.legacy_packet_size_capacity;
+            const packet_size = SessionType.min_packet_size_capacity + 1024;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
 
@@ -1218,7 +1218,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn runOutboundCallbackErrorOwnershipFlow() !void {
             const any_lib = grt;
-            const packet_size = SessionType.legacy_packet_size_capacity;
+            const packet_size = SessionType.min_packet_size_capacity + 1024;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
             const Session = SessionType.make(any_lib, packet_size, cipher_kind);
@@ -1266,7 +1266,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn runTransportCallbackErrorOwnershipFlow() !void {
             const any_lib = grt;
-            const packet_size = SessionType.legacy_packet_size_capacity;
+            const packet_size = SessionType.min_packet_size_capacity + 1024;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
             const Session = SessionType.make(any_lib, packet_size, cipher_kind);
@@ -1296,7 +1296,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn runEmptyTransportSuccessOwnershipFlow() !void {
             const any_lib = grt;
-            const packet_size = SessionType.legacy_packet_size_capacity;
+            const packet_size = SessionType.min_packet_size_capacity + 1024;
             const cipher_kind = Cipher.default_kind;
             const EngineType = make(any_lib, packet_size, cipher_kind);
             const Session = SessionType.make(any_lib, packet_size, cipher_kind);
@@ -1322,7 +1322,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn runRekeyAfterMessagesFlow(comptime cipher_kind: Cipher.Kind) !void {
             const any_lib = grt;
-            const packet_size = SessionType.legacy_packet_size_capacity;
+            const packet_size = SessionType.min_packet_size_capacity + 1024;
             const EngineType = make(any_lib, packet_size, cipher_kind);
             const EngineHarness = TestEngine(EngineType, packet_size);
             const payload_size: usize = 1024;
@@ -1414,7 +1414,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                     const remote_endpoint = self.endpoint(side);
 
                     if (outbound.state == .prepared) {
-                        try packet.Outbound.encrypt(any_lib, cipher_kind, outbound);
+                        try packet.Outbound.encrypt(any_lib, packet_size, cipher_kind, outbound);
                     }
 
                     const inbound = try target_engine.allocInboundPacket();

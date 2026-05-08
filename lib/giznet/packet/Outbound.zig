@@ -6,7 +6,6 @@ const SessionType = @import("../noise/Session.zig");
 
 const PoolType = glib.sync.Pool;
 const AddrPort = glib.net.netip.AddrPort;
-const legacy_packet_size_capacity = SessionType.legacy_packet_size_capacity;
 
 const Outbound = @This();
 
@@ -131,8 +130,13 @@ pub fn eql(self: *const Outbound, other: *const Outbound) bool {
     return self == other;
 }
 
-pub fn encrypt(comptime grt: type, comptime cipher_kind: Cipher.Kind, self: *Outbound) !void {
-    const Session = SessionType.make(grt, legacy_packet_size_capacity, cipher_kind);
+pub fn encrypt(
+    comptime grt: type,
+    comptime packet_size_capacity: usize,
+    comptime cipher_kind: Cipher.Kind,
+    self: *Outbound,
+) !void {
+    const Session = SessionType.make(grt, packet_size_capacity, cipher_kind);
     const CipherSuite = Cipher.make(grt, cipher_kind);
 
     if (self.kind == .handshake) {
@@ -299,9 +303,10 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
         }
 
         fn tryEncryptTransportCase(comptime any_lib: type) !void {
-            const Session = SessionType.make(any_lib, legacy_packet_size_capacity, Cipher.default_kind);
+            const packet_size_capacity = SessionType.min_packet_size_capacity + 1024;
+            const Session = SessionType.make(any_lib, packet_size_capacity, Cipher.default_kind);
             const CipherSuite = Cipher.make(any_lib, Cipher.default_kind);
-            var pool = try initPool(any_lib, grt.std.testing.allocator, legacy_packet_size_capacity);
+            var pool = try initPool(any_lib, grt.std.testing.allocator, packet_size_capacity);
             defer pool.deinit();
 
             const packet = pool.get() orelse return error.TestExpectedPacket;
@@ -324,7 +329,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             packet.remote_session_index = remote_session_index;
             packet.counter = counter;
 
-            try Outbound.encrypt(any_lib, Cipher.default_kind, packet);
+            try Outbound.encrypt(any_lib, packet_size_capacity, Cipher.default_kind, packet);
 
             try grt.std.testing.expectEqual(State.ready_to_send, packet.state);
             try grt.std.testing.expectEqual(Kind.transport, packet.kind);

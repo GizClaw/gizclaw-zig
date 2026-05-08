@@ -461,7 +461,7 @@ pub fn make(
                 switch (output) {
                     .outbound => |pkt| {
                         if (pkt.state != .ready_to_send) {
-                            try packet.Outbound.encrypt(grt, cipher_kind, pkt);
+                            try packet.Outbound.encrypt(grt, packet_size_capacity, cipher_kind, pkt);
                         }
                         const bytes = pkt.bytes();
                         const written = try self.runtime.conn.writeTo(bytes, pkt.remote_endpoint);

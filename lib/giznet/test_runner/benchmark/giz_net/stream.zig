@@ -50,7 +50,7 @@ fn runCase(
 ) !void {
     const Fixture = test_utils.Fixture(
         grt,
-        Session.legacy_packet_size_capacity,
+        Session.min_packet_size_capacity + 1024,
         cipher_kind,
         &[_]u32{ 3601, 3602 },
     );

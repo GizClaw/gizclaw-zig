@@ -11,7 +11,11 @@ pub const Cipher = NoiseCipher;
 pub const Engine = NoiseEngine;
 pub const default_cipher_kind: Cipher.Kind = Cipher.default_kind;
 
-pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
+pub fn make(
+    comptime grt: type,
+    comptime packet_size_capacity: usize,
+    comptime cipher_kind: Cipher.Kind,
+) type {
     return struct {
         pub const Key = @import("noise/Key.zig");
         pub const KeyPair = @import("noise/KeyPair.zig");
@@ -19,10 +23,10 @@ pub fn make(comptime grt: type, comptime cipher_kind: Cipher.Kind) type {
         pub const Cipher = @import("noise/Cipher.zig");
         pub const Message = @import("noise/Message.zig");
         pub const Handshake = @import("noise/Handshake.zig").make(grt, cipher_kind);
-        pub const Session = SessionType.make(grt, SessionType.legacy_packet_size_capacity, cipher_kind);
-        pub const Engine = NoiseEngine.make(grt, SessionType.legacy_packet_size_capacity, cipher_kind);
+        pub const Session = SessionType.make(grt, packet_size_capacity, cipher_kind);
+        pub const Engine = NoiseEngine.make(grt, packet_size_capacity, cipher_kind);
         pub const TimerState = @import("noise/TimerState.zig");
-        pub const Peer = @import("noise/Peer.zig").make(grt, cipher_kind);
-        pub const PeerTable = @import("noise/PeerTable.zig").make(grt, cipher_kind);
+        pub const Peer = @import("noise/Peer.zig").make(grt, packet_size_capacity, cipher_kind);
+        pub const PeerTable = @import("noise/PeerTable.zig").make(grt, packet_size_capacity, cipher_kind);
     };
 }
