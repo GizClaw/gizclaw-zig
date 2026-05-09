@@ -4,9 +4,11 @@
     .fingerprint = 0xa547d0b6feca0805,
     .minimum_zig_version = "0.15.2",
     .paths = .{
+        "api",
         "build",
         "build.zig",
         "build.zig.zon",
+        "cmd",
         "lib",
         "pkg",
     },
@@ -18,6 +20,9 @@
         .zig_kcp = .{
             .url = "https://codeload.github.com/jinzhongjia/zig-kcp/tar.gz/fafdad53e0eb109e717d93e501849d547b6101e1",
             .hash = "kcp-0.0.1-Z1pMoS2gAgB4tkCwbWBjOEDuqFf3qP8oZKWPDuaCXIEd",
+        },
+        .openapi_codegen = .{
+            .path = "../embed-zig/openapi-codegen",
         },
     },
 }

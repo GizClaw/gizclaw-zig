@@ -51,7 +51,7 @@ pub fn make(comptime grt: type) type {
 
         pub fn open(self: *Self, remote_static: Key, service: u64) !GetOrCreateResult {
             const stream = self.next_stream;
-            self.next_stream +%= 1;
+            self.next_stream +%= 2;
             if (self.next_stream == 0) self.next_stream = 1;
             return self.getOrCreate(remote_static, service, stream);
         }
@@ -185,7 +185,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
     };
 
     const Cases = struct {
-        fn openAllocatesSequentialStreams(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
+        fn openAllocatesLocalOddStreams(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             const Table = make(grt);
             var pools = try Helpers.initPools(allocator);
             defer Helpers.deinitPools(&pools);
@@ -201,7 +201,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             const second = try table.open(key_a, 7);
             try grt.std.testing.expect(second.created);
-            try grt.std.testing.expectEqual(@as(u32, 2), second.stream.stream);
+            try grt.std.testing.expectEqual(@as(u32, 3), second.stream.stream);
             try grt.std.testing.expectEqual(@as(usize, 2), table.len);
         }
 
@@ -301,7 +301,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             const wrapped = try table.open(key_a, 7);
             try grt.std.testing.expectEqual(@as(u32, 1), wrapped.stream.stream);
-            try grt.std.testing.expectEqual(@as(u32, 2), table.next_stream);
+            try grt.std.testing.expectEqual(@as(u32, 3), table.next_stream);
         }
 
         fn driveTickVisitsStreams(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
@@ -331,7 +331,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             _ = self;
             _ = allocator;
 
-            t.run("open_allocates_sequential_streams", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.openAllocatesSequentialStreams));
+            t.run("open_allocates_local_odd_streams", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.openAllocatesLocalOddStreams));
             t.run("get_or_create_is_stable", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.getOrCreateIsStable));
             t.run("get_or_create_from_frame_uses_conversation_id", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.getOrCreateFromFrameUsesConversationId));
             t.run("stream_pointers_survive_table_growth", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.streamPointersSurviveTableGrowth));

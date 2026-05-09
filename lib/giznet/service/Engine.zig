@@ -117,16 +117,46 @@ pub fn make(comptime grt: type) type {
                             try peer_result.peer.deliverPacket(frame);
                         },
                         .kcp => |kcp| {
+                            if (kcp.stream > grt.std.math.maxInt(u32)) return error.InvalidKcpStreamId;
+                            switch (kcp.frame_type) {
+                                protocol_ns.KcpMuxFrameOpen => {
+                                    if (kcp.frame.len != 0) return error.InvalidKcpPacket;
+                                },
+                                protocol_ns.KcpMuxFrameData,
+                                protocol_ns.KcpMuxFrameClose,
+                                protocol_ns.KcpMuxFrameCloseAck,
+                                => {},
+                                else => return error.InvalidKcpPacket,
+                            }
+
+                            if (kcp.frame_type == protocol_ns.KcpMuxFrameClose or
+                                kcp.frame_type == protocol_ns.KcpMuxFrameCloseAck)
+                            {
+                                frame.deinit();
+                                return;
+                            }
+
                             const peer_result = try self.peers.getOrCreateWithStatus(pkt.remote_static);
                             if (peer_result.created) {
                                 try callback.handle(.{ .peer_port = self.peerPort(peer_result.peer) });
                             }
-                            const stream_result = try self.streams.getOrCreateFromFrame(pkt.remote_static, kcp.service, kcp.frame);
-                            if (stream_result.created) {
-                                try peer_result.peer.deliverStream(stream_result.stream.port());
+                            const stream_result = try self.streams.getOrCreate(pkt.remote_static, kcp.service, @intCast(kcp.stream));
+                            switch (kcp.frame_type) {
+                                protocol_ns.KcpMuxFrameOpen => {
+                                    if (stream_result.created) {
+                                        try peer_result.peer.deliverStream(stream_result.stream.port());
+                                    }
+                                    frame.deinit();
+                                },
+                                protocol_ns.KcpMuxFrameData => {
+                                    if (stream_result.created) {
+                                        try peer_result.peer.deliverStream(stream_result.stream.port());
+                                    }
+                                    var stream_callback = StreamCallback{ .service = self, .parent_callback = callback };
+                                    try stream_result.stream.drive(.{ .inbound = frame }, stream_callback.callback());
+                                },
+                                else => unreachable,
                             }
-                            var stream_callback = StreamCallback{ .service = self, .parent_callback = callback };
-                            try stream_result.stream.drive(.{ .inbound = frame }, stream_callback.callback());
                         },
                         .close => {
                             _ = self.peers.remove(pkt.remote_static);
@@ -154,8 +184,9 @@ pub fn make(comptime grt: type) type {
                             const peer = try self.peers.getOrCreate(pkt.remote_static);
                             const stream_result = try self.streams.open(pkt.remote_static, open_stream.service);
                             _ = peer;
+                            try self.prepareKcpControlOutbound(pkt, open_stream.service, stream_result.stream.stream, protocol_ns.KcpMuxFrameOpen, "");
+                            try callback.handle(.{ .outbound = pkt });
                             try callback.handle(.{ .opened_stream = stream_result.stream.port() });
-                            pkt.deinit();
                         },
                         .write_stream => |write_stream| {
                             if (write_stream.stream > grt.std.math.maxInt(u32)) return error.InvalidKcpStreamId;
@@ -170,6 +201,17 @@ pub fn make(comptime grt: type) type {
                             }
                             var stream_callback = StreamCallback{ .service = self, .parent_callback = callback };
                             try stream_result.stream.drive(.{ .outbound = pkt }, stream_callback.callback());
+                        },
+                        .close_stream => |close_stream| {
+                            if (close_stream.stream > grt.std.math.maxInt(u32)) return error.InvalidKcpStreamId;
+                            try self.prepareKcpControlOutbound(
+                                pkt,
+                                close_stream.service,
+                                @intCast(close_stream.stream),
+                                protocol_ns.KcpMuxFrameClose,
+                                &[_]u8{0},
+                            );
+                            try callback.handle(.{ .outbound = pkt });
                         },
                     }
                 },
@@ -218,13 +260,45 @@ pub fn make(comptime grt: type) type {
 
             var service_buf: [10]u8 = undefined;
             const service_len = try Uvarint.write(write.service, service_buf[0..]);
-            const header_len = 1 + service_len;
+            var stream_buf: [10]u8 = undefined;
+            const stream_len = try Uvarint.write(write.stream, stream_buf[0..]);
+            const header_len = 1 + service_len + stream_len + 1;
             if (plaintext.len < header_len + write.payload.len) return error.BufferTooSmall;
 
             glib.std.mem.copyBackwards(u8, plaintext[header_len..][0..write.payload.len], write.payload);
             plaintext[0] = protocol_ns.ProtocolKCP;
-            @memcpy(plaintext[1..header_len], service_buf[0..service_len]);
+            @memcpy(plaintext[1..][0..service_len], service_buf[0..service_len]);
+            @memcpy(plaintext[1 + service_len ..][0..stream_len], stream_buf[0..stream_len]);
+            plaintext[1 + service_len + stream_len] = protocol_ns.KcpMuxFrameData;
             outbound.len = header_len + write.payload.len;
+        }
+
+        fn prepareKcpControlOutbound(
+            self: *Self,
+            outbound: *packet.Outbound,
+            service: u64,
+            stream: u32,
+            frame_type: u8,
+            payload: []const u8,
+        ) !void {
+            _ = self;
+            const plaintext = outbound.transportPlaintextBufRef();
+
+            var service_buf: [10]u8 = undefined;
+            const service_len = try Uvarint.write(service, service_buf[0..]);
+            var stream_buf: [10]u8 = undefined;
+            const stream_len = try Uvarint.write(stream, stream_buf[0..]);
+            const header_len = 1 + service_len + stream_len + 1;
+            if (plaintext.len < header_len + payload.len) return error.BufferTooSmall;
+
+            plaintext[0] = protocol_ns.ProtocolKCP;
+            @memcpy(plaintext[1..][0..service_len], service_buf[0..service_len]);
+            @memcpy(plaintext[1 + service_len ..][0..stream_len], stream_buf[0..stream_len]);
+            plaintext[1 + service_len + stream_len] = frame_type;
+            if (payload.len != 0) {
+                @memcpy(plaintext[header_len..][0..payload.len], payload);
+            }
+            outbound.len = header_len + payload.len;
         }
     };
 }
@@ -258,12 +332,24 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 t.logErrorf("giznet/service Engine kcp error ownership failed: {}", .{err});
                 return false;
             };
+            tryInvalidKcpMuxFrameDoesNotCreateState(grt) catch |err| {
+                t.logErrorf("giznet/service Engine invalid kcp mux state failed: {}", .{err});
+                return false;
+            };
             tryCloseInboundConsumesPacket(grt) catch |err| {
                 t.logErrorf("giznet/service Engine close inbound ownership failed: {}", .{err});
                 return false;
             };
             tryOpenStreamReturnsPort(grt) catch |err| {
                 t.logErrorf("giznet/service Engine open stream port failed: {}", .{err});
+                return false;
+            };
+            tryOpenStreamWritesKcpMuxOpenFrame(grt) catch |err| {
+                t.logErrorf("giznet/service Engine open stream mux frame failed: {}", .{err});
+                return false;
+            };
+            tryCloseStreamWritesKcpMuxCloseFrame(grt) catch |err| {
+                t.logErrorf("giznet/service Engine close stream mux frame failed: {}", .{err});
                 return false;
             };
             return true;
@@ -363,6 +449,38 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             return error.ExpectedKcpInboundFailure;
         }
 
+        fn tryInvalidKcpMuxFrameDoesNotCreateState(comptime any_lib: type) !void {
+            const ServiceEngine = make(any_lib);
+            var pools = try initPacketPools(any_lib, grt.std.testing.allocator, 128);
+            defer deinitPacketPools(&pools);
+
+            var engine = ServiceEngine.init(grt.std.testing.allocator, .{}, &pools);
+            defer engine.deinit();
+
+            var payload: [32]u8 = undefined;
+            payload[0] = protocol_ns.ProtocolKCP;
+            const service_len = try Uvarint.write(7, payload[1..]);
+            const stream_offset = 1 + service_len;
+            const stream_len = try Uvarint.write(1, payload[stream_offset..]);
+            payload[stream_offset + stream_len] = 0xff;
+
+            const remote_key = Key{ .bytes = [_]u8{0x27} ** 32 };
+            const pkt = try makeInboundPacket(
+                pools.inbound,
+                remote_key,
+                payload[0 .. stream_offset + stream_len + 1],
+            );
+            defer pkt.deinit();
+
+            var callback_state: CallbackState(ServiceEngine) = .{};
+            try grt.std.testing.expectError(
+                error.InvalidKcpPacket,
+                engine.drive(.{ .inbound = pkt }, callback_state.callback()),
+            );
+            try grt.std.testing.expect(engine.peers.get(remote_key) == null);
+            try grt.std.testing.expect(engine.streams.get(remote_key, 7, 1) == null);
+        }
+
         fn tryCloseInboundConsumesPacket(comptime any_lib: type) !void {
             const ServiceEngine = make(any_lib);
             var pools = try initPacketPools(any_lib, grt.std.testing.allocator, 128);
@@ -386,7 +504,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             defer engine.deinit();
 
             const remote_key = Key{ .bytes = [_]u8{0x26} ** 32 };
-            var callback_state: CallbackState(ServiceEngine) = .{};
+            var callback_state: CallbackState(ServiceEngine) = .{ .allow_outbound = true };
             try engine.drive(.{ .peer_established = remote_key }, callback_state.callback());
 
             const pkt = try makeOpenStreamPacket(pools.outbound, remote_key, 9);
@@ -396,6 +514,52 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try grt.std.testing.expect(port.remote_static.eql(remote_key));
             try grt.std.testing.expectEqual(@as(u64, 9), port.service);
             try grt.std.testing.expectEqual(@as(u32, 1), port.stream);
+            try grt.std.testing.expectEqual(@as(usize, 1), callback_state.outbound_count);
+        }
+
+        fn tryOpenStreamWritesKcpMuxOpenFrame(comptime any_lib: type) !void {
+            const ServiceEngine = make(any_lib);
+            var pools = try initPacketPools(any_lib, grt.std.testing.allocator, 128);
+            defer deinitPacketPools(&pools);
+
+            var engine = ServiceEngine.init(grt.std.testing.allocator, .{}, &pools);
+            defer engine.deinit();
+
+            const remote_key = Key{ .bytes = [_]u8{0x28} ** 32 };
+            var callback_state: CallbackState(ServiceEngine) = .{ .allow_outbound = true };
+            const pkt = try makeOpenStreamPacket(pools.outbound, remote_key, 9);
+            try engine.drive(.{ .outbound = pkt }, callback_state.callback());
+
+            try grt.std.testing.expectEqual(@as(usize, 1), callback_state.outbound_count);
+            try grt.std.testing.expectEqualSlices(u8, &[_]u8{
+                protocol_ns.ProtocolKCP,
+                9,
+                1,
+                protocol_ns.KcpMuxFrameOpen,
+            }, callback_state.outbound_buf[0..callback_state.outbound_len]);
+        }
+
+        fn tryCloseStreamWritesKcpMuxCloseFrame(comptime any_lib: type) !void {
+            const ServiceEngine = make(any_lib);
+            var pools = try initPacketPools(any_lib, grt.std.testing.allocator, 128);
+            defer deinitPacketPools(&pools);
+
+            var engine = ServiceEngine.init(grt.std.testing.allocator, .{}, &pools);
+            defer engine.deinit();
+
+            const remote_key = Key{ .bytes = [_]u8{0x29} ** 32 };
+            var callback_state: CallbackState(ServiceEngine) = .{ .allow_outbound = true };
+            const pkt = try makeCloseStreamPacket(pools.outbound, remote_key, 9, 3);
+            try engine.drive(.{ .outbound = pkt }, callback_state.callback());
+
+            try grt.std.testing.expectEqual(@as(usize, 1), callback_state.outbound_count);
+            try grt.std.testing.expectEqualSlices(u8, &[_]u8{
+                protocol_ns.ProtocolKCP,
+                9,
+                3,
+                protocol_ns.KcpMuxFrameClose,
+                0,
+            }, callback_state.outbound_buf[0..callback_state.outbound_len]);
         }
 
         fn CallbackState(comptime ServiceEngine: type) type {
@@ -403,6 +567,10 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 peer_port: ?ServiceEngine.PeerPort = null,
                 opened_stream: ?ServiceEngine.StreamPort = null,
                 fail_peer_port: bool = false,
+                allow_outbound: bool = false,
+                outbound_count: usize = 0,
+                outbound_buf: [64]u8 = undefined,
+                outbound_len: usize = 0,
 
                 fn callback(self: *@This()) ServiceEngine.Callback {
                     return .{ .ctx = self, .call = call };
@@ -417,7 +585,13 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                         },
                         .opened_stream => |port| self.opened_stream = port,
                         .outbound => |pkt| {
+                            const plaintext = pkt.transportPlaintextBufRef()[0..pkt.len];
+                            if (plaintext.len > self.outbound_buf.len) return error.OutboundCaptureTooSmall;
+                            @memcpy(self.outbound_buf[0..plaintext.len], plaintext);
+                            self.outbound_len = plaintext.len;
+                            self.outbound_count += 1;
                             pkt.deinit();
+                            if (self.allow_outbound) return;
                             return error.UnexpectedOutbound;
                         },
                         .next_tick_deadline => |_| {},
@@ -448,6 +622,19 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             outbound.len = 0;
             outbound.service_data = .{ .open_stream = .{
                 .service = service,
+            } };
+            return outbound;
+        }
+
+        fn makeCloseStreamPacket(pool: packet.Outbound.Pool, remote_key: Key, service: u64, stream: u64) !*packet.Outbound {
+            const outbound = pool.get() orelse return error.OutOfMemory;
+            errdefer outbound.deinit();
+
+            outbound.remote_static = remote_key;
+            outbound.len = 0;
+            outbound.service_data = .{ .close_stream = .{
+                .service = service,
+                .stream = stream,
             } };
             return outbound;
         }

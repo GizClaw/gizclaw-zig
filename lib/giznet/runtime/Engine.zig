@@ -59,6 +59,12 @@ pub const WriteStream = struct {
     payload: []u8,
 };
 
+pub const CloseStream = struct {
+    remote_static: NoiseKey,
+    service: u64,
+    stream: u64,
+};
+
 pub fn make(
     comptime grt: type,
     comptime packet_size_capacity: usize,
@@ -83,6 +89,7 @@ pub fn make(
         write_direct: WriteDirect,
         open_stream: OpenStreamRequest,
         write_stream: WriteStream,
+        close_stream: CloseStream,
         close_conn: NoiseKey,
         tick: void,
         close: void,
@@ -338,6 +345,7 @@ pub fn make(
                     return;
                 },
                 .write_stream => {},
+                .close_stream => {},
                 .close_conn => |remote_static| {
                     var service_callback = ServiceCallback{ .runtime = self };
                     try self.service.drive(.{ .close_conn = remote_static }, service_callback.callback());
@@ -350,6 +358,7 @@ pub fn make(
             pkt.remote_static = switch (input) {
                 .write_direct => |request| request.remote_static,
                 .write_stream => |request| request.remote_static,
+                .close_stream => |request| request.remote_static,
                 else => unreachable,
             };
 
@@ -373,6 +382,13 @@ pub fn make(
                         .service = request.service,
                         .stream = request.stream,
                         .payload = buffer[0..request.payload.len],
+                    } };
+                },
+                .close_stream => |request| {
+                    pkt.len = 0;
+                    pkt.service_data = .{ .close_stream = .{
+                        .service = request.service,
+                        .stream = request.stream,
                     } };
                 },
                 else => unreachable,
@@ -743,7 +759,13 @@ pub fn make(
             }
 
             pub fn close(self: *@This()) !void {
-                self.closed.store(true, .release);
+                if (self.closed.swap(true, .acq_rel)) return;
+                const send_result = try self.runtime.input.send(.{ .close_stream = .{
+                    .remote_static = self.port.remote_static,
+                    .service = self.port.service,
+                    .stream = self.port.stream,
+                } });
+                if (!send_result.ok) return error.RuntimeChannelClosed;
                 self.port.wakeRead();
                 self.port.wakeWrite();
             }

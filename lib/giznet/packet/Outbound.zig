@@ -24,6 +24,7 @@ pub const ServiceData = union(enum) {
     direct: Direct,
     open_stream: OpenStream,
     write_stream: WriteStream,
+    close_stream: CloseStream,
 };
 
 pub const Direct = struct {
@@ -39,6 +40,11 @@ pub const WriteStream = struct {
     service: u64 = 0,
     stream: u64 = 0,
     payload: []const u8 = &.{},
+};
+
+pub const CloseStream = struct {
+    service: u64 = 0,
+    stream: u64 = 0,
 };
 
 impl_ptr: ?*anyopaque = null,

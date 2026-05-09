@@ -144,9 +144,16 @@ pub fn parseServiceData(self: *Inbound) !*Inbound {
     switch (data[0]) {
         Protocol.ProtocolKCP => {
             const service = try Uvarint.read(payload);
+            const mux_frame = payload[service.len..];
+            const stream = try Uvarint.read(mux_frame);
+            const frame = mux_frame[stream.len..];
+            if (frame.len == 0) return error.InvalidServiceFrame;
             self.service_data = .{ .kcp = .{
                 .service = service.value,
-                .frame = payload[service.len..],
+                .stream = stream.value,
+                .frame_type = frame[0],
+                .frame = frame[1..],
+                .payload = frame[1..],
             } };
         },
         Protocol.ProtocolConnCtrl => {
