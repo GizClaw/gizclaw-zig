@@ -18,7 +18,6 @@ pub fn make(comptime grt: type) type {
         pools: *packet.Pools,
         items: []*KcpStream = &.{},
         len: usize = 0,
-        next_stream: u32 = 1,
 
         const Self = @This();
         pub const Stream = KcpStream;
@@ -49,10 +48,13 @@ pub fn make(comptime grt: type) type {
             self.len = 0;
         }
 
-        pub fn open(self: *Self, remote_static: Key, service: u64) !GetOrCreateResult {
-            const stream = self.next_stream;
-            self.next_stream +%= 2;
-            if (self.next_stream == 0) self.next_stream = 1;
+        pub fn open(self: *Self, local_static: Key, remote_static: Key, service: u64) !GetOrCreateResult {
+            const first_stream: u32 = if (keyLess(local_static, remote_static)) 1 else 0;
+            var stream = first_stream;
+            while (self.get(remote_static, service, stream) != null) {
+                stream +%= 2;
+                if (stream == first_stream) return error.KcpStreamIdExhausted;
+            }
             return self.getOrCreate(remote_static, service, stream);
         }
 
@@ -128,6 +130,14 @@ pub fn make(comptime grt: type) type {
             else
                 try self.allocator.realloc(self.items, next);
         }
+
+        fn keyLess(a: Key, b: Key) bool {
+            for (a.bytes, b.bytes) |left, right| {
+                if (left < right) return true;
+                if (left > right) return false;
+            }
+            return false;
+        }
     };
 }
 
@@ -185,7 +195,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
     };
 
     const Cases = struct {
-        fn openAllocatesLocalOddStreams(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
+        fn openAllocatesOddStreamsWhenLocalKeyIsLess(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             const Table = make(grt);
             var pools = try Helpers.initPools(allocator);
             defer Helpers.deinitPools(&pools);
@@ -193,13 +203,13 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             var table = Table.init(allocator, &pools, .{ .stream = stream_config });
             defer table.deinit();
 
-            const first = try table.open(key_a, 7);
+            const first = try table.open(key_a, key_b, 7);
             try grt.std.testing.expect(first.created);
             try grt.std.testing.expectEqual(@as(u32, 1), first.stream.stream);
-            try grt.std.testing.expect(first.stream.remote_static.eql(key_a));
+            try grt.std.testing.expect(first.stream.remote_static.eql(key_b));
             try grt.std.testing.expectEqual(@as(u64, 7), first.stream.service);
 
-            const second = try table.open(key_a, 7);
+            const second = try table.open(key_a, key_b, 7);
             try grt.std.testing.expect(second.created);
             try grt.std.testing.expectEqual(@as(u32, 3), second.stream.stream);
             try grt.std.testing.expectEqual(@as(usize, 2), table.len);
@@ -286,22 +296,23 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try grt.std.testing.expectEqual(@as(usize, 1), table.len);
         }
 
-        fn openWrapsStreamIdZero(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
+        fn openAllocatesEvenStreamsWhenLocalKeyIsGreater(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             const Table = make(grt);
             var pools = try Helpers.initPools(allocator);
             defer Helpers.deinitPools(&pools);
 
             var table = Table.init(allocator, &pools, .{ .stream = stream_config });
             defer table.deinit();
-            table.next_stream = grt.std.math.maxInt(u32);
 
-            const max_stream = try table.open(key_a, 7);
-            try grt.std.testing.expectEqual(grt.std.math.maxInt(u32), max_stream.stream.stream);
-            try grt.std.testing.expectEqual(@as(u32, 1), table.next_stream);
+            const first = try table.open(key_b, key_a, 7);
+            try grt.std.testing.expect(first.created);
+            try grt.std.testing.expectEqual(@as(u32, 0), first.stream.stream);
+            try grt.std.testing.expect(first.stream.remote_static.eql(key_a));
 
-            const wrapped = try table.open(key_a, 7);
-            try grt.std.testing.expectEqual(@as(u32, 1), wrapped.stream.stream);
-            try grt.std.testing.expectEqual(@as(u32, 3), table.next_stream);
+            const second = try table.open(key_b, key_a, 7);
+            try grt.std.testing.expect(second.created);
+            try grt.std.testing.expectEqual(@as(u32, 2), second.stream.stream);
+            try grt.std.testing.expectEqual(@as(usize, 2), table.len);
         }
 
         fn driveTickVisitsStreams(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
@@ -312,8 +323,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             var table = Table.init(allocator, &pools, .{ .stream = stream_config });
             defer table.deinit();
 
-            _ = try table.open(key_a, 7);
-            _ = try table.open(key_b, 8);
+            _ = try table.open(key_a, key_b, 7);
+            _ = try table.open(key_b, key_a, 8);
 
             var sink = TickSink{};
             try table.driveTick(grt.time.instant.now(), sink.callback());
@@ -331,12 +342,12 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             _ = self;
             _ = allocator;
 
-            t.run("open_allocates_local_odd_streams", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.openAllocatesLocalOddStreams));
+            t.run("open_allocates_odd_streams_when_local_key_is_less", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.openAllocatesOddStreamsWhenLocalKeyIsLess));
             t.run("get_or_create_is_stable", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.getOrCreateIsStable));
             t.run("get_or_create_from_frame_uses_conversation_id", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.getOrCreateFromFrameUsesConversationId));
             t.run("stream_pointers_survive_table_growth", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.streamPointersSurviveTableGrowth));
             t.run("remove_remote_drops_only_matching_streams", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.removeRemoteDropsOnlyMatchingStreams));
-            t.run("open_wraps_stream_id_zero", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.openWrapsStreamIdZero));
+            t.run("open_allocates_even_streams_when_local_key_is_greater", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.openAllocatesEvenStreamsWhenLocalKeyIsGreater));
             t.run("drive_tick_visits_streams", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.driveTickVisitsStreams));
             return true;
         }

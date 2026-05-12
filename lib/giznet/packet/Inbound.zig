@@ -145,15 +145,34 @@ pub fn parseServiceData(self: *Inbound) !*Inbound {
         Protocol.ProtocolKCP => {
             const service = try Uvarint.read(payload);
             const mux_frame = payload[service.len..];
-            const stream = try Uvarint.read(mux_frame);
-            const frame = mux_frame[stream.len..];
-            if (frame.len == 0) return error.InvalidServiceFrame;
+            if (mux_frame.len == 0) return error.InvalidServiceFrame;
+            const frame_type = mux_frame[0];
+            const frame_payload = mux_frame[1..];
+            var stream: u64 = 0;
+            var frame = frame_payload;
+            var kcp_payload = frame_payload;
+            switch (frame_type) {
+                Protocol.KcpMuxFrameData => {
+                    if (frame_payload.len < 4) return error.InvalidServiceFrame;
+                    stream = glib.std.mem.readInt(u32, frame_payload[0..4], .little);
+                },
+                Protocol.KcpMuxFrameOpen,
+                Protocol.KcpMuxFrameClose,
+                Protocol.KcpMuxFrameCloseAck,
+                => {
+                    if (frame_payload.len < 4) return error.InvalidServiceFrame;
+                    stream = glib.std.mem.readInt(u32, frame_payload[0..4], .little);
+                    frame = frame_payload[4..];
+                    kcp_payload = frame_payload[4..];
+                },
+                else => {},
+            }
             self.service_data = .{ .kcp = .{
                 .service = service.value,
-                .stream = stream.value,
-                .frame_type = frame[0],
-                .frame = frame[1..],
-                .payload = frame[1..],
+                .stream = stream,
+                .frame_type = frame_type,
+                .frame = frame,
+                .payload = kcp_payload,
             } };
         },
         Protocol.ProtocolConnCtrl => {
@@ -315,6 +334,18 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 t.logErrorf("giznet/packet Inbound service parse failed: {}", .{err});
                 return false;
             };
+            tryParseKcpDataFrameCase(grt) catch |err| {
+                t.logErrorf("giznet/packet Inbound kcp data parse failed: {}", .{err});
+                return false;
+            };
+            tryParseKcpControlFrameCase(grt) catch |err| {
+                t.logErrorf("giznet/packet Inbound kcp control parse failed: {}", .{err});
+                return false;
+            };
+            tryRejectShortKcpConvCase(grt) catch |err| {
+                t.logErrorf("giznet/packet Inbound short kcp conv rejection failed: {}", .{err});
+                return false;
+            };
             tryPoolReuseCase(grt) catch |err| {
                 t.logErrorf("giznet/packet Inbound pool reuse failed: {}", .{err});
                 return false;
@@ -454,6 +485,96 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const direct = packet.service_data.?.direct;
             try grt.std.testing.expectEqual(@as(u8, 9), direct.protocol);
             try grt.std.testing.expectEqualStrings("ping", direct.payload);
+        }
+
+        fn tryParseKcpDataFrameCase(comptime any_lib: type) !void {
+            var pool = try initPool(any_lib, grt.std.testing.allocator, 64);
+            defer pool.deinit();
+
+            const packet = pool.get() orelse return error.TestExpectedPacket;
+            defer packet.deinit();
+
+            const service: u64 = 300;
+            const stream: u32 = 0x01020304;
+            var payload: [32]u8 = undefined;
+            payload[0] = Protocol.ProtocolKCP;
+            const service_len = try Uvarint.write(service, payload[1..]);
+            const frame_offset = 1 + service_len;
+            payload[frame_offset] = Protocol.KcpMuxFrameData;
+            glib.std.mem.writeInt(u32, payload[frame_offset + 1 ..][0..4], stream, .little);
+            @memcpy(payload[frame_offset + 5 ..][0..3], &[_]u8{ 0xaa, 0xbb, 0xcc });
+            const payload_len = frame_offset + 8;
+
+            const plaintext = packet.bufRef()[Message.TransportHeaderSize..];
+            @memcpy(plaintext[0..payload_len], payload[0..payload_len]);
+            packet.len = payload_len;
+            packet.kind = .transport;
+            packet.state = .ready_to_consume;
+
+            try grt.std.testing.expect((try packet.parseServiceData()) == packet);
+            const kcp = packet.service_data.?.kcp;
+            try grt.std.testing.expectEqual(service, kcp.service);
+            try grt.std.testing.expectEqual(@as(u64, stream), kcp.stream);
+            try grt.std.testing.expectEqual(Protocol.KcpMuxFrameData, kcp.frame_type);
+            try grt.std.testing.expectEqualSlices(u8, payload[frame_offset + 1 .. payload_len], kcp.frame);
+            try grt.std.testing.expectEqualSlices(u8, payload[frame_offset + 1 .. payload_len], kcp.payload);
+        }
+
+        fn tryParseKcpControlFrameCase(comptime any_lib: type) !void {
+            var pool = try initPool(any_lib, grt.std.testing.allocator, 64);
+            defer pool.deinit();
+
+            const packet = pool.get() orelse return error.TestExpectedPacket;
+            defer packet.deinit();
+
+            const stream: u32 = 0x01020304;
+            const payload = [_]u8{
+                Protocol.ProtocolKCP,
+                7,
+                Protocol.KcpMuxFrameClose,
+                0x04,
+                0x03,
+                0x02,
+                0x01,
+                0xee,
+            };
+            const plaintext = packet.bufRef()[Message.TransportHeaderSize..];
+            @memcpy(plaintext[0..payload.len], payload[0..]);
+            packet.len = payload.len;
+            packet.kind = .transport;
+            packet.state = .ready_to_consume;
+
+            try grt.std.testing.expect((try packet.parseServiceData()) == packet);
+            const kcp = packet.service_data.?.kcp;
+            try grt.std.testing.expectEqual(@as(u64, 7), kcp.service);
+            try grt.std.testing.expectEqual(@as(u64, stream), kcp.stream);
+            try grt.std.testing.expectEqual(Protocol.KcpMuxFrameClose, kcp.frame_type);
+            try grt.std.testing.expectEqualSlices(u8, &[_]u8{0xee}, kcp.frame);
+            try grt.std.testing.expectEqualSlices(u8, &[_]u8{0xee}, kcp.payload);
+        }
+
+        fn tryRejectShortKcpConvCase(comptime any_lib: type) !void {
+            var pool = try initPool(any_lib, grt.std.testing.allocator, 64);
+            defer pool.deinit();
+
+            const packet = pool.get() orelse return error.TestExpectedPacket;
+            defer packet.deinit();
+
+            const payload = [_]u8{
+                Protocol.ProtocolKCP,
+                7,
+                Protocol.KcpMuxFrameData,
+                0x04,
+                0x03,
+                0x02,
+            };
+            const plaintext = packet.bufRef()[Message.TransportHeaderSize..];
+            @memcpy(plaintext[0..payload.len], payload[0..]);
+            packet.len = payload.len;
+            packet.kind = .transport;
+            packet.state = .ready_to_consume;
+
+            try grt.std.testing.expectError(error.InvalidServiceFrame, packet.parseServiceData());
         }
 
         fn tryPoolReuseCase(comptime any_lib: type) !void {
