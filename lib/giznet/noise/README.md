@@ -116,8 +116,7 @@ Before handshake completion:
 - `beginSession()` requires a known local listener key
 - `consumeHandshake(init)` requires:
   - a known local listener key
-  - either `allow_unknown_peer = true`
-  - or a matching `peer_key_hint`
+  - an allowed initiator static key according to `peer_policy`
 - `consumeHandshake(response)` requires:
   - an existing pending initiator handshake keyed by initiator session index
 
@@ -179,8 +178,8 @@ design intends to authenticate?
 enough for their distinct purposes?
 - Do initiator and responder use the same index ordering when deriving and
 validating response tags?
-- Does `allow_unknown_peer` only relax the specific behavior it is intended
-to relax?
+- Does `peer_policy` reject disallowed initiator static keys before peer or
+  session state is committed?
 - Are wrong listener keys, wrong peer hints, wrong session indexes, wrong
 key phases, and malformed packets rejected before state is committed?
 - Can `beginSession`, `consumeHandshake`, `cancelPending`, `removeSession`,
@@ -208,7 +207,7 @@ The unit suite should keep covering at least these attack-style cases:
 - tampered or truncated handshake packet
 - wrong initiator / responder session index
 - unknown listener key
-- unknown peer when `allow_unknown_peer = false`
+- disallowed peer before peer/session state is committed
 - mismatched peer hint
 - duplicate transport replay
 - reordered transport packets inside the replay window

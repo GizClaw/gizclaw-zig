@@ -1,6 +1,7 @@
 const glib = @import("glib");
 const testing_api = glib.testing;
 
+const giznet = @import("../../../giznet.zig");
 const test_utils = @import("../test_utils/giz_net.zig");
 
 const transfer_bytes: usize = 10 * 1024 * 1024;
@@ -51,6 +52,14 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             };
             runStreamReadDeadlineConcurrentUpdates(grt, PairFixture, allocator) catch |err| {
                 t.logErrorf("integration/giznet/giz_net stream_read_deadline_concurrent_updates failed: {}", .{err});
+                return false;
+            };
+            runConnCloseWakesAccept(grt, PairFixture, allocator) catch |err| {
+                t.logErrorf("integration/giznet/giz_net conn_close_wakes_accept failed: {}", .{err});
+                return false;
+            };
+            runRemoteConnCloseLeavesOldAcceptSafe(grt, PairFixture, allocator) catch |err| {
+                t.logErrorf("integration/giznet/giz_net remote_conn_close_leaves_old_accept_safe failed: {}", .{err});
                 return false;
             };
             runStreamConcurrentWriteDeadlineReadyWrites(grt, PairFixture, allocator) catch |err| {
@@ -160,6 +169,74 @@ fn runStreamSmallBufferRead(
     }
 
     try grt.std.testing.expectEqualSlices(u8, payload, received[0..total]);
+}
+
+fn runConnCloseWakesAccept(
+    comptime grt: type,
+    comptime Fixture: type,
+    allocator: grt.std.mem.Allocator,
+) !void {
+    var fixture = try Fixture.init(allocator, .{});
+    defer fixture.deinit();
+
+    const pair = try fixture.connect(0, 1);
+    defer pair.deinit();
+
+    const AcceptTask = struct {
+        conn: giznet.Conn,
+        started: grt.std.atomic.Value(bool) = grt.std.atomic.Value(bool).init(false),
+        err: ?anyerror = null,
+
+        fn run(task: *@This()) void {
+            task.started.store(true, .release);
+            var stream = task.conn.accept(250 * glib.time.duration.MilliSecond) catch |err| {
+                task.err = err;
+                return;
+            };
+            stream.deinit();
+            task.err = error.TestUnexpectedResult;
+        }
+    };
+
+    var task = AcceptTask{ .conn = pair.b };
+    var thread = try grt.std.Thread.spawn(.{}, AcceptTask.run, .{&task});
+
+    while (!task.started.load(.acquire)) {
+        grt.std.Thread.sleep(@intCast(1 * glib.time.duration.MilliSecond));
+    }
+    try pair.b.close();
+    thread.join();
+
+    try grt.std.testing.expectEqual(@as(?anyerror, error.ConnClosed), task.err);
+}
+
+fn runRemoteConnCloseLeavesOldAcceptSafe(
+    comptime grt: type,
+    comptime Fixture: type,
+    allocator: grt.std.mem.Allocator,
+) !void {
+    var fixture = try Fixture.init(allocator, .{});
+    defer fixture.deinit();
+
+    const pair = try fixture.connect(0, 1);
+    defer pair.deinit();
+
+    try pair.a.close();
+    const deadline = glib.time.instant.add(grt.time.instant.now(), fixture.config.accept_timeout);
+    while (true) {
+        const result = pair.b.accept(10 * glib.time.duration.MilliSecond);
+        if (result) |stream| {
+            stream.deinit();
+            return error.TestUnexpectedResult;
+        } else |err| switch (err) {
+            error.ConnClosed => return,
+            error.Timeout => {
+                if (grt.time.instant.now() >= deadline) return error.TestUnexpectedResult;
+                continue;
+            },
+            else => return err,
+        }
+    }
 }
 
 fn runStreamLargeBufferReadDrainsReadyData(

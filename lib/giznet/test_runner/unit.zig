@@ -2,12 +2,14 @@ const glib = @import("glib");
 const testing_api = glib.testing;
 
 const NoiseHandshake = @import("../noise/Handshake.zig");
+const NoiseKeyPair = @import("../noise/KeyPair.zig");
 const NoiseSession = @import("../noise/Session.zig");
 const NoiseTimerState = @import("../noise/TimerState.zig");
 const NoisePeer = @import("../noise/Peer.zig");
 const NoisePeerTable = @import("../noise/PeerTable.zig");
 const NoiseEngine = @import("../noise/Engine.zig");
 const packet = @import("../packet.zig");
+const RuntimeEngine = @import("../runtime/Engine.zig");
 const ServiceEngine = @import("../service/Engine.zig");
 const ServiceKcpStream = @import("../service/KcpStream.zig");
 const ServiceKcpStreamTable = @import("../service/KcpStreamTable.zig");
@@ -26,6 +28,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             _ = self;
             _ = allocator;
 
+            t.run("noise/key_pair", NoiseKeyPair.TestRunner(grt));
             t.run("noise/handshake", NoiseHandshake.TestRunner(grt));
             t.run("noise/session", NoiseSession.TestRunner(grt));
             t.run("noise/timer_state", NoiseTimerState.TestRunner(grt));
@@ -34,6 +37,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             t.run("noise/engine", NoiseEngine.TestRunner(grt));
             t.run("packet/inbound", packet.Inbound.TestRunner(grt));
             t.run("packet/outbound", packet.Outbound.TestRunner(grt));
+            t.run("runtime/engine", RuntimeEngine.TestRunner(grt));
             t.run("service/engine", ServiceEngine.TestRunner(grt));
             t.run("service/kcp_stream", ServiceKcpStream.TestRunner(grt));
             t.run("service/kcp_stream_table", ServiceKcpStreamTable.TestRunner(grt));

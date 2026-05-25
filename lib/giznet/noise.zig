@@ -10,6 +10,7 @@ pub const KeyPair = @import("noise/KeyPair.zig");
 pub const Cipher = NoiseCipher;
 pub const Engine = NoiseEngine;
 pub const default_cipher_kind: Cipher.Kind = Cipher.default_kind;
+pub const min_packet_size_capacity: usize = SessionType.min_packet_size_capacity;
 
 pub fn make(
     comptime grt: type,

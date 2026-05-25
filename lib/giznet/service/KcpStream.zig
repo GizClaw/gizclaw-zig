@@ -39,6 +39,8 @@ pub fn make(comptime grt: type) type {
     };
     const ReadChannel = grt.sync.Channel(ReadEvent);
     const WritableChannel = grt.sync.Channel(WritableEvent);
+    const ReadChannelArc = grt.sync.Arc.make(grt.std, ReadChannel);
+    const WritableChannelArc = grt.sync.Arc.make(grt.std, WritableChannel);
 
     return struct {
         allocator: grt.std.mem.Allocator,
@@ -47,8 +49,8 @@ pub fn make(comptime grt: type) type {
         stream: u32,
         kcp: *kcp_ns.Kcp,
         pools: *packet.Pools,
-        read_ch: ReadChannel,
-        writable_ch: WritableChannel,
+        read_ch: ReadChannelArc.Arc,
+        writable_ch: WritableChannelArc.Arc,
         kcp_pending_segments: grt.std.atomic.Value(u32),
         reserved_segments: grt.std.atomic.Value(u32),
         max_pending_segments: u32,
@@ -76,8 +78,8 @@ pub fn make(comptime grt: type) type {
             remote_static: Key,
             service: u64,
             stream: u32,
-            read_ch: *ReadChannel,
-            writable_ch: *WritableChannel,
+            read_ch: ReadChannelArc.Arc,
+            writable_ch: WritableChannelArc.Arc,
             kcp_pending_segments: *grt.std.atomic.Value(u32),
             reserved_segments: *grt.std.atomic.Value(u32),
             max_pending_segments: u32,
@@ -89,9 +91,9 @@ pub fn make(comptime grt: type) type {
                 while (true) {
                     const deadline = self.read_deadline.load(.acquire);
                     const result = if (deadline != 0)
-                        try self.read_ch.recvTimeout(durationUntil(@intCast(deadline)))
+                        try self.read_ch.ptr().recvTimeout(durationUntil(@intCast(deadline)))
                     else
-                        try self.read_ch.recv();
+                        try self.read_ch.ptr().recv();
                     if (!result.ok) return .{ .value = undefined, .ok = false };
                     switch (result.value) {
                         .data => |pkt| return .{ .value = pkt, .ok = true },
@@ -102,7 +104,7 @@ pub fn make(comptime grt: type) type {
 
             pub fn recvTimeout(self: *Port, timeout: glib.time.duration.Duration) !RecvResult {
                 while (true) {
-                    const result = try self.read_ch.recvTimeout(timeout);
+                    const result = try self.read_ch.ptr().recvTimeout(timeout);
                     if (!result.ok) return .{ .value = undefined, .ok = false };
                     switch (result.value) {
                         .data => |pkt| return .{ .value = pkt, .ok = true },
@@ -117,7 +119,7 @@ pub fn make(comptime grt: type) type {
             }
 
             pub fn wakeRead(self: *Port) void {
-                _ = self.read_ch.sendTimeout(.read_interrupt, 0) catch {};
+                _ = self.read_ch.ptr().sendTimeout(.read_interrupt, 0) catch {};
             }
 
             pub fn waitWritable(self: *Port, requested_bytes: u32) !u32 {
@@ -131,7 +133,7 @@ pub fn make(comptime grt: type) type {
                         durationUntil(@intCast(deadline))
                     else
                         10 * glib.time.duration.MilliSecond;
-                    const result = self.writable_ch.recvTimeout(wait_duration) catch |err| switch (err) {
+                    const result = self.writable_ch.ptr().recvTimeout(wait_duration) catch |err| switch (err) {
                         error.Timeout => {
                             if (deadline != 0) return err;
                             continue;
@@ -170,7 +172,12 @@ pub fn make(comptime grt: type) type {
             }
 
             pub fn wakeWrite(self: *Port) void {
-                _ = self.writable_ch.sendTimeout(.write_interrupt, 0) catch {};
+                _ = self.writable_ch.ptr().sendTimeout(.write_interrupt, 0) catch {};
+            }
+
+            pub fn deinit(self: *Port) void {
+                self.writable_ch.deinit();
+                self.read_ch.deinit();
             }
         };
 
@@ -193,10 +200,10 @@ pub fn make(comptime grt: type) type {
             const max_pending_segments = if (config.max_pending_segments == 0) @as(u32, 1) else config.max_pending_segments;
             const resume_pending_segments = @min(config.resume_pending_segments, maxPendingSegmentsMinusOne(max_pending_segments));
 
-            var read_ch = try ReadChannel.make(allocator, config.channel_capacity);
+            const read_ch = try makeChannelRef(ReadChannel, ReadChannelArc, allocator, config.channel_capacity);
             errdefer read_ch.deinit();
 
-            var writable_ch = try WritableChannel.make(allocator, config.channel_capacity);
+            const writable_ch = try makeChannelRef(WritableChannel, WritableChannelArc, allocator, config.channel_capacity);
             errdefer writable_ch.deinit();
 
             return .{
@@ -230,8 +237,8 @@ pub fn make(comptime grt: type) type {
                 .remote_static = self.remote_static,
                 .service = self.service,
                 .stream = self.stream,
-                .read_ch = &self.read_ch,
-                .writable_ch = &self.writable_ch,
+                .read_ch = self.read_ch.clone(),
+                .writable_ch = self.writable_ch.clone(),
                 .kcp_pending_segments = &self.kcp_pending_segments,
                 .reserved_segments = &self.reserved_segments,
                 .max_pending_segments = self.max_pending_segments,
@@ -260,9 +267,9 @@ pub fn make(comptime grt: type) type {
                         },
                         else => return error.InvalidKcpPacket,
                     };
+                    try self.update(now);
                     _ = try kcp_ns.input(self.kcp, frame);
                     try self.drainKcpRecv();
-                    try self.update(now);
                     try self.flush(callback);
                     self.updateWriteBackpressure();
                     pkt.deinit();
@@ -293,13 +300,13 @@ pub fn make(comptime grt: type) type {
         }
 
         fn close(self: *Self) void {
-            self.read_ch.close();
-            self.writable_ch.close();
+            self.read_ch.ptr().close();
+            self.writable_ch.ptr().close();
         }
 
         fn drainPackets(self: *Self) void {
             while (true) {
-                const result = self.read_ch.recvTimeout(0) catch break;
+                const result = self.read_ch.ptr().recvTimeout(0) catch break;
                 if (!result.ok) break;
                 switch (result.value) {
                     .data => |pkt| pkt.deinit(),
@@ -340,7 +347,7 @@ pub fn make(comptime grt: type) type {
                 pkt.kind = .transport;
                 pkt.state = .service_delivered;
 
-                const send_result = try self.read_ch.sendTimeout(.{ .data = pkt }, 0);
+                const send_result = try self.read_ch.ptr().sendTimeout(.{ .data = pkt }, 0);
                 if (!send_result.ok) return error.KcpStreamChannelFull;
             }
         }
@@ -350,8 +357,21 @@ pub fn make(comptime grt: type) type {
             self.kcp_pending_segments.store(pending, .release);
             const effective_pending = pending +| self.reserved_segments.load(.acquire);
             if (effective_pending <= self.resume_pending_segments) {
-                _ = self.writable_ch.sendTimeout(.writable, 0) catch {};
+                _ = self.writable_ch.ptr().sendTimeout(.writable, 0) catch {};
             }
+        }
+
+        fn makeChannelRef(
+            comptime Channel: type,
+            comptime ChannelArc: type,
+            allocator: grt.std.mem.Allocator,
+            capacity: usize,
+        ) !ChannelArc.Arc {
+            const channel = try allocator.create(Channel);
+            errdefer allocator.destroy(channel);
+            channel.* = try Channel.make(allocator, capacity);
+            errdefer channel.deinit();
+            return try ChannelArc.adopt(allocator, channel);
         }
 
         fn releaseReservedBytes(self: *Self, bytes: usize) void {
@@ -558,6 +578,19 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             return pkt;
         }
 
+        fn makeKcpAckFrame(buf: *[kcp_ns.OVERHEAD]u8, ts: u32) []const u8 {
+            var offset: usize = 0;
+            offset = kcp_ns.codec.encode32u(buf, offset, stream_id);
+            offset = kcp_ns.codec.encode8u(buf, offset, @intCast(kcp_ns.CMD_ACK));
+            offset = kcp_ns.codec.encode8u(buf, offset, 0);
+            offset = kcp_ns.codec.encode16u(buf, offset, @intCast(kcp_ns.WND_RCV));
+            offset = kcp_ns.codec.encode32u(buf, offset, ts);
+            offset = kcp_ns.codec.encode32u(buf, offset, 0);
+            offset = kcp_ns.codec.encode32u(buf, offset, 0);
+            offset = kcp_ns.codec.encode32u(buf, offset, 0);
+            return buf[0..offset];
+        }
+
         fn deliverFrames(
             pools: *packet.Pools,
             target: *Stream,
@@ -690,6 +723,25 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try Helpers.expectRecv(server.port(), "second");
         }
 
+        fn inboundAckUpdatesKcpTimeBeforeInput(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
+            var pools = try Helpers.initPools(allocator);
+            defer Helpers.deinitPools(&pools);
+
+            var stream = try Stream.init(allocator, remote_key, service_id, stream_id, &pools, test_config);
+            defer stream.deinit();
+
+            const now_ms: u32 = @truncate(@divTrunc(grt.time.instant.now(), glib.time.duration.MilliSecond));
+            stream.kcp.current = now_ms +% 0x60000000;
+
+            var frame_buf: [kcp_ns.OVERHEAD]u8 = undefined;
+            const frame = Helpers.makeKcpAckFrame(&frame_buf, now_ms);
+            const inbound = try Helpers.makeKcpInbound(&pools, frame);
+
+            var sink = FrameSink{};
+            try stream.drive(.{ .inbound = inbound }, sink.callback());
+            try grt.std.testing.expect(stream.kcp.rx_srtt < 1000);
+        }
+
         fn roundtripBetweenTwoStreams(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
             var pools = try Helpers.initPools(allocator);
             defer Helpers.deinitPools(&pools);
@@ -811,6 +863,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             t.run("inbound_service_mismatch_keeps_ownership", testing_api.TestRunner.fromFn(grt.std, 32 * 1024, Cases.inboundServiceMismatchKeepsOwnership));
             t.run("frame_to_inbound_payload", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.frameToInboundPayload));
             t.run("inbound_flushes_ack_without_waiting_for_tick", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.inboundFlushesAckWithoutWaitingForTick));
+            t.run("inbound_ack_updates_kcp_time_before_input", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.inboundAckUpdatesKcpTimeBeforeInput));
             t.run("roundtrip_between_two_streams", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.roundtripBetweenTwoStreams));
             t.run("bidirectional_roundtrip", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.bidirectionalRoundtrip));
             t.run("write_backpressure_resumes_after_ack", testing_api.TestRunner.fromFn(grt.std, 64 * 1024, Cases.writeBackpressureResumesAfterAck));

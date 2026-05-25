@@ -14,6 +14,7 @@ vtable: *const VTable,
 pub const VTable = struct {
     dial: *const fn (ptr: *anyopaque, options: DialOptions) anyerror!void,
     accept: *const fn (ptr: *anyopaque) anyerror!Conn,
+    acceptTimeout: *const fn (ptr: *anyopaque, timeout: glib.time.duration.Duration) anyerror!Conn,
     close: *const fn (ptr: *anyopaque) anyerror!void,
     join: *const fn (ptr: *anyopaque) void,
     deinit: *const fn (ptr: *anyopaque) void,
@@ -26,6 +27,10 @@ pub fn dial(self: GizNet, options: DialOptions) anyerror!void {
 
 pub fn accept(self: GizNet) !Conn {
     return self.vtable.accept(self.ptr);
+}
+
+pub fn acceptTimeout(self: GizNet, timeout: glib.time.duration.Duration) !Conn {
+    return self.vtable.acceptTimeout(self.ptr, timeout);
 }
 
 pub fn close(self: GizNet) !void {
@@ -166,6 +171,11 @@ fn init(ptr: anytype) GizNet {
             return self.accept();
         }
 
+        fn acceptTimeoutFn(raw_ptr: *anyopaque, timeout: glib.time.duration.Duration) anyerror!Conn {
+            const self: *Impl = @ptrCast(@alignCast(raw_ptr));
+            return self.acceptTimeout(timeout);
+        }
+
         fn closeFn(raw_ptr: *anyopaque) anyerror!void {
             const self: *Impl = @ptrCast(@alignCast(raw_ptr));
             try self.close();
@@ -189,6 +199,7 @@ fn init(ptr: anytype) GizNet {
         const vtable = VTable{
             .dial = dialFn,
             .accept = acceptFn,
+            .acceptTimeout = acceptTimeoutFn,
             .close = closeFn,
             .join = joinFn,
             .deinit = deinitFn,

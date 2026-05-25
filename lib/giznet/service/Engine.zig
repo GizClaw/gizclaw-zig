@@ -31,10 +31,10 @@ pub const DriveInput = union(enum) {
 
 pub fn make(comptime grt: type) type {
     const PeerTable = PeerTableType.make(grt);
-    const PacketChannel = PeerTable.PeerType.PacketChannel;
+    const PacketChannelRef = PeerTable.PeerType.PacketChannelRef;
     const KcpStreamTable = KcpStreamTableType.make(grt);
     const KcpStream = KcpStreamTable.Stream;
-    const StreamAcceptChannel = grt.sync.Channel(KcpStream.Port);
+    const StreamAcceptChannelRef = PeerTable.PeerType.StreamAcceptChannelRef;
 
     return struct {
         allocator: grt.std.mem.Allocator,
@@ -46,27 +46,40 @@ pub fn make(comptime grt: type) type {
         pub const StreamPort = KcpStream.Port;
         pub const PeerPort = struct {
             remote_static: Key,
-            packet_ch: *PacketChannel,
-            stream_accept_ch: *StreamAcceptChannel,
+            packet_ch: PacketChannelRef,
+            stream_accept_ch: StreamAcceptChannelRef,
 
-            pub fn recvPacket(self: PeerPort) @TypeOf(self.packet_ch.recv()) {
-                return self.packet_ch.recv();
+            pub fn recvPacket(self: PeerPort) @TypeOf(self.packet_ch.ptr().recv()) {
+                return self.packet_ch.ptr().recv();
             }
 
-            pub fn recvPacketTimeout(self: PeerPort, timeout: glib.time.duration.Duration) @TypeOf(self.packet_ch.recvTimeout(timeout)) {
-                return self.packet_ch.recvTimeout(timeout);
+            pub fn recvPacketTimeout(self: PeerPort, timeout: glib.time.duration.Duration) @TypeOf(self.packet_ch.ptr().recvTimeout(timeout)) {
+                return self.packet_ch.ptr().recvTimeout(timeout);
             }
 
-            pub fn acceptStream(self: PeerPort, timeout: ?glib.time.duration.Duration) @TypeOf(self.stream_accept_ch.recv()) {
+            pub fn acceptStream(self: PeerPort, timeout: ?glib.time.duration.Duration) @TypeOf(self.stream_accept_ch.ptr().recv()) {
                 if (timeout) |duration| {
-                    return self.stream_accept_ch.recvTimeout(duration);
+                    return self.stream_accept_ch.ptr().recvTimeout(duration);
                 }
-                return self.stream_accept_ch.recv();
+                return self.stream_accept_ch.ptr().recv();
             }
 
             pub fn close(self: PeerPort) void {
-                self.packet_ch.close();
-                self.stream_accept_ch.close();
+                self.packet_ch.ptr().close();
+                self.stream_accept_ch.ptr().close();
+            }
+
+            pub fn clone(self: PeerPort) PeerPort {
+                return .{
+                    .remote_static = self.remote_static,
+                    .packet_ch = self.packet_ch.clone(),
+                    .stream_accept_ch = self.stream_accept_ch.clone(),
+                };
+            }
+
+            pub fn deinit(self: *PeerPort) void {
+                self.stream_accept_ch.deinit();
+                self.packet_ch.deinit();
             }
         };
         pub const DriveOutput = union(enum) {
@@ -256,8 +269,8 @@ pub fn make(comptime grt: type) type {
             _ = self;
             return .{
                 .remote_static = peer.remote_static,
-                .packet_ch = &peer.packet_ch,
-                .stream_accept_ch = &peer.stream_accept_ch,
+                .packet_ch = peer.packet_ch.clone(),
+                .stream_accept_ch = peer.stream_accept_ch.clone(),
             };
         }
 
@@ -347,6 +360,10 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                 t.logErrorf("giznet/service Engine close inbound ownership failed: {}", .{err});
                 return false;
             };
+            tryRemovedPeerPortDoesNotUseFreedChannel(grt) catch |err| {
+                t.logErrorf("giznet/service Engine removed peer port channel lifetime failed: {}", .{err});
+                return false;
+            };
             tryOpenStreamReturnsPort(grt) catch |err| {
                 t.logErrorf("giznet/service Engine open stream port failed: {}", .{err});
                 return false;
@@ -383,6 +400,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const pkt = try makeInboundPacket(pools.inbound, remote_key, &[_]u8{0x31} ++ "hello");
 
             var callback_state: CallbackState(ServiceEngine) = .{};
+            defer callback_state.deinit();
             try engine.drive(.{ .inbound = pkt }, callback_state.callback());
 
             const peer_port = callback_state.peer_port orelse return error.MissingPeerPort;
@@ -405,6 +423,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             defer pkt.deinit();
 
             var callback_state: CallbackState(ServiceEngine) = .{ .fail_peer_port = true };
+            defer callback_state.deinit();
             try grt.std.testing.expectError(
                 error.InjectPeerPortFailure,
                 engine.drive(.{ .inbound = pkt }, callback_state.callback()),
@@ -427,6 +446,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             defer second.deinit();
 
             var callback_state: CallbackState(ServiceEngine) = .{};
+            defer callback_state.deinit();
             try engine.drive(.{ .inbound = first }, callback_state.callback());
             try grt.std.testing.expectError(
                 error.Timeout,
@@ -456,6 +476,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             defer pkt.deinit();
 
             var callback_state: CallbackState(ServiceEngine) = .{};
+            defer callback_state.deinit();
             engine.drive(.{ .inbound = pkt }, callback_state.callback()) catch return;
             return error.ExpectedKcpInboundFailure;
         }
@@ -483,6 +504,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             defer pkt.deinit();
 
             var callback_state: CallbackState(ServiceEngine) = .{};
+            defer callback_state.deinit();
             try grt.std.testing.expectError(
                 error.InvalidKcpPacket,
                 engine.drive(.{ .inbound = pkt }, callback_state.callback()),
@@ -502,7 +524,34 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const remote_key = Key{ .bytes = [_]u8{0x25} ** 32 };
             const pkt = try makeInboundPacket(pools.inbound, remote_key, &[_]u8{protocol_ns.ProtocolConnCtrl});
             var callback_state: CallbackState(ServiceEngine) = .{};
+            defer callback_state.deinit();
             try engine.drive(.{ .inbound = pkt }, callback_state.callback());
+        }
+
+        fn tryRemovedPeerPortDoesNotUseFreedChannel(comptime any_lib: type) !void {
+            const ServiceEngine = make(any_lib);
+            var pools = try initPacketPools(any_lib, grt.std.testing.allocator, 128);
+            defer deinitPacketPools(&pools);
+
+            var engine = ServiceEngine.init(grt.std.testing.allocator, .{}, &pools);
+            defer engine.deinit();
+
+            const remote_key = Key{ .bytes = [_]u8{0x28} ** 32 };
+            var callback_state: CallbackState(ServiceEngine) = .{};
+            defer callback_state.deinit();
+            try engine.drive(.{ .peer_established = remote_key }, callback_state.callback());
+            var peer_port = (callback_state.peer_port orelse return error.MissingPeerPort).clone();
+            defer peer_port.deinit();
+
+            try engine.drive(.{ .close_conn = remote_key }, callback_state.callback());
+
+            const replacement_key = Key{ .bytes = [_]u8{0x29} ** 32 };
+            try engine.drive(.{ .peer_established = replacement_key }, callback_state.callback());
+
+            const result = try peer_port.acceptStream(0);
+            if (result.ok) {
+                return error.TestUnexpectedResult;
+            }
         }
 
         fn tryOpenStreamReturnsPort(comptime any_lib: type) !void {
@@ -515,6 +564,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             const remote_key = Key{ .bytes = [_]u8{0x26} ** 32 };
             var callback_state: CallbackState(ServiceEngine) = .{ .allow_outbound = true };
+            defer callback_state.deinit();
             try engine.drive(.{ .peer_established = remote_key }, callback_state.callback());
 
             const pkt = try makeOpenStreamPacket(pools.outbound, remote_key, 9);
@@ -537,6 +587,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             const remote_key = Key{ .bytes = [_]u8{0x28} ** 32 };
             var callback_state: CallbackState(ServiceEngine) = .{ .allow_outbound = true };
+            defer callback_state.deinit();
             const pkt = try makeOpenStreamPacket(pools.outbound, remote_key, 9);
             try engine.drive(.{ .outbound = pkt }, callback_state.callback());
 
@@ -563,6 +614,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const remote_key = Key{ .bytes = [_]u8{0x2a} ** 32 };
             const stream: u64 = 0x01020304;
             var callback_state: CallbackState(ServiceEngine) = .{ .allow_outbound = true };
+            defer callback_state.deinit();
             const pkt = try makeWriteStreamPacket(pools.outbound, remote_key, 9, stream, "hello");
             try engine.drive(.{ .outbound = pkt }, callback_state.callback());
 
@@ -587,6 +639,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             const remote_key = Key{ .bytes = [_]u8{0x29} ** 32 };
             var callback_state: CallbackState(ServiceEngine) = .{ .allow_outbound = true };
+            defer callback_state.deinit();
             const pkt = try makeCloseStreamPacket(pools.outbound, remote_key, 9, 3);
             try engine.drive(.{ .outbound = pkt }, callback_state.callback());
 
@@ -617,14 +670,29 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                     return .{ .ctx = self, .call = call };
                 }
 
+                fn deinit(self: *@This()) void {
+                    if (self.peer_port) |*peer_port| {
+                        peer_port.deinit();
+                        self.peer_port = null;
+                    }
+                    if (self.opened_stream) |*port| {
+                        port.deinit();
+                        self.opened_stream = null;
+                    }
+                }
+
                 fn call(ctx: *anyopaque, output: ServiceEngine.DriveOutput) anyerror!void {
                     const self: *@This() = @ptrCast(@alignCast(ctx));
                     switch (output) {
                         .peer_port => |peer_port| {
                             if (self.fail_peer_port) return error.InjectPeerPortFailure;
+                            if (self.peer_port) |*previous| previous.deinit();
                             self.peer_port = peer_port;
                         },
-                        .opened_stream => |port| self.opened_stream = port,
+                        .opened_stream => |port| {
+                            if (self.opened_stream) |*previous| previous.deinit();
+                            self.opened_stream = port;
+                        },
                         .outbound => |pkt| {
                             const plaintext = pkt.transportPlaintextBufRef()[0..pkt.len];
                             if (plaintext.len > self.outbound_buf.len) return error.OutboundCaptureTooSmall;

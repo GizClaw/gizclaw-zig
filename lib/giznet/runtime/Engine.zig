@@ -13,6 +13,7 @@ const NoiseKey = @import("../noise/Key.zig");
 const NoiseKeyPair = @import("../noise/KeyPair.zig");
 const packet = @import("../packet.zig");
 const ServiceEngineType = @import("../service/Engine.zig");
+const service_protocol = @import("../service/protocol.zig");
 const StatsType = @import("Stats.zig");
 
 const Engine = @This();
@@ -73,6 +74,7 @@ pub fn make(
     const NoiseEngine = NoiseEngineType.make(grt, packet_size_capacity, cipher_kind);
     const ServiceEngine = ServiceEngineType.make(grt);
     const Stats = StatsType.make(grt);
+    const log = grt.std.log.scoped(.giznet_runtime);
     const OpenStreamResult = union(enum) {
         ok: ServiceEngine.StreamPort,
         err: anyerror,
@@ -147,7 +149,9 @@ pub fn make(
             });
             errdefer noise.deinit();
 
-            var service = ServiceEngine.init(allocator, config.service, packet_pools);
+            var service_config = config.service;
+            service_config.local_static = config.local_static.public;
+            var service = ServiceEngine.init(allocator, service_config, packet_pools);
             errdefer service.deinit();
 
             return .{
@@ -171,9 +175,9 @@ pub fn make(
                 self.timer = null;
             }
             self.drainInput();
+            self.drainAcceptedConns();
             self.service.deinit();
             self.noise.deinit();
-            self.drainAcceptedConns();
             self.accept.deinit();
             self.input.deinit();
             self.packet_pools.outbound.deinit();
@@ -265,7 +269,7 @@ pub fn make(
                 if (!result.ok) break;
                 self.drive(result.value) catch |err| {
                     self.on_error.handle(err);
-                    return;
+                    continue;
                 };
             }
         }
@@ -347,6 +351,7 @@ pub fn make(
                 .write_stream => {},
                 .close_stream => {},
                 .close_conn => |remote_static| {
+                    try self.sendConnClose(remote_static);
                     var service_callback = ServiceCallback{ .runtime = self };
                     try self.service.drive(.{ .close_conn = remote_static }, service_callback.callback());
                     return;
@@ -398,11 +403,12 @@ pub fn make(
         }
 
         fn handleOpenStream(self: *Self, request: OpenStreamRequest) !void {
-            const port = self.openStreamPort(request.remote_static, request.service) catch |err| {
+            var port = self.openStreamPort(request.remote_static, request.service) catch |err| {
                 const send_result = try request.reply.send(.{ .err = err });
                 if (!send_result.ok) return error.RuntimeOpenStreamReplyClosed;
                 return;
             };
+            errdefer port.deinit();
             const send_result = try request.reply.send(.{ .ok = port });
             if (!send_result.ok) return error.RuntimeOpenStreamReplyClosed;
         }
@@ -418,8 +424,25 @@ pub fn make(
             } };
 
             var callback = OpenStreamCallback{ .runtime = self };
+            errdefer callback.deinit();
             try self.service.drive(.{ .outbound = pkt }, callback.callback());
-            return callback.opened_stream orelse error.MissingOpenedStream;
+            const port = callback.opened_stream orelse return error.MissingOpenedStream;
+            callback.opened_stream = null;
+            return port;
+        }
+
+        fn sendConnClose(self: *Self, remote_static: NoiseKey) !void {
+            const pkt = self.packet_pools.outbound.get() orelse return error.OutOfMemory;
+            errdefer pkt.deinit();
+
+            const plaintext = pkt.transportPlaintextBufRef();
+            if (plaintext.len < 1) return error.BufferTooSmall;
+            plaintext[0] = service_protocol.ProtocolConnCtrl;
+            pkt.remote_static = remote_static;
+            pkt.len = 1;
+
+            var noise_callback = NoiseCallback{ .runtime = self };
+            try self.noise.drive(.{ .send_data = pkt }, noise_callback.callback());
         }
 
         fn updateTickDeadline(self: *Self, deadline: glib.time.instant.Time) void {
@@ -480,8 +503,32 @@ pub fn make(
                             try packet.Outbound.encrypt(grt, packet_size_capacity, cipher_kind, pkt);
                         }
                         const bytes = pkt.bytes();
-                        const written = try self.runtime.conn.writeTo(bytes, pkt.remote_endpoint);
+                        const written = self.runtime.conn.writeTo(bytes, pkt.remote_endpoint) catch |err| switch (err) {
+                            error.NetworkUnreachable,
+                            error.AccessDenied,
+                            error.TimedOut,
+                            error.MessageTooLong,
+                            => {
+                                if (pkt.kind == .handshake) {
+                                    log.warn("udp write drop kind={s} err={s} len={d}", .{
+                                        @tagName(pkt.kind),
+                                        @errorName(err),
+                                        bytes.len,
+                                    });
+                                }
+                                pkt.deinit();
+                                _ = self.runtime.stats.dropped_packets.fetchAdd(1, .monotonic);
+                                return;
+                            },
+                            else => return err,
+                        };
                         if (written != bytes.len) return error.ShortUdpWrite;
+                        if (pkt.kind == .handshake) {
+                            log.info("udp write ok kind={s} len={d}", .{
+                                @tagName(pkt.kind),
+                                bytes.len,
+                            });
+                        }
                         pkt.deinit();
                         _ = self.runtime.stats.udp_tx_packets.fetchAdd(1, .monotonic);
                     },
@@ -494,7 +541,14 @@ pub fn make(
                             },
                             .ready_to_consume, .consumed => {
                                 var service_callback = ServiceCallback{ .runtime = self.runtime };
-                                return self.runtime.service.drive(.{ .inbound = pkt }, service_callback.callback());
+                                self.runtime.service.drive(.{ .inbound = pkt }, service_callback.callback()) catch |err| switch (err) {
+                                    error.Timeout, error.PacketChannelFull => {
+                                        pkt.deinit();
+                                        _ = self.runtime.stats.dropped_packets.fetchAdd(1, .monotonic);
+                                        return;
+                                    },
+                                    else => return err,
+                                };
                             },
                             .initial,
                             .service_delivered,
@@ -524,11 +578,15 @@ pub fn make(
                 const self: *@This() = @ptrCast(@alignCast(ctx));
                 switch (output) {
                     .peer_port => |peer_port| {
-                        const conn_impl = try self.runtime.allocator.create(ConnImpl);
+                        var owned_peer_port = peer_port;
+                        const conn_impl = self.runtime.allocator.create(ConnImpl) catch |err| {
+                            owned_peer_port.deinit();
+                            return err;
+                        };
                         errdefer conn_impl.deinit();
                         conn_impl.* = .{
                             .runtime = self.runtime,
-                            .peer_port = peer_port,
+                            .peer_port = owned_peer_port,
                         };
                         const send_result = try self.runtime.accept.send(Conn.init(conn_impl));
                         if (!send_result.ok) {
@@ -555,16 +613,30 @@ pub fn make(
                 return .{ .ctx = self, .call = call };
             }
 
+            fn deinit(self: *@This()) void {
+                if (self.opened_stream) |*port| {
+                    port.deinit();
+                    self.opened_stream = null;
+                }
+            }
+
             fn call(ctx: *anyopaque, output: ServiceEngine.DriveOutput) !void {
                 const self: *@This() = @ptrCast(@alignCast(ctx));
                 switch (output) {
-                    .opened_stream => |port| self.opened_stream = port,
+                    .opened_stream => |port| {
+                        if (self.opened_stream) |*previous| previous.deinit();
+                        self.opened_stream = port;
+                    },
                     .peer_port => |peer_port| {
-                        const conn_impl = try self.runtime.allocator.create(ConnImpl);
+                        var owned_peer_port = peer_port;
+                        const conn_impl = self.runtime.allocator.create(ConnImpl) catch |err| {
+                            owned_peer_port.deinit();
+                            return err;
+                        };
                         errdefer conn_impl.deinit();
                         conn_impl.* = .{
                             .runtime = self.runtime,
-                            .peer_port = peer_port,
+                            .peer_port = owned_peer_port,
                         };
                         const send_result = try self.runtime.accept.send(Conn.init(conn_impl));
                         if (!send_result.ok) return error.RuntimeAcceptChannelClosed;
@@ -646,11 +718,15 @@ pub fn make(
             }
 
             fn wrapStream(self: *@This(), port: ServiceEngine.StreamPort) !Stream {
-                const stream_impl = try self.runtime.allocator.create(StreamImpl);
+                var owned_port = port;
+                const stream_impl = self.runtime.allocator.create(StreamImpl) catch |err| {
+                    owned_port.deinit();
+                    return err;
+                };
                 errdefer self.runtime.allocator.destroy(stream_impl);
                 stream_impl.* = .{
                     .runtime = self.runtime,
-                    .port = port,
+                    .port = owned_port,
                 };
                 return Stream.init(stream_impl, port.service, port.stream);
             }
@@ -659,13 +735,18 @@ pub fn make(
                 if (!self.closed) {
                     self.closed = true;
                     _ = self.runtime.stats.active_peers.fetchSub(1, .monotonic);
-                    const send_result = try self.runtime.input.send(.{ .close_conn = self.peer_port.remote_static });
+                    self.peer_port.close();
+                    const send_result = self.runtime.input.sendTimeout(.{ .close_conn = self.peer_port.remote_static }, 0) catch |err| switch (err) {
+                        error.Timeout => return,
+                        else => return err,
+                    };
                     if (!send_result.ok) return error.RuntimeChannelClosed;
                 }
             }
 
             pub fn deinit(self: *@This()) void {
                 self.close() catch {};
+                self.peer_port.deinit();
                 self.runtime.allocator.destroy(self);
             }
 
@@ -721,6 +802,7 @@ pub fn make(
                 while (total < buf.len and self.pending_inbound == null) {
                     const result = self.port.recvTimeout(0) catch |err| switch (err) {
                         error.Timeout => break,
+                        else => return err,
                     };
                     if (!result.ok) break;
                     self.pending_inbound = result.value;
@@ -760,11 +842,18 @@ pub fn make(
 
             pub fn close(self: *@This()) !void {
                 if (self.closed.swap(true, .acq_rel)) return;
-                const send_result = try self.runtime.input.send(.{ .close_stream = .{
+                const send_result = self.runtime.input.sendTimeout(.{ .close_stream = .{
                     .remote_static = self.port.remote_static,
                     .service = self.port.service,
                     .stream = self.port.stream,
-                } });
+                } }, 0) catch |err| switch (err) {
+                    error.Timeout => {
+                        self.port.wakeRead();
+                        self.port.wakeWrite();
+                        return;
+                    },
+                    else => return err,
+                };
                 if (!send_result.ok) return error.RuntimeChannelClosed;
                 self.port.wakeRead();
                 self.port.wakeWrite();
@@ -810,6 +899,7 @@ pub fn make(
             pub fn deinit(self: *@This()) void {
                 self.close() catch {};
                 self.freePendingInbound();
+                self.port.deinit();
                 self.runtime.allocator.destroy(self);
             }
 
@@ -846,4 +936,55 @@ pub fn make(
             }
         };
     };
+}
+
+pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
+    return glib.testing.TestRunner.fromFn(grt.std, 1024 * 1024, struct {
+        fn run(_: *glib.testing.T, allocator: grt.std.mem.Allocator) !void {
+            try outboundWriteFailureReturnsPacketToPool(grt, allocator);
+        }
+
+        fn outboundWriteFailureReturnsPacketToPool(
+            comptime any_grt: type,
+            allocator: any_grt.std.mem.Allocator,
+        ) !void {
+            const Runtime = make(any_grt, 1053, .chacha_poly);
+            const PacketConn = any_grt.net.PacketConn;
+            const AddrPort = glib.net.netip.AddrPort;
+
+            const FailingPacketConn = struct {
+                write_calls: usize = 0,
+
+                pub fn readFrom(_: *@This(), _: []u8) PacketConn.ReadFromError!PacketConn.ReadFromResult {
+                    return error.Closed;
+                }
+
+                pub fn writeTo(self: *@This(), _: []const u8, _: AddrPort) PacketConn.WriteToError!usize {
+                    self.write_calls += 1;
+                    return error.NetworkUnreachable;
+                }
+
+                pub fn close(_: *@This()) void {}
+
+                pub fn deinit(_: *@This()) void {}
+
+                pub fn setReadDeadline(_: *@This(), _: ?glib.time.instant.Time) void {}
+
+                pub fn setWriteDeadline(_: *@This(), _: ?glib.time.instant.Time) void {}
+            };
+
+            var failing_conn = FailingPacketConn{};
+            var runtime = try Runtime.init(allocator, PacketConn.init(&failing_conn), .{
+                .local_static = @import("../noise/KeyPair.zig").seed(any_grt, 11),
+            });
+            defer runtime.deinit();
+
+            const remote_pair = @import("../noise/KeyPair.zig").seed(any_grt, 12);
+            try runtime.drive(.{ .initiate_handshake = .{
+                .remote_key = remote_pair.public,
+                .remote_endpoint = AddrPort.from4(.{ 127, 0, 0, 1 }, 9820),
+            } });
+            try any_grt.std.testing.expectEqual(@as(usize, 1), failing_conn.write_calls);
+        }
+    }.run);
 }

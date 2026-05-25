@@ -9,7 +9,7 @@ pub fn make(comptime grt: type) type {
     return struct {
         allocator: grt.std.mem.Allocator,
         peer_config: PeerRoot.Config,
-        items: []Peer = &.{},
+        items: []*Peer = &.{},
         len: usize = 0,
 
         const Self = @This();
@@ -27,8 +27,9 @@ pub fn make(comptime grt: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            for (self.items[0..self.len]) |*peer| {
+            for (self.items[0..self.len]) |peer| {
                 peer.deinit();
+                self.allocator.destroy(peer);
             }
             if (self.items.len != 0) self.allocator.free(self.items);
             self.items = &.{};
@@ -36,7 +37,7 @@ pub fn make(comptime grt: type) type {
         }
 
         pub fn get(self: *Self, remote_static: Key) ?*Peer {
-            for (self.items[0..self.len]) |*peer| {
+            for (self.items[0..self.len]) |peer| {
                 if (peer.remote_static.eql(remote_static)) return peer;
             }
             return null;
@@ -53,10 +54,15 @@ pub fn make(comptime grt: type) type {
             };
 
             try self.ensureCapacity(self.len + 1);
-            self.items[self.len] = try Peer.init(self.allocator, remote_static, self.peer_config);
+            const peer = try self.allocator.create(Peer);
+            errdefer self.allocator.destroy(peer);
+            peer.* = try Peer.init(self.allocator, remote_static, self.peer_config);
+            errdefer peer.deinit();
+
+            self.items[self.len] = peer;
             self.len += 1;
             return .{
-                .peer = &self.items[self.len - 1],
+                .peer = peer,
                 .created = true,
             };
         }
@@ -67,6 +73,7 @@ pub fn make(comptime grt: type) type {
                 if (!self.items[index].remote_static.eql(remote_static)) continue;
 
                 self.items[index].deinit();
+                self.allocator.destroy(self.items[index]);
                 const last = self.len - 1;
                 if (index != last) self.items[index] = self.items[last];
                 self.len -= 1;
@@ -81,7 +88,7 @@ pub fn make(comptime grt: type) type {
             var next = if (self.items.len == 0) @as(usize, 4) else self.items.len * 2;
             while (next < needed) next *= 2;
             self.items = if (self.items.len == 0)
-                try self.allocator.alloc(Peer, next)
+                try self.allocator.alloc(*Peer, next)
             else
                 try self.allocator.realloc(self.items, next);
         }

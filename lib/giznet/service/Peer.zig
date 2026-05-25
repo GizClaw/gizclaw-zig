@@ -14,28 +14,38 @@ pub fn make(comptime grt: type) type {
     const KcpStream = KcpStreamType.make(grt);
     const PacketChannelType = grt.sync.Channel(*packet.Inbound);
     const StreamAcceptChannelType = grt.sync.Channel(KcpStream.Port);
+    const PacketChannelArc = grt.sync.Arc.make(grt.std, PacketChannelType);
+    const StreamAcceptChannelArc = grt.sync.Arc.make(grt.std, StreamAcceptChannelType);
 
     return struct {
         remote_static: Key,
-        packet_ch: PacketChannel,
-        stream_accept_ch: StreamAcceptChannelType,
+        packet_ch: PacketChannelArc.Arc,
+        stream_accept_ch: StreamAcceptChannelArc.Arc,
         closed: bool = false,
 
         const Self = @This();
         pub const PacketChannel = PacketChannelType;
+        pub const PacketChannelRef = PacketChannelArc.Arc;
+        pub const StreamAcceptChannel = StreamAcceptChannelType;
+        pub const StreamAcceptChannelRef = StreamAcceptChannelArc.Arc;
 
         pub fn init(
             allocator: grt.std.mem.Allocator,
             remote_static: Key,
             config: Config,
         ) !Self {
-            var packet_ch = try PacketChannel.make(allocator, config.packet_channel_capacity);
+            const packet_ch = try makeChannelRef(PacketChannel, PacketChannelArc, allocator, config.packet_channel_capacity);
             errdefer packet_ch.deinit();
 
             return .{
                 .remote_static = remote_static,
                 .packet_ch = packet_ch,
-                .stream_accept_ch = try StreamAcceptChannelType.make(allocator, config.stream_accept_channel_capacity),
+                .stream_accept_ch = try makeChannelRef(
+                    StreamAcceptChannelType,
+                    StreamAcceptChannelArc,
+                    allocator,
+                    config.stream_accept_channel_capacity,
+                ),
             };
         }
 
@@ -52,7 +62,7 @@ pub fn make(comptime grt: type) type {
 
             const previous_state = inbound.state;
             inbound.state = .service_delivered;
-            const send_result = self.packet_ch.sendTimeout(inbound, 0) catch |err| {
+            const send_result = self.packet_ch.ptr().sendTimeout(inbound, 0) catch |err| {
                 inbound.state = previous_state;
                 return err;
             };
@@ -63,22 +73,34 @@ pub fn make(comptime grt: type) type {
         }
 
         pub fn deliverStream(self: *Self, port: KcpStream.Port) !void {
-            if (self.closed) return error.PeerClosed;
+            if (self.closed) {
+                var owned_port = port;
+                owned_port.deinit();
+                return error.PeerClosed;
+            }
 
-            const send_result = try self.stream_accept_ch.sendTimeout(port, 0);
-            if (!send_result.ok) return error.StreamAcceptChannelFull;
+            const send_result = self.stream_accept_ch.ptr().sendTimeout(port, 0) catch |err| {
+                var owned_port = port;
+                owned_port.deinit();
+                return err;
+            };
+            if (!send_result.ok) {
+                var owned_port = port;
+                owned_port.deinit();
+                return error.StreamAcceptChannelFull;
+            }
         }
 
         fn close(self: *Self) void {
             if (self.closed) return;
             self.closed = true;
-            self.packet_ch.close();
-            self.stream_accept_ch.close();
+            self.packet_ch.ptr().close();
+            self.stream_accept_ch.ptr().close();
         }
 
         fn drainPackets(self: *Self) void {
             while (true) {
-                const result = self.packet_ch.recvTimeout(0) catch break;
+                const result = self.packet_ch.ptr().recvTimeout(0) catch break;
                 if (!result.ok) break;
                 result.value.deinit();
             }
@@ -86,9 +108,24 @@ pub fn make(comptime grt: type) type {
 
         fn drainStreams(self: *Self) void {
             while (true) {
-                const result = self.stream_accept_ch.recvTimeout(0) catch break;
+                const result = self.stream_accept_ch.ptr().recvTimeout(0) catch break;
                 if (!result.ok) break;
+                var port = result.value;
+                port.deinit();
             }
+        }
+
+        fn makeChannelRef(
+            comptime Channel: type,
+            comptime ChannelArc: type,
+            allocator: grt.std.mem.Allocator,
+            capacity: usize,
+        ) !ChannelArc.Arc {
+            const channel = try allocator.create(Channel);
+            errdefer allocator.destroy(channel);
+            channel.* = try Channel.make(allocator, capacity);
+            errdefer channel.deinit();
+            return try ChannelArc.adopt(allocator, channel);
         }
     };
 }
@@ -108,6 +145,10 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             tryCase(grt) catch |err| {
                 t.logErrorf("giznet/service Peer unit failed: {}", .{err});
+                return false;
+            };
+            tryReusedPeerStorageDoesNotReviveOldStreamChannel(grt) catch |err| {
+                t.logErrorf("giznet/service Peer reused storage stream channel failed: {}", .{err});
                 return false;
             };
             return true;
@@ -134,9 +175,27 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             const pkt = try makePacket(pool, &[_]u8{7} ++ "ping");
             try peer.deliverPacket(pkt);
 
-            const result = try peer.packet_ch.recvTimeout(0);
+            const result = try peer.packet_ch.ptr().recvTimeout(0);
             try grt.std.testing.expect(result.ok);
             result.value.deinit();
+        }
+
+        fn tryReusedPeerStorageDoesNotReviveOldStreamChannel(comptime any_lib: type) !void {
+            _ = any_lib;
+
+            const Peer = make(grt);
+            const remote_key = Key{ .bytes = [_]u8{0x23} ** 32 };
+            const replacement_key = Key{ .bytes = [_]u8{0x24} ** 32 };
+            var peer = try Peer.init(grt.std.testing.allocator, remote_key, .{});
+            const old_stream_accept_ch = peer.stream_accept_ch.clone();
+            defer old_stream_accept_ch.deinit();
+
+            peer.deinit();
+            peer = try Peer.init(grt.std.testing.allocator, replacement_key, .{});
+            defer peer.deinit();
+
+            const result = try old_stream_accept_ch.ptr().recvTimeout(0);
+            try grt.std.testing.expect(!result.ok);
         }
 
         fn makePacket(pool: packet.Inbound.Pool, data: []const u8) !*packet.Inbound {
