@@ -1,0 +1,52 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Model Spec Type",
+    "description": "ModelSpec schema.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "ModelSpec": {
+        "type": "object",
+        "required": [
+          "kind",
+          "source",
+          "provider"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "./model_kind.json#/components/schemas/ModelKind"
+          },
+          "source": {
+            "$ref": "./model_source.json#/components/schemas/ModelSource"
+          },
+          "provider": {
+            "$ref": "./model_provider.json#/components/schemas/ModelProvider"
+          },
+          "name": {
+            "type": "string",
+            "example": "MiniMax M2.5"
+          },
+          "description": {
+            "type": "string",
+            "example": "OpenAI-compatible chat model"
+          },
+          "capabilities": {
+            "$ref": "./model_capabilities.json#/components/schemas/ModelCapabilities"
+          },
+          "provider_data": {
+            "$ref": "./model_provider_data.json#/components/schemas/ModelProviderData",
+            "description": "Provider-specific model runtime configuration.",
+            "example": {
+              "openai-tenant": {
+                "upstream_model": "MiniMax-M2.5"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

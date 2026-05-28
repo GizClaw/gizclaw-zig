@@ -1,0 +1,182 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "GizClaw Resource Types",
+    "description": "Declarative resource envelope schemas used by admin apply.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "ResourceAPIVersion": {
+        "type": "string",
+        "description": "API version for declarative GizClaw resources.",
+        "enum": [
+          "gizclaw.admin/v1alpha1"
+        ]
+      },
+      "ResourceKind": {
+        "type": "string",
+        "description": "Declarative GizClaw resource kind.",
+        "enum": [
+          "Credential",
+          "ACLPolicyBinding",
+          "ACLRole",
+          "ACLView",
+          "Firmware",
+          "Model",
+          "DashScopeTenant",
+          "GeminiTenant",
+          "MiniMaxTenant",
+          "OpenAITenant",
+          "VolcTenant",
+          "Voice",
+          "Workflow",
+          "Workspace",
+          "PeerConfig",
+          "ResourceList"
+        ]
+      },
+      "ResourceMetadata": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Resource name. For PeerConfig this is the peer public key."
+          },
+          "annotations": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Resource": {
+        "oneOf": [
+          {
+            "$ref": "./acl_policy_binding.json#/components/schemas/ACLPolicyBindingResource"
+          },
+          {
+            "$ref": "./acl_role.json#/components/schemas/ACLRoleResource"
+          },
+          {
+            "$ref": "./acl_view.json#/components/schemas/ACLViewResource"
+          },
+          {
+            "$ref": "./credential.json#/components/schemas/CredentialResource"
+          },
+          {
+            "$ref": "./firmware.json#/components/schemas/FirmwareResource"
+          },
+          {
+            "$ref": "./model.json#/components/schemas/ModelResource"
+          },
+          {
+            "$ref": "./dashscope_tenant.json#/components/schemas/DashScopeTenantResource"
+          },
+          {
+            "$ref": "./gemini_tenant.json#/components/schemas/GeminiTenantResource"
+          },
+          {
+            "$ref": "./minimax_tenant.json#/components/schemas/MiniMaxTenantResource"
+          },
+          {
+            "$ref": "./openai_tenant.json#/components/schemas/OpenAITenantResource"
+          },
+          {
+            "$ref": "./volc_tenant.json#/components/schemas/VolcTenantResource"
+          },
+          {
+            "$ref": "./voice.json#/components/schemas/VoiceResource"
+          },
+          {
+            "$ref": "./workflow.json#/components/schemas/WorkflowResource"
+          },
+          {
+            "$ref": "./workspace.json#/components/schemas/WorkspaceResource"
+          },
+          {
+            "$ref": "./peer_config.json#/components/schemas/PeerConfigResource"
+          },
+          {
+            "$ref": "./resource_list.json#/components/schemas/ResourceListResource"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "ACLPolicyBinding": "./acl_policy_binding.json#/components/schemas/ACLPolicyBindingResource",
+            "ACLRole": "./acl_role.json#/components/schemas/ACLRoleResource",
+            "ACLView": "./acl_view.json#/components/schemas/ACLViewResource",
+            "Credential": "./credential.json#/components/schemas/CredentialResource",
+            "Firmware": "./firmware.json#/components/schemas/FirmwareResource",
+            "DashScopeTenant": "./dashscope_tenant.json#/components/schemas/DashScopeTenantResource",
+            "GeminiTenant": "./gemini_tenant.json#/components/schemas/GeminiTenantResource",
+            "Model": "./model.json#/components/schemas/ModelResource",
+            "MiniMaxTenant": "./minimax_tenant.json#/components/schemas/MiniMaxTenantResource",
+            "OpenAITenant": "./openai_tenant.json#/components/schemas/OpenAITenantResource",
+            "VolcTenant": "./volc_tenant.json#/components/schemas/VolcTenantResource",
+            "Voice": "./voice.json#/components/schemas/VoiceResource",
+            "Workflow": "./workflow.json#/components/schemas/WorkflowResource",
+            "Workspace": "./workspace.json#/components/schemas/WorkspaceResource",
+            "PeerConfig": "./peer_config.json#/components/schemas/PeerConfigResource",
+            "ResourceList": "./resource_list.json#/components/schemas/ResourceListResource"
+          }
+        }
+      },
+      "ApplyAction": {
+        "type": "string",
+        "description": "Result of applying the resource.",
+        "enum": [
+          "created",
+          "updated",
+          "unchanged",
+          "applied"
+        ]
+      },
+      "ApplyResult": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "name",
+          "action"
+        ],
+        "properties": {
+          "apiVersion": {
+            "$ref": "#/components/schemas/ResourceAPIVersion"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ResourceKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ApplyAction"
+          },
+          "message": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "description": "Nested apply results for ResourceList resources.",
+            "items": {
+              "$ref": "#/components/schemas/ApplyResult"
+            }
+          }
+        }
+      }
+    }
+  }
+}

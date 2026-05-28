@@ -10,8 +10,9 @@ pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (flags.positionals().len != 0) return error.InvalidArguments;
     var ctx = try client_lib.loadSelectedContext(allocator, flags.value("context"));
     defer ctx.deinit();
-    var client = try client_lib.connectFromContext(allocator, &ctx);
+    var client = try client_lib.initFromContext(allocator, &ctx);
     defer client.deinit();
+    try client_lib.connect(&client, &ctx);
     var info = try client.serverInfo();
     defer client_lib.Client.deinitServerInfo(allocator, &info);
 

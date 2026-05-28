@@ -24,16 +24,16 @@
             "type": "string"
           },
           "role": {
-            "$ref": "../type/gear_role.json#/components/schemas/GearRole"
+            "$ref": "./gear_role.json#/components/schemas/GearRole"
           },
           "status": {
-            "$ref": "../type/gear_status.json#/components/schemas/GearStatus"
+            "$ref": "./gear_status.json#/components/schemas/GearStatus"
           },
           "device": {
-            "$ref": "../type/device_info.json#/components/schemas/DeviceInfo"
+            "$ref": "./device_info.json#/components/schemas/DeviceInfo"
           },
           "configuration": {
-            "$ref": "../type/configuration.json#/components/schemas/Configuration"
+            "$ref": "./configuration.json#/components/schemas/Configuration"
           },
           "auto_registered": {
             "type": "boolean"

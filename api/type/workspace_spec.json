@@ -1,0 +1,29 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Workspace Spec Type",
+    "description": "WorkspaceSpec schema.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "WorkspaceSpec": {
+        "type": "object",
+        "required": [
+          "workflow_name"
+        ],
+        "properties": {
+          "workflow_name": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": true,
+            "example": {}
+          }
+        }
+      }
+    }
+  }
+}

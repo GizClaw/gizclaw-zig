@@ -22,13 +22,16 @@
             "type": "string"
           },
           "role": {
-            "$ref": "../type/gear_role.json#/components/schemas/GearRole"
+            "$ref": "./gear_role.json#/components/schemas/GearRole"
           },
           "status": {
-            "$ref": "../type/gear_status.json#/components/schemas/GearStatus"
+            "$ref": "./gear_status.json#/components/schemas/GearStatus"
           },
           "auto_registered": {
             "type": "boolean"
+          },
+          "device": {
+            "$ref": "./device_info.json#/components/schemas/DeviceInfo"
           },
           "created_at": {
             "type": "string",

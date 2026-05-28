@@ -3,7 +3,7 @@ const giznet = @import("giznet");
 const gizclaw = @import("gizclaw");
 const gstd = @import("gstd");
 
-const key = gizclaw.make(gstd.runtime).key;
+const key = gizclaw.make(gstd.runtime, .{}).key;
 
 pub const Config = struct {
     server: ServerConfig,

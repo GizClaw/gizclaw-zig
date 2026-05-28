@@ -1,5 +1,6 @@
 openteam/
 .*zig-*/
 zig-out/
+.logs/
 AGENTS.md
 !/AGENTS.md

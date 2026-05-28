@@ -1,0 +1,25 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Voice Provider Kind Type",
+    "description": "VoiceProviderKind schema.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "VoiceProviderKind": {
+        "type": "string",
+        "description": "Provider resource kind usable by voice runtime.",
+        "enum": [
+          "gemini-tenant",
+          "dashscope-tenant",
+          "openai-tenant",
+          "minimax-tenant",
+          "volc-tenant"
+        ],
+        "example": "minimax-tenant"
+      }
+    }
+  }
+}

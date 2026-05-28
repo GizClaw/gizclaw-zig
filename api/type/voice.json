@@ -1,0 +1,57 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Voice Type",
+    "description": "Voice schema.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "Voice": {
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "provider",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "./voice_source.json#/components/schemas/VoiceSource"
+          },
+          "provider": {
+            "$ref": "./voice_provider.json#/components/schemas/VoiceProvider"
+          },
+          "name": {
+            "type": "string",
+            "example": "calm narrator"
+          },
+          "description": {
+            "type": "string",
+            "example": "calm female narrator"
+          },
+          "provider_data": {
+            "$ref": "./voice_provider_data.json#/components/schemas/VoiceProviderData"
+          },
+          "synced_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

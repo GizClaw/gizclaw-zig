@@ -28,28 +28,25 @@
           "params": {
             "oneOf": [
               {
-                "$ref": "./rpc/ping.json#/components/schemas/PingRequest"
+                "$ref": "./rpc/peer.json#/components/schemas/PingRequest"
               },
               {
-                "$ref": "./rpc/gear_config.json#/components/schemas/GearGetConfigRequest"
+                "$ref": "./rpc/gear.json#/components/schemas/DeviceGetInfoRequest"
               },
               {
-                "$ref": "./rpc/gear_info.json#/components/schemas/GearGetInfoRequest"
+                "$ref": "./rpc/gear.json#/components/schemas/DeviceGetIdentifiersRequest"
               },
               {
-                "$ref": "./rpc/gear_info.json#/components/schemas/GearPutInfoRequest"
+                "$ref": "./rpc/public.json#/components/schemas/ServerGetInfoRequest"
               },
               {
-                "$ref": "./rpc/gear_ota.json#/components/schemas/GearGetOTARequest"
+                "$ref": "./rpc/gear.json#/components/schemas/PeerGetInfoRequest"
               },
               {
-                "$ref": "./rpc/gear_registration.json#/components/schemas/GearGetRegistrationRequest"
+                "$ref": "./rpc/gear.json#/components/schemas/PeerPutInfoRequest"
               },
               {
-                "$ref": "./rpc/gear_registration.json#/components/schemas/GearRegisterRequest"
-              },
-              {
-                "$ref": "./rpc/gear_runtime.json#/components/schemas/GearGetRuntimeRequest"
+                "$ref": "./rpc/gear.json#/components/schemas/PeerGetRuntimeRequest"
               }
             ]
           }
@@ -71,28 +68,25 @@
           "result": {
             "oneOf": [
               {
-                "$ref": "./rpc/ping.json#/components/schemas/PingResponse"
+                "$ref": "./rpc/peer.json#/components/schemas/PingResponse"
               },
               {
-                "$ref": "./rpc/gear_config.json#/components/schemas/GearGetConfigResponse"
+                "$ref": "./rpc/gear.json#/components/schemas/DeviceGetInfoResponse"
               },
               {
-                "$ref": "./rpc/gear_info.json#/components/schemas/GearGetInfoResponse"
+                "$ref": "./rpc/gear.json#/components/schemas/DeviceGetIdentifiersResponse"
               },
               {
-                "$ref": "./rpc/gear_info.json#/components/schemas/GearPutInfoResponse"
+                "$ref": "./rpc/public.json#/components/schemas/ServerGetInfoResponse"
               },
               {
-                "$ref": "./rpc/gear_ota.json#/components/schemas/GearGetOTAResponse"
+                "$ref": "./rpc/gear.json#/components/schemas/PeerGetInfoResponse"
               },
               {
-                "$ref": "./rpc/gear_registration.json#/components/schemas/GearGetRegistrationResponse"
+                "$ref": "./rpc/gear.json#/components/schemas/PeerPutInfoResponse"
               },
               {
-                "$ref": "./rpc/gear_registration.json#/components/schemas/GearRegisterResponse"
-              },
-              {
-                "$ref": "./rpc/gear_runtime.json#/components/schemas/GearGetRuntimeResponse"
+                "$ref": "./rpc/gear.json#/components/schemas/PeerGetRuntimeResponse"
               }
             ]
           },
@@ -105,13 +99,12 @@
         "type": "string",
         "enum": [
           "peer.ping",
-          "gear.config.get",
-          "gear.info.get",
-          "gear.info.put",
-          "gear.ota.get",
-          "gear.registration.get",
-          "gear.registration.register",
-          "gear.runtime.get"
+          "device.info.get",
+          "device.identifiers.get",
+          "peer.info.get",
+          "peer.info.put",
+          "peer.runtime.get",
+          "server.info.get"
         ]
       },
       "RPCVersion": {

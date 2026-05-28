@@ -1,0 +1,346 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Shared API Types",
+    "description": "Shared schemas used across GizClaw OpenAPI services.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "ACLPermission": {
+        "$ref": "./type/acl_permission.json#/components/schemas/ACLPermission"
+      },
+      "ACLPermissionList": {
+        "$ref": "./type/acl_permission.json#/components/schemas/ACLPermissionList"
+      },
+      "ACLPolicy": {
+        "$ref": "./type/acl_policy.json#/components/schemas/ACLPolicy"
+      },
+      "ACLPolicyBinding": {
+        "$ref": "./type/acl_policy_binding.json#/components/schemas/ACLPolicyBinding"
+      },
+      "ACLPolicyBindingResource": {
+        "$ref": "./resource/acl_policy_binding.json#/components/schemas/ACLPolicyBindingResource"
+      },
+      "ACLResource": {
+        "$ref": "./type/acl_resource.json#/components/schemas/ACLResource"
+      },
+      "ACLResourceKind": {
+        "$ref": "./type/acl_resource.json#/components/schemas/ACLResourceKind"
+      },
+      "ACLRole": {
+        "$ref": "./type/acl_role.json#/components/schemas/ACLRole"
+      },
+      "ACLRoleResource": {
+        "$ref": "./resource/acl_role.json#/components/schemas/ACLRoleResource"
+      },
+      "ACLRoleSpec": {
+        "$ref": "./type/acl_role_spec.json#/components/schemas/ACLRoleSpec"
+      },
+      "ACLView": {
+        "$ref": "./type/acl_view.json#/components/schemas/ACLView"
+      },
+      "ACLViewSpec": {
+        "$ref": "./type/acl_view.json#/components/schemas/ACLViewSpec"
+      },
+      "ACLViewResource": {
+        "$ref": "./resource/acl_view.json#/components/schemas/ACLViewResource"
+      },
+      "ACLSubject": {
+        "$ref": "./type/acl_subject.json#/components/schemas/ACLSubject"
+      },
+      "ACLSubjectKind": {
+        "$ref": "./type/acl_subject.json#/components/schemas/ACLSubjectKind"
+      },
+      "Configuration": {
+        "$ref": "./type/configuration.json#/components/schemas/Configuration"
+      },
+      "DeviceInfo": {
+        "$ref": "./type/device_info.json#/components/schemas/DeviceInfo"
+      },
+      "ErrorPayload": {
+        "$ref": "./type/error_payload.json#/components/schemas/ErrorPayload"
+      },
+      "ErrorResponse": {
+        "$ref": "./type/error_response.json#/components/schemas/ErrorResponse"
+      },
+      "Event": {
+        "type": "object",
+        "required": [
+          "v",
+          "name"
+        ],
+        "properties": {
+          "v": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "data": {
+            "x-go-type": "json.RawMessage"
+          }
+        }
+      },
+      "Gear": {
+        "$ref": "./type/gear.json#/components/schemas/Gear"
+      },
+      "GearIMEI": {
+        "$ref": "./type/gear_imei.json#/components/schemas/GearIMEI"
+      },
+      "GearLabel": {
+        "$ref": "./type/gear_label.json#/components/schemas/GearLabel"
+      },
+      "GearRole": {
+        "$ref": "./type/gear_role.json#/components/schemas/GearRole"
+      },
+      "GearStatus": {
+        "$ref": "./type/gear_status.json#/components/schemas/GearStatus"
+      },
+      "HardwareInfo": {
+        "$ref": "./type/hardware_info.json#/components/schemas/HardwareInfo"
+      },
+      "Registration": {
+        "$ref": "./type/registration.json#/components/schemas/Registration"
+      },
+      "Runtime": {
+        "$ref": "./type/runtime.json#/components/schemas/Runtime"
+      },
+      "ServerInfo": {
+        "$ref": "./type/server_info.json#/components/schemas/ServerInfo"
+      },
+      "RefreshInfo": {
+        "$ref": "./type/refresh_info.json#/components/schemas/RefreshInfo"
+      },
+      "RefreshIdentifiers": {
+        "$ref": "./type/refresh_identifiers.json#/components/schemas/RefreshIdentifiers"
+      },
+      "CredentialMethod": {
+        "$ref": "./type/credential_method.json#/components/schemas/CredentialMethod"
+      },
+      "Credential": {
+        "$ref": "./type/credential.json#/components/schemas/Credential"
+      },
+      "CredentialBody": {
+        "$ref": "./type/credential_body.json#/components/schemas/CredentialBody"
+      },
+      "Firmware": {
+        "$ref": "./type/firmware.json#/components/schemas/Firmware"
+      },
+      "FirmwareArtifact": {
+        "$ref": "./type/firmware_artifact.json#/components/schemas/FirmwareArtifact"
+      },
+      "FirmwareArtifactKind": {
+        "$ref": "./type/firmware_artifact_kind.json#/components/schemas/FirmwareArtifactKind"
+      },
+      "FirmwareSlot": {
+        "$ref": "./type/firmware_slot.json#/components/schemas/FirmwareSlot"
+      },
+      "FirmwareSlots": {
+        "$ref": "./type/firmware_slots.json#/components/schemas/FirmwareSlots"
+      },
+      "Model": {
+        "$ref": "./type/model.json#/components/schemas/Model"
+      },
+      "ModelSource": {
+        "$ref": "./type/model_source.json#/components/schemas/ModelSource"
+      },
+      "ModelKind": {
+        "$ref": "./type/model_kind.json#/components/schemas/ModelKind"
+      },
+      "ProviderKind": {
+        "$ref": "./type/provider_kind.json#/components/schemas/ProviderKind"
+      },
+      "Provider": {
+        "$ref": "./type/provider.json#/components/schemas/Provider"
+      },
+      "ModelProviderKind": {
+        "$ref": "./type/model_provider_kind.json#/components/schemas/ModelProviderKind"
+      },
+      "ModelProvider": {
+        "$ref": "./type/model_provider.json#/components/schemas/ModelProvider"
+      },
+      "VoiceProviderKind": {
+        "$ref": "./type/voice_provider_kind.json#/components/schemas/VoiceProviderKind"
+      },
+      "VoiceProvider": {
+        "$ref": "./type/voice_provider.json#/components/schemas/VoiceProvider"
+      },
+      "ModelProviderData": {
+        "$ref": "./type/model_provider_data.json#/components/schemas/ModelProviderData"
+      },
+      "DashScopeTenantModelProviderData": {
+        "$ref": "./type/model_provider_data.json#/components/schemas/DashScopeTenantModelProviderData"
+      },
+      "GeminiTenantModelProviderData": {
+        "$ref": "./type/model_provider_data.json#/components/schemas/GeminiTenantModelProviderData"
+      },
+      "OpenAITenantModelProviderData": {
+        "$ref": "./type/model_provider_data.json#/components/schemas/OpenAITenantModelProviderData"
+      },
+      "ModelCapabilities": {
+        "$ref": "./type/model_capabilities.json#/components/schemas/ModelCapabilities"
+      },
+      "ModelThinkingCapability": {
+        "$ref": "./type/model_capabilities.json#/components/schemas/ModelThinkingCapability"
+      },
+      "DashScopeTenant": {
+        "$ref": "./type/dashscope_tenant.json#/components/schemas/DashScopeTenant"
+      },
+      "GeminiTenant": {
+        "$ref": "./type/gemini_tenant.json#/components/schemas/GeminiTenant"
+      },
+      "OpenAITenantKind": {
+        "$ref": "./type/openai_tenant.json#/components/schemas/OpenAITenantKind"
+      },
+      "OpenAITenantAPIMode": {
+        "$ref": "./type/openai_tenant.json#/components/schemas/OpenAITenantAPIMode"
+      },
+      "OpenAITenant": {
+        "$ref": "./type/openai_tenant.json#/components/schemas/OpenAITenant"
+      },
+      "VoiceSource": {
+        "$ref": "./type/voice_source.json#/components/schemas/VoiceSource"
+      },
+      "MiniMaxTenant": {
+        "$ref": "./type/minimax_tenant.json#/components/schemas/MiniMaxTenant"
+      },
+      "VolcTenant": {
+        "$ref": "./type/volc_tenant.json#/components/schemas/VolcTenant"
+      },
+      "Voice": {
+        "$ref": "./type/voice.json#/components/schemas/Voice"
+      },
+      "VoiceProviderData": {
+        "$ref": "./type/voice_provider_data.json#/components/schemas/VoiceProviderData"
+      },
+      "DashScopeTenantVoiceProviderData": {
+        "$ref": "./type/voice_provider_data.json#/components/schemas/DashScopeTenantVoiceProviderData"
+      },
+      "GeminiTenantVoiceProviderData": {
+        "$ref": "./type/voice_provider_data.json#/components/schemas/GeminiTenantVoiceProviderData"
+      },
+      "OpenAITenantVoiceProviderData": {
+        "$ref": "./type/voice_provider_data.json#/components/schemas/OpenAITenantVoiceProviderData"
+      },
+      "MiniMaxTenantVoiceProviderData": {
+        "$ref": "./type/voice_provider_data.json#/components/schemas/MiniMaxTenantVoiceProviderData"
+      },
+      "VolcTenantVoiceProviderData": {
+        "$ref": "./type/voice_provider_data.json#/components/schemas/VolcTenantVoiceProviderData"
+      },
+      "ResourceAPIVersion": {
+        "$ref": "./resource/resource.json#/components/schemas/ResourceAPIVersion"
+      },
+      "ResourceKind": {
+        "$ref": "./resource/resource.json#/components/schemas/ResourceKind"
+      },
+      "ResourceMetadata": {
+        "$ref": "./resource/resource.json#/components/schemas/ResourceMetadata"
+      },
+      "Resource": {
+        "$ref": "./resource/resource.json#/components/schemas/Resource"
+      },
+      "ResourceList": {
+        "$ref": "./resource/resource_list.json#/components/schemas/ResourceListResource"
+      },
+      "CredentialResource": {
+        "$ref": "./resource/credential.json#/components/schemas/CredentialResource"
+      },
+      "FirmwareResource": {
+        "$ref": "./resource/firmware.json#/components/schemas/FirmwareResource"
+      },
+      "ModelResource": {
+        "$ref": "./resource/model.json#/components/schemas/ModelResource"
+      },
+      "MiniMaxTenantResource": {
+        "$ref": "./resource/minimax_tenant.json#/components/schemas/MiniMaxTenantResource"
+      },
+      "DashScopeTenantResource": {
+        "$ref": "./resource/dashscope_tenant.json#/components/schemas/DashScopeTenantResource"
+      },
+      "GeminiTenantResource": {
+        "$ref": "./resource/gemini_tenant.json#/components/schemas/GeminiTenantResource"
+      },
+      "OpenAITenantResource": {
+        "$ref": "./resource/openai_tenant.json#/components/schemas/OpenAITenantResource"
+      },
+      "VolcTenantResource": {
+        "$ref": "./resource/volc_tenant.json#/components/schemas/VolcTenantResource"
+      },
+      "VoiceResource": {
+        "$ref": "./resource/voice.json#/components/schemas/VoiceResource"
+      },
+      "WorkflowResource": {
+        "$ref": "./resource/workflow.json#/components/schemas/WorkflowResource"
+      },
+      "WorkspaceResource": {
+        "$ref": "./resource/workspace.json#/components/schemas/WorkspaceResource"
+      },
+      "PeerConfigResource": {
+        "$ref": "./resource/peer_config.json#/components/schemas/PeerConfigResource"
+      },
+      "CredentialSpec": {
+        "$ref": "./type/credential_spec.json#/components/schemas/CredentialSpec"
+      },
+      "FirmwareSpec": {
+        "$ref": "./type/firmware_spec.json#/components/schemas/FirmwareSpec"
+      },
+      "ModelSpec": {
+        "$ref": "./type/model_spec.json#/components/schemas/ModelSpec"
+      },
+      "MiniMaxTenantSpec": {
+        "$ref": "./type/minimax_tenant_spec.json#/components/schemas/MiniMaxTenantSpec"
+      },
+      "DashScopeTenantSpec": {
+        "$ref": "./type/dashscope_tenant_spec.json#/components/schemas/DashScopeTenantSpec"
+      },
+      "GeminiTenantSpec": {
+        "$ref": "./type/gemini_tenant_spec.json#/components/schemas/GeminiTenantSpec"
+      },
+      "OpenAITenantSpec": {
+        "$ref": "./type/openai_tenant_spec.json#/components/schemas/OpenAITenantSpec"
+      },
+      "VolcTenantSpec": {
+        "$ref": "./type/volc_tenant_spec.json#/components/schemas/VolcTenantSpec"
+      },
+      "VoiceSpec": {
+        "$ref": "./type/voice_spec.json#/components/schemas/VoiceSpec"
+      },
+      "WorkspaceSpec": {
+        "$ref": "./type/workspace_spec.json#/components/schemas/WorkspaceSpec"
+      },
+      "ResourceListSpec": {
+        "$ref": "./type/resource_list_spec.json#/components/schemas/ResourceListSpec"
+      },
+      "ApplyResource": {
+        "$ref": "./resource/resource.json#/components/schemas/Resource"
+      },
+      "ApplyAction": {
+        "$ref": "./resource/resource.json#/components/schemas/ApplyAction"
+      },
+      "ApplyResult": {
+        "$ref": "./resource/resource.json#/components/schemas/ApplyResult"
+      },
+      "Workspace": {
+        "$ref": "./type/workspace.json#/components/schemas/Workspace"
+      },
+      "WorkflowDocument": {
+        "$ref": "./type/workflow_document.json#/components/schemas/WorkflowDocument"
+      },
+      "WorkflowAPIVersion": {
+        "$ref": "./type/workflow_api_version.json#/components/schemas/WorkflowAPIVersion"
+      },
+      "WorkflowMetadata": {
+        "$ref": "./type/workflow_metadata.json#/components/schemas/WorkflowMetadata"
+      },
+      "FlowcraftWorkflow": {
+        "$ref": "./type/workflows/flowcraft.json#/components/schemas/FlowcraftWorkflow"
+      },
+      "FlowcraftWorkflowSpec": {
+        "$ref": "./type/workflows/flowcraft.json#/components/schemas/FlowcraftWorkflowSpec"
+      }
+    }
+  }
+}

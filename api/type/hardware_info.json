@@ -20,22 +20,16 @@
           "hardware_revision": {
             "type": "string"
           },
-          "depot": {
-            "type": "string"
-          },
-          "firmware_semver": {
-            "type": "string"
-          },
           "imeis": {
             "type": "array",
             "items": {
-              "$ref": "../type/gear_imei.json#/components/schemas/GearIMEI"
+              "$ref": "./gear_imei.json#/components/schemas/GearIMEI"
             }
           },
           "labels": {
             "type": "array",
             "items": {
-              "$ref": "../type/gear_label.json#/components/schemas/GearLabel"
+              "$ref": "./gear_label.json#/components/schemas/GearLabel"
             }
           }
         }

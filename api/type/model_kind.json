@@ -1,0 +1,24 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Model Kind Type",
+    "description": "ModelKind schema.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "ModelKind": {
+        "type": "string",
+        "description": "Runtime role of a model.",
+        "enum": [
+          "llm",
+          "tts",
+          "asr",
+          "embedding"
+        ],
+        "example": "llm"
+      }
+    }
+  }
+}

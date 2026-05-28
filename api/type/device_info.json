@@ -18,7 +18,7 @@
             "type": "string"
           },
           "hardware": {
-            "$ref": "../type/hardware_info.json#/components/schemas/HardwareInfo"
+            "$ref": "./hardware_info.json#/components/schemas/HardwareInfo"
           }
         }
       }

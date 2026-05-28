@@ -1,86 +1,90 @@
 const glib = @import("glib");
 const giznet = @import("giznet");
 
-const rpc_mod = @import("rpc.zig");
+const RpcClient = @import("RpcClient.zig");
+const models = @import("models.zig");
 const service = @import("service.zig");
-
-pub const ServerInfo = struct {
-    public_key: []const u8,
-    server_time: i64,
-    build_commit: []const u8,
-};
-
-pub const DeviceInfo = struct {
-    name: ?[]const u8 = null,
-    sn: ?[]const u8 = null,
-    hardware: ?HardwareInfo = null,
-};
-
-pub const HardwareInfo = struct {
-    manufacturer: ?[]const u8 = null,
-    model: ?[]const u8 = null,
-    hardware_revision: ?[]const u8 = null,
-    depot: ?[]const u8 = null,
-    firmware_semver: ?[]const u8 = null,
-    imeis: ?[]GearIMEI = null,
-    labels: ?[]GearLabel = null,
-};
-
-pub const GearIMEI = struct {
-    tac: []const u8 = &.{},
-    serial: []const u8 = &.{},
-    name: ?[]const u8 = null,
-};
-
-pub const GearLabel = struct {
-    key: []const u8 = &.{},
-    value: []const u8 = &.{},
-};
 
 pub const ConnectOptions = struct {
     server_key: giznet.Key,
     server_addr: []const u8,
 };
 
-pub fn make(comptime grt: type) type {
-    const rt = grt.std;
+pub const InitConfig = struct {
+    key_pair: giznet.KeyPair,
+    device_info: models.DeviceInfo = .{},
+};
+
+pub const Config = struct {
+    packet_size_capacity: usize = giznet.noise.min_packet_size_capacity + 1024,
+    cipher_kind: giznet.noise.Cipher.Kind = giznet.noise.default_cipher_kind,
+};
+
+pub fn make(comptime grt: type, comptime config: Config) type {
     const Allocator = grt.std.mem.Allocator;
-    const packet_size_capacity = 1053;
-    const RuntimePackage = giznet.runtime.make(grt, packet_size_capacity, giznet.noise.default_cipher_kind);
-    const GizNetImpl = RuntimePackage.GizNet;
-    const Rpc = rpc_mod.make(grt);
+    const RuntimePackage = giznet.runtime.make(grt, config.packet_size_capacity, config.cipher_kind);
+    const RuntimeGizNet = RuntimePackage.GizNet;
+    const Rpc = RpcClient.make(grt);
+    const ServerInfo = models.ServerInfo;
+    const DeviceInfo = models.DeviceInfo;
+    const HardwareInfo = models.HardwareInfo;
+    const GearIMEI = models.GearIMEI;
+    const GearLabel = models.GearLabel;
+    const RuntimeStatus = models.Runtime;
     const request_timeout = 5 * glib.time.duration.Second;
+    const stream_accept_timeout = 200 * glib.time.duration.MilliSecond;
 
     return struct {
+        pub const Runtime = RuntimePackage;
+        pub const GizNetImpl = RuntimeGizNet;
+
         allocator: Allocator,
         key_pair: giznet.KeyPair,
+        local_device_info: DeviceInfo = .{},
         server_key: giznet.Key = .{},
         packet_conn: ?grt.net.PacketConn = null,
         impl: ?*GizNetImpl = null,
         root: ?giznet.GizNet = null,
         conn: ?giznet.Conn = null,
+        stream_thread: ?grt.std.Thread = null,
+        closing: grt.std.atomic.Value(bool) = grt.std.atomic.Value(bool).init(false),
 
         const Self = @This();
 
-        pub fn init(allocator: Allocator, key_pair: giznet.KeyPair) Self {
-            return .{
+        pub fn init(allocator: Allocator, init_config: InitConfig) !Self {
+            var self = Self{
                 .allocator = allocator,
-                .key_pair = key_pair,
+                .key_pair = init_config.key_pair,
+            };
+            errdefer deinitDeviceInfo(allocator, &self.local_device_info);
+            self.local_device_info = try self.dupeDeviceInfo(init_config.device_info);
+            return self;
+        }
+
+        pub fn runtimeConfig(key_pair: giznet.KeyPair, peer_policy: giznet.noise.Engine.PeerPolicy) giznet.runtime.Engine.Config {
+            return .{
+                .local_static = key_pair,
+                .noise = .{
+                    .peer_policy = peer_policy,
+                },
             };
         }
 
         pub fn connect(self: *Self, options: ConnectOptions) !void {
             if (self.conn != null or self.impl != null) return error.ClientAlreadyConnected;
+            self.server_key = options.server_key;
+            errdefer self.server_key = .{};
 
             var packet_conn = try grt.net.listenPacket(.{
                 .allocator = self.allocator,
-                .address = giznet.AddrPort.from4(.{ 127, 0, 0, 1 }, 0),
+                .address = giznet.AddrPort.from4(.{ 0, 0, 0, 0 }, 0),
             });
             errdefer packet_conn.deinit();
 
-            const impl = try GizNetImpl.init(self.allocator, packet_conn, .{
-                .local_static = self.key_pair,
-            });
+            const impl = try RuntimeGizNet.init(self.allocator, packet_conn, runtimeConfig(self.key_pair, .{
+                .ctx = self,
+                .allow = allowServerPeer,
+            }));
             errdefer impl.deinit();
 
             const root = try impl.up(.{});
@@ -95,14 +99,49 @@ pub fn make(comptime grt: type) type {
             });
 
             const conn = try impl.acceptTimeout(5 * glib.time.duration.Second);
-            self.server_key = options.server_key;
             self.packet_conn = packet_conn;
             self.impl = impl;
             self.root = root;
             self.conn = conn;
+            errdefer self.disconnect();
+
+            try self.startServe(.{});
+        }
+
+        fn allowServerPeer(ctx: ?*anyopaque, peer_key: giznet.Key) bool {
+            const self: *Self = @ptrCast(@alignCast(ctx orelse return false));
+            return peer_key.eql(self.server_key);
+        }
+
+        pub fn attach(
+            self: *Self,
+            server_key: giznet.Key,
+            conn: giznet.Conn,
+            stream_spawn_config: grt.std.Thread.SpawnConfig,
+        ) !void {
+            if (self.conn != null) return error.ClientAlreadyConnected;
+            self.server_key = server_key;
+            self.conn = conn;
+            errdefer {
+                self.conn = null;
+                self.server_key = .{};
+            }
+
+            try self.startServe(stream_spawn_config);
         }
 
         pub fn deinit(self: *Self) void {
+            self.disconnect();
+            deinitDeviceInfo(self.allocator, &self.local_device_info);
+            self.* = undefined;
+        }
+
+        fn disconnect(self: *Self) void {
+            self.closing.store(true, .release);
+            if (self.stream_thread) |thread| {
+                thread.join();
+                self.stream_thread = null;
+            }
             if (self.conn) |conn| {
                 conn.close() catch {};
                 conn.deinit();
@@ -118,10 +157,14 @@ pub fn make(comptime grt: type) type {
                 packet_conn.deinit();
                 self.packet_conn = null;
             }
-            self.* = undefined;
         }
 
-        pub fn ping(self: *Self) !rpc_mod.PingResponse {
+        fn startServe(self: *Self, stream_spawn_config: grt.std.Thread.SpawnConfig) !void {
+            self.closing.store(false, .release);
+            self.stream_thread = try grt.std.Thread.spawn(stream_spawn_config, streamLoop, .{self});
+        }
+
+        pub fn ping(self: *Self) !models.PingResponse {
             const conn = self.conn orelse return error.ClientNotConnected;
             const stream = try conn.openStream(service.rpc);
             try setStreamDeadline(stream);
@@ -131,68 +174,61 @@ pub fn make(comptime grt: type) type {
         }
 
         pub fn serverInfo(self: *Self) !ServerInfo {
-            const conn = self.conn orelse return error.ClientNotConnected;
-            const stream = try conn.openStream(service.server_public);
-            defer {
-                stream.close() catch {};
-                stream.deinit();
-            }
-            try setStreamDeadline(stream);
-            try writeAll(stream,
-                "GET /server-info HTTP/1.1\r\n" ++
-                    "Host: gizclaw\r\n" ++
-                    "User-Agent: Go-http-client/1.1\r\n" ++
-                    "\r\n",
-            );
-            const data = try readHttpBody(self.allocator, stream, 1024 * 1024);
-            defer self.allocator.free(data);
-            const parsed = try rt.json.parseFromSlice(ServerInfo, self.allocator, data, .{ .ignore_unknown_fields = true });
-            defer parsed.deinit();
-            return .{
-                .public_key = try self.allocator.dupe(u8, parsed.value.public_key),
-                .server_time = parsed.value.server_time,
-                .build_commit = try self.allocator.dupe(u8, parsed.value.build_commit),
-            };
+            const response_data = try self.rpcCall("server-info-get", RpcClient.method_server_info_get, "{}");
+            defer self.allocator.free(response_data);
+            return try self.parseRpcServerInfo(response_data);
         }
 
         pub fn deviceInfo(self: *Self) !DeviceInfo {
-            const response_data = try self.rpcCall("gear-info-get", rpc_mod.method_gear_info_get, "{}");
+            const response_data = try self.rpcCall("peer-info-get", RpcClient.method_peer_info_get, "{}");
             defer self.allocator.free(response_data);
             return try self.parseRpcDeviceInfo(response_data);
         }
 
         pub fn putDeviceInfo(self: *Self, info: DeviceInfo) !DeviceInfo {
-            const body = try self.deviceInfoJson(info);
+            const body = try models.toJson(self.allocator, info);
             defer self.allocator.free(body);
-            const response_data = try self.rpcCall("gear-info-put", rpc_mod.method_gear_info_put, body);
+            const response_data = try self.rpcCall("peer-info-put", RpcClient.method_peer_info_put, body);
             defer self.allocator.free(response_data);
             return try self.parseRpcDeviceInfo(response_data);
+        }
+
+        pub fn putLocalDeviceInfo(self: *Self) !DeviceInfo {
+            return try self.putDeviceInfo(self.local_device_info);
+        }
+
+        pub fn peerRuntime(self: *Self) !RuntimeStatus {
+            const response_data = try self.rpcCall("peer-runtime-get", RpcClient.method_peer_runtime_get, "{}");
+            defer self.allocator.free(response_data);
+            return try self.parseRpcPeerRuntime(response_data);
         }
 
         pub fn setDeviceName(self: *Self, name: []const u8) !DeviceInfo {
             if (self.deviceInfo()) |existing| {
                 var info = existing;
-                errdefer deinitDeviceInfo(self.allocator, &info);
-                if (info.name) |old| self.allocator.free(old);
-                info.name = try self.allocator.dupe(u8, name);
                 defer deinitDeviceInfo(self.allocator, &info);
+                if (info.name) |old| {
+                    self.allocator.free(old);
+                    info.name = null;
+                }
+                info.name = try self.allocator.dupe(u8, name);
                 return try self.putDeviceInfo(info);
             } else |err| {
-                if (err == error.GearNotFound) return try self.registerDeviceName(name);
+                if (err == error.GearNotFound) return try self.putDeviceInfo(.{ .name = name });
                 return err;
             }
-        }
-
-        fn setStreamDeadline(stream: giznet.Stream) !void {
-            const deadline = grt.time.instant.add(grt.time.instant.now(), request_timeout);
-            try stream.setReadDeadline(deadline);
-            try stream.setWriteDeadline(deadline);
         }
 
         pub fn deinitServerInfo(allocator: Allocator, info: *ServerInfo) void {
             allocator.free(info.public_key);
             allocator.free(info.build_commit);
             info.* = undefined;
+        }
+
+        pub fn deinitRuntime(allocator: Allocator, runtime: *RuntimeStatus) void {
+            allocator.free(runtime.last_seen_at);
+            if (runtime.last_addr) |value| allocator.free(value);
+            runtime.* = undefined;
         }
 
         pub fn deinitDeviceInfo(allocator: Allocator, info: *DeviceInfo) void {
@@ -202,34 +238,83 @@ pub fn make(comptime grt: type) type {
             info.* = undefined;
         }
 
+        fn setStreamDeadline(stream: giznet.Stream) !void {
+            const deadline = grt.time.instant.add(grt.time.instant.now(), request_timeout);
+            try stream.setReadDeadline(deadline);
+            try stream.setWriteDeadline(deadline);
+        }
+
+        fn streamLoop(self: *Self) void {
+            while (!self.closing.load(.acquire)) {
+                const conn = self.conn orelse return;
+                self.acceptOneStream(conn) catch |err| {
+                    if (err == error.Timeout) continue;
+                    if (isClosedError(err) or self.closing.load(.acquire)) return;
+                };
+            }
+        }
+
+        fn acceptOneStream(self: *Self, conn: giznet.Conn) !void {
+            var stream = try conn.accept(stream_accept_timeout);
+            defer stream.deinit();
+            defer stream.close() catch {};
+
+            try setStreamDeadline(stream);
+            switch (stream.service) {
+                service.rpc => self.serveRpc(stream) catch {},
+                else => {},
+            }
+        }
+
+        fn serveRpc(self: *Self, stream: giznet.Stream) !void {
+            const data = try Rpc.readFrame(self.allocator, stream);
+            defer self.allocator.free(data);
+
+            const Request = struct {
+                v: i64,
+                id: []const u8,
+                method: []const u8,
+            };
+            const parsed = try grt.std.json.parseFromSlice(Request, self.allocator, data, .{ .ignore_unknown_fields = true });
+            defer parsed.deinit();
+            _ = parsed.value.v;
+
+            const response = if (grt.std.mem.eql(u8, parsed.value.method, RpcClient.method_ping))
+                try buildRpcPingResponse(self.allocator, parsed.value.id)
+            else if (grt.std.mem.eql(u8, parsed.value.method, RpcClient.method_device_info_get))
+                try self.buildRpcDeviceInfoResponse(parsed.value.id)
+            else if (grt.std.mem.eql(u8, parsed.value.method, RpcClient.method_device_identifiers_get))
+                try self.buildRpcDeviceIdentifiersResponse(parsed.value.id)
+            else
+                try buildRpcErrorResponse(self.allocator, parsed.value.id, -32601, "method not found");
+            defer self.allocator.free(response);
+            try Rpc.writeFrame(stream, response);
+        }
+
         fn deinitHardwareInfo(allocator: Allocator, hardware: *HardwareInfo) void {
             if (hardware.manufacturer) |value| allocator.free(value);
             if (hardware.model) |value| allocator.free(value);
             if (hardware.hardware_revision) |value| allocator.free(value);
-            if (hardware.depot) |value| allocator.free(value);
-            if (hardware.firmware_semver) |value| allocator.free(value);
             if (hardware.imeis) |items| {
-                for (items) |*item| deinitGearIMEI(allocator, item);
+                for (items) |item| deinitGearIMEI(allocator, item);
                 allocator.free(items);
             }
             if (hardware.labels) |items| {
-                for (items) |*item| deinitGearLabel(allocator, item);
+                for (items) |item| deinitGearLabel(allocator, item);
                 allocator.free(items);
             }
             hardware.* = undefined;
         }
 
-        fn deinitGearIMEI(allocator: Allocator, item: *GearIMEI) void {
+        fn deinitGearIMEI(allocator: Allocator, item: GearIMEI) void {
             allocator.free(item.tac);
             allocator.free(item.serial);
             if (item.name) |value| allocator.free(value);
-            item.* = undefined;
         }
 
-        fn deinitGearLabel(allocator: Allocator, item: *GearLabel) void {
+        fn deinitGearLabel(allocator: Allocator, item: GearLabel) void {
             allocator.free(item.key);
             allocator.free(item.value);
-            item.* = undefined;
         }
 
         fn rpcCall(self: *Self, id: []const u8, method: []const u8, params_json: []const u8) ![]u8 {
@@ -241,141 +326,96 @@ pub fn make(comptime grt: type) type {
             return try rpc_client.call(id, method, params_json);
         }
 
-        fn readHttpBody(allocator: Allocator, stream: giznet.Stream, max_size: usize) ![]u8 {
-            var response = try readHttpResponse(allocator, stream, max_size);
-            defer response.deinit(allocator);
-            if (response.status_code != 200) return error.ServerInfoRequestFailed;
-            return try allocator.dupe(u8, response.body);
+        fn buildRpcPingResponse(allocator: Allocator, id: []const u8) ![]u8 {
+            const result = models.PingResponse{ .server_time = grt.time.now().unixMilli() };
+            const result_json = try models.toJson(allocator, result);
+            defer allocator.free(result_json);
+            return try buildRpcResultResponse(allocator, id, result_json);
         }
 
-        const HttpResponse = struct {
-            status_code: u16,
-            body: []u8,
-
-            fn deinit(self: *@This(), allocator: Allocator) void {
-                allocator.free(self.body);
-                self.* = undefined;
+        fn buildRpcDeviceInfoResponse(self: *Self, id: []const u8) ![]u8 {
+            const local = self.local_device_info;
+            var result = models.RefreshInfo{
+                .name = local.name,
+            };
+            if (local.hardware) |hardware| {
+                result.manufacturer = hardware.manufacturer;
+                result.model = hardware.model;
+                result.hardware_revision = hardware.hardware_revision;
             }
-        };
 
-        fn readHttpResponse(allocator: Allocator, stream: giznet.Stream, max_size: usize) !HttpResponse {
-            var out: rt.ArrayList(u8) = .{};
-            defer out.deinit(allocator);
-            var buf: [4096]u8 = undefined;
-            var header_end: ?usize = null;
-            var content_length: ?usize = null;
-            var status_code: ?u16 = null;
-            while (true) {
-                const n = try stream.read(&buf);
-                if (n == 0) {
-                    const end = header_end orelse return error.EndOfStream;
-                    return .{
-                        .status_code = status_code orelse return error.InvalidHttpResponse,
-                        .body = try allocator.dupe(u8, out.items[end..]),
-                    };
-                }
-                if (out.items.len + n > max_size) return error.ResponseBodyTooLarge;
-                try out.appendSlice(allocator, buf[0..n]);
-                if (header_end == null) {
-                    header_end = findHeaderEnd(out.items);
-                    if (header_end) |end| {
-                        status_code = try parseStatusCode(out.items[0..end]);
-                        content_length = try parseContentLength(out.items[0..end]);
-                    }
-                }
-                if (header_end) |end| {
-                    if (content_length) |len| {
-                        if (out.items.len >= end + len) {
-                            return .{
-                                .status_code = status_code orelse return error.InvalidHttpResponse,
-                                .body = try allocator.dupe(u8, out.items[end .. end + len]),
-                            };
-                        }
-                    }
-                }
+            const result_json = try models.toJson(self.allocator, result);
+            defer self.allocator.free(result_json);
+            return try buildRpcResultResponse(self.allocator, id, result_json);
+        }
+
+        fn buildRpcDeviceIdentifiersResponse(self: *Self, id: []const u8) ![]u8 {
+            const local = self.local_device_info;
+            var result = models.RefreshIdentifiers{
+                .sn = local.sn,
+            };
+            if (local.hardware) |hardware| {
+                result.imeis = hardware.imeis;
+                result.labels = hardware.labels;
             }
+
+            const result_json = try models.toJson(self.allocator, result);
+            defer self.allocator.free(result_json);
+            return try buildRpcResultResponse(self.allocator, id, result_json);
         }
 
-        fn writeAll(stream: giznet.Stream, data: []const u8) !void {
-            var offset: usize = 0;
-            while (offset < data.len) {
-                const n = try stream.write(data[offset..]);
-                if (n == 0) return error.WriteZero;
-                offset += n;
-            }
+        fn buildRpcResultResponse(allocator: Allocator, id: []const u8, result_json: []const u8) ![]u8 {
+            var out = grt.std.Io.Writer.Allocating.init(allocator);
+            errdefer out.deinit();
+            try out.writer.writeAll("{\"v\":1,\"id\":");
+            try grt.std.json.Stringify.value(id, .{}, &out.writer);
+            try out.writer.writeAll(",\"result\":");
+            try out.writer.writeAll(result_json);
+            try out.writer.writeAll("}");
+            return try out.toOwnedSlice();
         }
 
-        fn findHeaderEnd(data: []const u8) ?usize {
-            if (rt.mem.indexOf(u8, data, "\r\n\r\n")) |pos| return pos + 4;
-            return null;
+        fn buildRpcErrorResponse(allocator: Allocator, id: []const u8, code: i64, message: []const u8) ![]u8 {
+            var out = grt.std.Io.Writer.Allocating.init(allocator);
+            errdefer out.deinit();
+            try out.writer.writeAll("{\"v\":1,\"id\":");
+            try grt.std.json.Stringify.value(id, .{}, &out.writer);
+            try out.writer.print(",\"error\":{{\"code\":{d},\"message\":", .{code});
+            try grt.std.json.Stringify.value(message, .{}, &out.writer);
+            try out.writer.writeAll("}}");
+            return try out.toOwnedSlice();
         }
 
-        fn parseStatusCode(head: []const u8) !u16 {
-            const first_line_end = rt.mem.indexOf(u8, head, "\r\n") orelse return error.InvalidHttpResponse;
-            const first_line = head[0..first_line_end];
-            if (!rt.mem.startsWith(u8, first_line, "HTTP/1.1 ") and
-                !rt.mem.startsWith(u8, first_line, "HTTP/1.0 ")) return error.InvalidHttpResponse;
-            if (first_line.len < "HTTP/1.1 000".len) return error.InvalidHttpResponse;
-            return try rt.fmt.parseInt(u16, first_line["HTTP/1.1 ".len..][0..3], 10);
+        fn isClosedError(err: anyerror) bool {
+            return switch (err) {
+                error.ConnClosed,
+                error.EndOfStream,
+                error.RuntimeAcceptChannelClosed,
+                error.RuntimeChannelClosed,
+                error.RuntimeEngineClosed,
+                error.ServiceMuxClosed,
+                error.UDPClosed,
+                => true,
+                else => false,
+            };
         }
 
-        fn parseContentLength(head: []const u8) !?usize {
-            var lines = rt.mem.splitSequence(u8, head, "\r\n");
-            _ = lines.next();
-            while (lines.next()) |line| {
-                const colon = rt.mem.indexOfScalar(u8, line, ':') orelse continue;
-                const name = rt.mem.trim(u8, line[0..colon], " \t");
-                if (!rt.ascii.eqlIgnoreCase(name, "Content-Length")) continue;
-                const value = rt.mem.trim(u8, line[colon + 1 ..], " \t");
-                return try rt.fmt.parseInt(usize, value, 10);
-            }
-            return null;
-        }
-
-        fn parseAddrPort(input: []const u8) !giznet.AddrPort {
-            const text = rt.mem.trim(u8, input, " \t\r\n");
+        pub fn parseAddrPort(input: []const u8) !giznet.AddrPort {
+            const text = grt.std.mem.trim(u8, input, " \t\r\n");
             if (text.len == 0) return error.InvalidServerAddress;
 
             if (text[0] == '[') {
-                const close = rt.mem.indexOfScalar(u8, text, ']') orelse return error.InvalidServerAddress;
+                const close = grt.std.mem.indexOfScalar(u8, text, ']') orelse return error.InvalidServerAddress;
                 if (close + 2 > text.len or text[close + 1] != ':') return error.InvalidServerAddress;
                 const host = text[1..close];
-                const port = try rt.fmt.parseInt(u16, text[close + 2 ..], 10);
+                const port = try grt.std.fmt.parseInt(u16, text[close + 2 ..], 10);
                 return giznet.AddrPort.init(try glib.net.netip.Addr.parse(host), port);
             }
 
-            const colon = rt.mem.lastIndexOfScalar(u8, text, ':') orelse return error.InvalidServerAddress;
+            const colon = grt.std.mem.lastIndexOfScalar(u8, text, ':') orelse return error.InvalidServerAddress;
             const host = text[0..colon];
-            const port = try rt.fmt.parseInt(u16, text[colon + 1 ..], 10);
+            const port = try grt.std.fmt.parseInt(u16, text[colon + 1 ..], 10);
             return giznet.AddrPort.init(try glib.net.netip.Addr.parse(host), port);
-        }
-
-        fn registerDeviceName(self: *Self, name: []const u8) !DeviceInfo {
-            const device = DeviceInfo{ .name = name };
-            const device_json = try self.deviceInfoJson(device);
-            defer self.allocator.free(device_json);
-            const body = try rt.fmt.allocPrint(self.allocator, "{{\"device\":{s}}}", .{device_json});
-            defer self.allocator.free(body);
-
-            const response_data = try self.rpcCall("gear-registration-register", rpc_mod.method_gear_registration_register, body);
-            defer self.allocator.free(response_data);
-            const Result = struct {
-                v: i64,
-                id: []const u8,
-                result: ?struct {
-                    gear: struct {
-                        device: DeviceInfo = .{},
-                    },
-                } = null,
-                @"error": ?rpc_mod.RpcError = null,
-            };
-            const parsed = try rt.json.parseFromSlice(Result, self.allocator, response_data, .{ .ignore_unknown_fields = true });
-            defer parsed.deinit();
-            _ = parsed.value.v;
-            _ = parsed.value.id;
-            if (parsed.value.@"error") |rpc_error| return rpcResponseError(rpc_error);
-            const result = parsed.value.result orelse return error.MissingRpcResult;
-            return try self.dupeDeviceInfo(result.gear.device);
         }
 
         fn parseRpcDeviceInfo(self: *Self, data: []const u8) !DeviceInfo {
@@ -383,9 +423,9 @@ pub fn make(comptime grt: type) type {
                 v: i64,
                 id: []const u8,
                 result: ?DeviceInfo = null,
-                @"error": ?rpc_mod.RpcError = null,
+                @"error": ?models.RPCError = null,
             };
-            const parsed = try rt.json.parseFromSlice(Response, self.allocator, data, .{ .ignore_unknown_fields = true });
+            const parsed = try grt.std.json.parseFromSlice(Response, self.allocator, data, .{ .ignore_unknown_fields = true });
             defer parsed.deinit();
             _ = parsed.value.v;
             _ = parsed.value.id;
@@ -393,7 +433,37 @@ pub fn make(comptime grt: type) type {
             return try self.dupeDeviceInfo(parsed.value.result orelse return error.MissingRpcResult);
         }
 
-        fn rpcResponseError(rpc_error: rpc_mod.RpcError) anyerror {
+        fn parseRpcPeerRuntime(self: *Self, data: []const u8) !RuntimeStatus {
+            const Response = struct {
+                v: i64,
+                id: []const u8,
+                result: ?RuntimeStatus = null,
+                @"error": ?models.RPCError = null,
+            };
+            const parsed = try grt.std.json.parseFromSlice(Response, self.allocator, data, .{ .ignore_unknown_fields = true });
+            defer parsed.deinit();
+            _ = parsed.value.v;
+            _ = parsed.value.id;
+            if (parsed.value.@"error") |rpc_error| return rpcResponseError(rpc_error);
+            return try self.dupeRuntime(parsed.value.result orelse return error.MissingRpcResult);
+        }
+
+        fn parseRpcServerInfo(self: *Self, data: []const u8) !ServerInfo {
+            const Response = struct {
+                v: i64,
+                id: []const u8,
+                result: ?ServerInfo = null,
+                @"error": ?models.RPCError = null,
+            };
+            const parsed = try grt.std.json.parseFromSlice(Response, self.allocator, data, .{ .ignore_unknown_fields = true });
+            defer parsed.deinit();
+            _ = parsed.value.v;
+            _ = parsed.value.id;
+            if (parsed.value.@"error") |rpc_error| return rpcResponseError(rpc_error);
+            return try self.dupeServerInfo(parsed.value.result orelse return error.MissingRpcResult);
+        }
+
+        fn rpcResponseError(rpc_error: models.RPCError) anyerror {
             if (rpc_error.code == -1) return error.RpcMethodNotFound;
             if (rpc_error.code == -32600) return error.RpcInvalidRequest;
             if (rpc_error.code == -32601) return error.RpcMethodNotFound;
@@ -415,44 +485,62 @@ pub fn make(comptime grt: type) type {
                 out.hardware.?.manufacturer = try dupeOptional(self.allocator, hardware.manufacturer);
                 out.hardware.?.model = try dupeOptional(self.allocator, hardware.model);
                 out.hardware.?.hardware_revision = try dupeOptional(self.allocator, hardware.hardware_revision);
-                out.hardware.?.depot = try dupeOptional(self.allocator, hardware.depot);
-                out.hardware.?.firmware_semver = try dupeOptional(self.allocator, hardware.firmware_semver);
                 out.hardware.?.imeis = try self.dupeGearIMEIs(hardware.imeis);
                 out.hardware.?.labels = try self.dupeGearLabels(hardware.labels);
             }
             return out;
         }
 
-        fn dupeGearIMEIs(self: *Self, value: ?[]GearIMEI) !?[]GearIMEI {
+        fn dupeServerInfo(self: *Self, info: ServerInfo) !ServerInfo {
+            return .{
+                .public_key = try self.allocator.dupe(u8, info.public_key),
+                .server_time = info.server_time,
+                .build_commit = try self.allocator.dupe(u8, info.build_commit),
+            };
+        }
+
+        fn dupeRuntime(self: *Self, runtime: RuntimeStatus) !RuntimeStatus {
+            return .{
+                .online = runtime.online,
+                .last_seen_at = try self.allocator.dupe(u8, runtime.last_seen_at),
+                .last_addr = try dupeOptional(self.allocator, runtime.last_addr),
+                .rx_bytes = runtime.rx_bytes,
+                .tx_bytes = runtime.tx_bytes,
+            };
+        }
+
+        fn dupeGearIMEIs(self: *Self, value: ?[]const GearIMEI) !?[]const GearIMEI {
             const items = value orelse return null;
             const out = try self.allocator.alloc(GearIMEI, items.len);
             errdefer self.allocator.free(out);
             var filled: usize = 0;
             errdefer {
-                for (out[0..filled]) |*item| deinitGearIMEI(self.allocator, item);
+                for (out[0..filled]) |item| deinitGearIMEI(self.allocator, item);
             }
             for (items, 0..) |item, index| {
-                out[index] = .{};
-                out[index].tac = try self.allocator.dupe(u8, item.tac);
-                out[index].serial = try self.allocator.dupe(u8, item.serial);
-                out[index].name = try dupeOptional(self.allocator, item.name);
+                out[index] = .{
+                    .tac = try self.allocator.dupe(u8, item.tac),
+                    .serial = try self.allocator.dupe(u8, item.serial),
+                    .name = try dupeOptional(self.allocator, item.name),
+                };
                 filled += 1;
             }
             return out;
         }
 
-        fn dupeGearLabels(self: *Self, value: ?[]GearLabel) !?[]GearLabel {
+        fn dupeGearLabels(self: *Self, value: ?[]const GearLabel) !?[]const GearLabel {
             const items = value orelse return null;
             const out = try self.allocator.alloc(GearLabel, items.len);
             errdefer self.allocator.free(out);
             var filled: usize = 0;
             errdefer {
-                for (out[0..filled]) |*item| deinitGearLabel(self.allocator, item);
+                for (out[0..filled]) |item| deinitGearLabel(self.allocator, item);
             }
             for (items, 0..) |item, index| {
-                out[index] = .{};
-                out[index].key = try self.allocator.dupe(u8, item.key);
-                out[index].value = try self.allocator.dupe(u8, item.value);
+                out[index] = .{
+                    .key = try self.allocator.dupe(u8, item.key),
+                    .value = try self.allocator.dupe(u8, item.value),
+                };
                 filled += 1;
             }
             return out;
@@ -461,13 +549,6 @@ pub fn make(comptime grt: type) type {
         fn dupeOptional(allocator: Allocator, value: ?[]const u8) !?[]u8 {
             if (value) |text| return try allocator.dupe(u8, text);
             return null;
-        }
-
-        fn deviceInfoJson(self: *Self, info: DeviceInfo) ![]u8 {
-            var out = rt.Io.Writer.Allocating.init(self.allocator);
-            errdefer out.deinit();
-            try rt.json.Stringify.value(info, .{}, &out.writer);
-            return try out.toOwnedSlice();
         }
     };
 }

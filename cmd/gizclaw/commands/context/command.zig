@@ -5,7 +5,7 @@ const gstd = @import("gstd");
 const flags_mod = @import("../../lib/flags.zig");
 const cli_context = @import("../../lib/context.zig");
 
-const key = gizclaw.make(gstd.runtime).key;
+const key = gizclaw.make(gstd.runtime, .{}).key;
 
 pub fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len == 0 or flags_mod.isHelp(args[0])) return printHelp();

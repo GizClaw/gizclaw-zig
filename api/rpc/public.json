@@ -1,0 +1,21 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "RPC Public Service Types",
+    "description": "Schemas for public bootstrap RPC methods.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "ServerGetInfoRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "ServerGetInfoResponse": {
+        "$ref": "../type/server_info.json#/components/schemas/ServerInfo"
+      }
+    }
+  }
+}

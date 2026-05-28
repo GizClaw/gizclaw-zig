@@ -4,6 +4,7 @@ const context_cmd = @import("commands/context/command.zig");
 const device_cmd = @import("commands/device/command.zig");
 const ping_cmd = @import("commands/ping/command.zig");
 const serverinfo_cmd = @import("commands/serverinfo/command.zig");
+const setname_cmd = @import("commands/setname/command.zig");
 const flags_mod = @import("lib/flags.zig");
 
 pub fn main() !void {
@@ -32,6 +33,10 @@ fn run(allocator: std.mem.Allocator, args: []const []const u8) !void {
     if (std.mem.eql(u8, args[0], "device")) return device_cmd.run(allocator, args[1..]);
     if (std.mem.eql(u8, args[0], "ping")) return ping_cmd.run(allocator, args[1..]);
     if (std.mem.eql(u8, args[0], "server-info")) return serverinfo_cmd.run(allocator, args[1..]);
+    if (std.mem.eql(u8, args[0], "set-name")) {
+        if (args.len > 1 and flags_mod.isHelp(args[1])) return setname_cmd.printHelp();
+        return setname_cmd.run(allocator, args[1..]);
+    }
     if (std.mem.eql(u8, args[0], "help")) return printRootHelp();
     return error.UnknownCommand;
 }
@@ -44,6 +49,7 @@ fn printRootHelp() !void {
         \\  gizclaw device
         \\  gizclaw ping [--context name]
         \\  gizclaw server-info [--context name]
+        \\  gizclaw set-name <name> [--context name]
         \\
     );
 }
@@ -67,6 +73,7 @@ fn errorMessage(err: anyerror) []const u8 {
         error.BadRequest => "bad request",
         error.UnknownCommand => "unknown command",
         error.InvalidArguments => "invalid arguments",
+        error.EmptyDeviceName => "device name must not be empty",
         else => @errorName(err),
     };
 }

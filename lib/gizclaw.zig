@@ -1,8 +1,10 @@
 //! Client-side GizClaw helpers.
 
 pub const Client = @import("gizclaw/Client.zig");
+pub const Config = Client.Config;
 pub const key = @import("gizclaw/key.zig");
-pub const rpc = @import("gizclaw/rpc.zig");
+pub const models = @import("gizclaw/models.zig");
+pub const RpcClient = @import("gizclaw/RpcClient.zig");
 pub const service = @import("gizclaw/service.zig");
 
 pub const test_runner = struct {
@@ -12,11 +14,12 @@ pub const test_runner = struct {
     pub const cork = @import("gizclaw/test_runner/cork.zig");
 };
 
-pub fn make(comptime grt: type) type {
+pub fn make(comptime grt: type, comptime config: Config) type {
     return struct {
-        pub const Client = @import("gizclaw/Client.zig").make(grt);
+        pub const Client = @import("gizclaw/Client.zig").make(grt, config);
+        pub const RpcClient = @import("gizclaw/RpcClient.zig").make(grt);
         pub const key = @import("gizclaw/key.zig").make(grt);
-        pub const rpc = @import("gizclaw/rpc.zig").make(grt);
+        pub const models = @import("gizclaw/models.zig");
         pub const service = @import("gizclaw/service.zig");
     };
 }

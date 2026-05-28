@@ -5,17 +5,21 @@ const gizclaw = @import("gizclaw");
 const cli_context = @import("context.zig");
 
 const grt = gstd.runtime;
-const sdk = gizclaw.make(grt);
+const sdk = gizclaw.make(grt, .{});
 pub const Client = sdk.Client;
+pub const models = sdk.models;
 
-pub fn connectFromContext(allocator: std.mem.Allocator, ctx: *const cli_context.Context) !Client {
-    var client = Client.init(allocator, ctx.key_pair);
-    errdefer client.deinit();
+pub fn initFromContext(allocator: std.mem.Allocator, ctx: *const cli_context.Context) !Client {
+    return try Client.init(allocator, .{
+        .key_pair = ctx.key_pair,
+    });
+}
+
+pub fn connect(client: *Client, ctx: *const cli_context.Context) !void {
     try client.connect(.{
         .server_key = ctx.config.server.public_key,
         .server_addr = ctx.config.server.address,
     });
-    return client;
 }
 
 pub fn loadSelectedContext(allocator: std.mem.Allocator, name: ?[]const u8) !cli_context.Context {

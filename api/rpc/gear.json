@@ -1,0 +1,51 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "RPC Gear Service Types",
+    "description": "Schemas for gear-side and gear-facing RPC methods.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "DeviceGetInfoRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "DeviceGetInfoResponse": {
+        "$ref": "../type/refresh_info.json#/components/schemas/RefreshInfo"
+      },
+      "DeviceGetIdentifiersRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "DeviceGetIdentifiersResponse": {
+        "$ref": "../type/refresh_identifiers.json#/components/schemas/RefreshIdentifiers"
+      },
+      "PeerGetInfoRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "PeerGetInfoResponse": {
+        "$ref": "../type/device_info.json#/components/schemas/DeviceInfo"
+      },
+      "PeerPutInfoRequest": {
+        "$ref": "../type/device_info.json#/components/schemas/DeviceInfo"
+      },
+      "PeerPutInfoResponse": {
+        "$ref": "../type/device_info.json#/components/schemas/DeviceInfo"
+      },
+      "PeerGetRuntimeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "PeerGetRuntimeResponse": {
+        "$ref": "../type/runtime.json#/components/schemas/Runtime"
+      }
+    }
+  }
+}
