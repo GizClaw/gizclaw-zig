@@ -45,6 +45,7 @@ pub fn build(b: *std.Build) void {
     const models_options = b.addOptions();
     models_options.addOption([]const u8, "rpc_json", readBuildFile(b, "api/rpc.json"));
     models_options.addOption([]const u8, "rpc_peer_json", readBuildFile(b, "api/rpc/peer.json"));
+    models_options.addOption([]const u8, "rpc_device_json", readBuildFile(b, "api/rpc/device.json"));
     models_options.addOption([]const u8, "rpc_public_json", readBuildFile(b, "api/rpc/public.json"));
     models_options.addOption([]const u8, "rpc_gear_json", readBuildFile(b, "api/rpc/gear.json"));
     models_options.addOption([]const u8, "type_configuration_json", readBuildFile(b, "api/type/configuration.json"));

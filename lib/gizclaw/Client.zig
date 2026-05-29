@@ -179,13 +179,13 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             return try self.parseRpcServerInfo(response_data);
         }
 
-        pub fn deviceInfo(self: *Self) !DeviceInfo {
+        pub fn peerInfo(self: *Self) !DeviceInfo {
             const response_data = try self.rpcCall("peer-info-get", RpcClient.method_peer_info_get, "{}");
             defer self.allocator.free(response_data);
             return try self.parseRpcDeviceInfo(response_data);
         }
 
-        pub fn putDeviceInfo(self: *Self, info: DeviceInfo) !DeviceInfo {
+        pub fn putPeerInfo(self: *Self, info: DeviceInfo) !DeviceInfo {
             const body = try models.toJson(self.allocator, info);
             defer self.allocator.free(body);
             const response_data = try self.rpcCall("peer-info-put", RpcClient.method_peer_info_put, body);
@@ -193,8 +193,8 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             return try self.parseRpcDeviceInfo(response_data);
         }
 
-        pub fn putLocalDeviceInfo(self: *Self) !DeviceInfo {
-            return try self.putDeviceInfo(self.local_device_info);
+        pub fn putLocalPeerInfo(self: *Self) !DeviceInfo {
+            return try self.putPeerInfo(self.local_device_info);
         }
 
         pub fn peerRuntime(self: *Self) !RuntimeStatus {
@@ -203,8 +203,8 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             return try self.parseRpcPeerRuntime(response_data);
         }
 
-        pub fn setDeviceName(self: *Self, name: []const u8) !DeviceInfo {
-            if (self.deviceInfo()) |existing| {
+        pub fn setPeerName(self: *Self, name: []const u8) !DeviceInfo {
+            if (self.peerInfo()) |existing| {
                 var info = existing;
                 defer deinitDeviceInfo(self.allocator, &info);
                 if (info.name) |old| {
@@ -212,9 +212,9 @@ pub fn make(comptime grt: type, comptime config: Config) type {
                     info.name = null;
                 }
                 info.name = try self.allocator.dupe(u8, name);
-                return try self.putDeviceInfo(info);
+                return try self.putPeerInfo(info);
             } else |err| {
-                if (err == error.GearNotFound) return try self.putDeviceInfo(.{ .name = name });
+                if (err == error.GearNotFound) return try self.putPeerInfo(.{ .name = name });
                 return err;
             }
         }
@@ -279,16 +279,32 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             defer parsed.deinit();
             _ = parsed.value.v;
 
-            const response = if (grt.std.mem.eql(u8, parsed.value.method, RpcClient.method_ping))
-                try buildRpcPingResponse(self.allocator, parsed.value.id)
-            else if (grt.std.mem.eql(u8, parsed.value.method, RpcClient.method_device_info_get))
-                try self.buildRpcDeviceInfoResponse(parsed.value.id)
-            else if (grt.std.mem.eql(u8, parsed.value.method, RpcClient.method_device_identifiers_get))
-                try self.buildRpcDeviceIdentifiersResponse(parsed.value.id)
-            else
-                try buildRpcErrorResponse(self.allocator, parsed.value.id, -32601, "method not found");
+            const response = self.servePeerService(parsed.value.id, parsed.value.method) catch |peer_err| switch (peer_err) {
+                error.RpcMethodNotFound => self.serveDeviceService(parsed.value.id, parsed.value.method) catch |device_err| switch (device_err) {
+                    error.RpcMethodNotFound => try buildRpcErrorResponse(self.allocator, parsed.value.id, -32601, "method not found"),
+                    else => return device_err,
+                },
+                else => return peer_err,
+            };
             defer self.allocator.free(response);
             try Rpc.writeFrame(stream, response);
+        }
+
+        fn servePeerService(self: *Self, id: []const u8, method: []const u8) ![]u8 {
+            if (grt.std.mem.eql(u8, method, RpcClient.method_ping)) {
+                return try buildRpcPingResponse(self.allocator, id);
+            }
+            return error.RpcMethodNotFound;
+        }
+
+        fn serveDeviceService(self: *Self, id: []const u8, method: []const u8) ![]u8 {
+            if (grt.std.mem.eql(u8, method, RpcClient.method_device_info_get)) {
+                return try self.buildRpcDeviceInfoResponse(id);
+            }
+            if (grt.std.mem.eql(u8, method, RpcClient.method_device_identifiers_get)) {
+                return try self.buildRpcDeviceIdentifiersResponse(id);
+            }
+            return error.RpcMethodNotFound;
         }
 
         fn deinitHardwareInfo(allocator: Allocator, hardware: *HardwareInfo) void {

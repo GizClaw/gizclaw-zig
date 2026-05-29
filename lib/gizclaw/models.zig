@@ -8,6 +8,7 @@ fn files() openapi.Files {
         .items = &.{
             .{ .name = "./rpc.json", .spec = openapi.json.parse(options.rpc_json) },
             .{ .name = "./rpc/peer.json", .spec = openapi.json.parse(options.rpc_peer_json) },
+            .{ .name = "./rpc/device.json", .spec = openapi.json.parse(options.rpc_device_json) },
             .{ .name = "./rpc/public.json", .spec = openapi.json.parse(options.rpc_public_json) },
             .{ .name = "./rpc/gear.json", .spec = openapi.json.parse(options.rpc_gear_json) },
             .{ .name = "./type/configuration.json", .spec = openapi.json.parse(options.type_configuration_json) },

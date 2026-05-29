@@ -20,7 +20,7 @@ fn runInfo(allocator: std.mem.Allocator, args: []const []const u8) !void {
     defer client.deinit();
     try client_lib.connect(&client, &ctx);
 
-    var info = try client.deviceInfo();
+    var info = try client.peerInfo();
     defer client_lib.Client.deinitDeviceInfo(allocator, &info);
     try printDeviceInfo(allocator, info);
 }
@@ -37,7 +37,7 @@ fn runSetName(allocator: std.mem.Allocator, args: []const []const u8) !void {
     defer client.deinit();
     try client_lib.connect(&client, &ctx);
 
-    var info = try client.setDeviceName(positionals[0]);
+    var info = try client.setPeerName(positionals[0]);
     defer client_lib.Client.deinitDeviceInfo(allocator, &info);
     try printDeviceInfo(allocator, info);
 }
