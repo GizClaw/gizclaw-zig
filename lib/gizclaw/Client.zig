@@ -1,7 +1,7 @@
 const glib = @import("glib");
 const giznet = @import("giznet");
 
-const RpcClient = @import("RpcClient.zig");
+const Rpc = @import("Rpc.zig");
 const models = @import("models.zig");
 const service = @import("service.zig");
 
@@ -24,7 +24,7 @@ pub fn make(comptime grt: type, comptime config: Config) type {
     const Allocator = grt.std.mem.Allocator;
     const RuntimePackage = giznet.runtime.make(grt, config.packet_size_capacity, config.cipher_kind);
     const RuntimeGizNet = RuntimePackage.GizNet;
-    const Rpc = RpcClient.make(grt);
+    const RpcRuntime = Rpc.make(grt);
     const ServerInfo = models.ServerInfo;
     const DeviceInfo = models.DeviceInfo;
     const HardwareInfo = models.HardwareInfo;
@@ -168,19 +168,19 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             const conn = self.conn orelse return error.ClientNotConnected;
             const stream = try conn.openStream(service.rpc);
             try setStreamDeadline(stream);
-            var rpc_client = Rpc.Client.init(self.allocator, stream);
-            defer rpc_client.deinit();
-            return try rpc_client.ping("ping");
+            var rpc = RpcRuntime.Rpc.init(self.allocator, stream);
+            defer rpc.deinit();
+            return try rpc.ping("ping");
         }
 
         pub fn serverInfo(self: *Self) !ServerInfo {
-            const response_data = try self.rpcCall("server-info-get", RpcClient.method_server_info_get, "{}");
+            const response_data = try self.rpcCall("server-info-get", Rpc.method_server_info_get, "{}");
             defer self.allocator.free(response_data);
             return try self.parseRpcServerInfo(response_data);
         }
 
         pub fn peerInfo(self: *Self) !DeviceInfo {
-            const response_data = try self.rpcCall("peer-info-get", RpcClient.method_peer_info_get, "{}");
+            const response_data = try self.rpcCall("peer-info-get", Rpc.method_peer_info_get, "{}");
             defer self.allocator.free(response_data);
             return try self.parseRpcDeviceInfo(response_data);
         }
@@ -188,7 +188,7 @@ pub fn make(comptime grt: type, comptime config: Config) type {
         pub fn putPeerInfo(self: *Self, info: DeviceInfo) !DeviceInfo {
             const body = try models.toJson(self.allocator, info);
             defer self.allocator.free(body);
-            const response_data = try self.rpcCall("peer-info-put", RpcClient.method_peer_info_put, body);
+            const response_data = try self.rpcCall("peer-info-put", Rpc.method_peer_info_put, body);
             defer self.allocator.free(response_data);
             return try self.parseRpcDeviceInfo(response_data);
         }
@@ -198,7 +198,7 @@ pub fn make(comptime grt: type, comptime config: Config) type {
         }
 
         pub fn peerRuntime(self: *Self) !RuntimeStatus {
-            const response_data = try self.rpcCall("peer-runtime-get", RpcClient.method_peer_runtime_get, "{}");
+            const response_data = try self.rpcCall("peer-runtime-get", Rpc.method_peer_runtime_get, "{}");
             defer self.allocator.free(response_data);
             return try self.parseRpcPeerRuntime(response_data);
         }
@@ -256,19 +256,25 @@ pub fn make(comptime grt: type, comptime config: Config) type {
 
         fn acceptOneStream(self: *Self, conn: giznet.Conn) !void {
             var stream = try conn.accept(stream_accept_timeout);
-            defer stream.deinit();
-            defer stream.close() catch {};
-
+            errdefer stream.deinit();
+            errdefer stream.close() catch {};
             try setStreamDeadline(stream);
             switch (stream.service) {
                 service.rpc => self.serveRpc(stream) catch {},
-                else => {},
+                else => {
+                    defer stream.deinit();
+                    defer stream.close() catch {};
+                },
             }
         }
 
         fn serveRpc(self: *Self, stream: giznet.Stream) !void {
-            const data = try Rpc.readFrame(self.allocator, stream);
+            var rpc = RpcRuntime.Rpc.init(self.allocator, stream);
+            defer rpc.deinit();
+
+            const data = try rpc.readJsonFrame();
             defer self.allocator.free(data);
+            try rpc.readEOS();
 
             const Request = struct {
                 v: i64,
@@ -287,21 +293,22 @@ pub fn make(comptime grt: type, comptime config: Config) type {
                 else => return peer_err,
             };
             defer self.allocator.free(response);
-            try Rpc.writeFrame(stream, response);
+            try rpc.writeJsonFrame(response);
+            try rpc.writeEOS();
         }
 
         fn servePeerService(self: *Self, id: []const u8, method: []const u8) ![]u8 {
-            if (grt.std.mem.eql(u8, method, RpcClient.method_ping)) {
+            if (grt.std.mem.eql(u8, method, Rpc.method_ping)) {
                 return try buildRpcPingResponse(self.allocator, id);
             }
             return error.RpcMethodNotFound;
         }
 
         fn serveDeviceService(self: *Self, id: []const u8, method: []const u8) ![]u8 {
-            if (grt.std.mem.eql(u8, method, RpcClient.method_device_info_get)) {
+            if (grt.std.mem.eql(u8, method, Rpc.method_device_info_get)) {
                 return try self.buildRpcDeviceInfoResponse(id);
             }
-            if (grt.std.mem.eql(u8, method, RpcClient.method_device_identifiers_get)) {
+            if (grt.std.mem.eql(u8, method, Rpc.method_device_identifiers_get)) {
                 return try self.buildRpcDeviceIdentifiersResponse(id);
             }
             return error.RpcMethodNotFound;
@@ -337,9 +344,9 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             const conn = self.conn orelse return error.ClientNotConnected;
             const stream = try conn.openStream(service.rpc);
             try setStreamDeadline(stream);
-            var rpc_client = Rpc.Client.init(self.allocator, stream);
-            defer rpc_client.deinit();
-            return try rpc_client.call(id, method, params_json);
+            var rpc = RpcRuntime.Rpc.init(self.allocator, stream);
+            defer rpc.deinit();
+            return try rpc.call(id, method, params_json);
         }
 
         fn buildRpcPingResponse(allocator: Allocator, id: []const u8) ![]u8 {
