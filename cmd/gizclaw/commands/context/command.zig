@@ -25,7 +25,11 @@ fn runCreate(store: cli_context.Store, args: []const []const u8) !void {
     if (flags.positionals().len != 1) return error.InvalidArguments;
     const server = flags.value("server") orelse return error.MissingServerFlag;
     const pubkey = flags.value("pubkey") orelse return error.MissingPubkeyFlag;
-    try store.create(flags.positionals()[0], server, pubkey);
+    const cipher_mode = if (flags.value("cipher-mode")) |value|
+        try cli_context.parseCipherMode(value)
+    else
+        cli_context.default_cipher_mode;
+    try store.create(flags.positionals()[0], server, pubkey, cipher_mode);
     var out = std.fs.File.stdout().deprecatedWriter();
     try out.print("Context \"{s}\" created.\n", .{flags.positionals()[0]});
 }
@@ -75,12 +79,13 @@ fn printContextInfo(info: cli_context.Info) !void {
     var identity_key: [52]u8 = undefined;
     var out = std.fs.File.stdout().deprecatedWriter();
     try out.print(
-        "{{\"name\":\"{s}\",\"current\":{},\"server_address\":\"{s}\",\"server_public_key\":\"{s}\",\"identity_public\":\"{s}\"}}\n",
+        "{{\"name\":\"{s}\",\"current\":{},\"server_address\":\"{s}\",\"server_public_key\":\"{s}\",\"cipher_mode\":\"{s}\",\"identity_public\":\"{s}\"}}\n",
         .{
             info.name,
             info.current,
             info.server_address,
             key.format(info.server_public_key, &server_key),
+            cli_context.formatCipherMode(info.cipher_mode),
             key.format(info.identity_public, &identity_key),
         },
     );
@@ -90,7 +95,7 @@ fn printHelp() !void {
     var out = std.fs.File.stdout().deprecatedWriter();
     try out.writeAll(
         \\Usage:
-        \\  gizclaw context create <name> --server <addr> --pubkey <key>
+        \\  gizclaw context create <name> --server <addr> --pubkey <key> [--cipher-mode chacha_poly|aes_256_gcm|plaintext]
         \\  gizclaw context use <name>
         \\  gizclaw context list
         \\  gizclaw context info

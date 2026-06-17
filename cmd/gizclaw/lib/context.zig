@@ -12,7 +12,16 @@ pub const Config = struct {
 pub const ServerConfig = struct {
     address: []const u8,
     public_key: giznet.Key,
+    cipher_mode: CipherMode = default_cipher_mode,
 };
+
+pub const CipherMode = enum {
+    chacha_poly,
+    aes_256_gcm,
+    plaintext,
+};
+
+pub const default_cipher_mode: CipherMode = .chacha_poly;
 
 pub const Context = struct {
     allocator: std.mem.Allocator,
@@ -34,6 +43,7 @@ pub const Info = struct {
     current: bool,
     server_address: []const u8,
     server_public_key: giznet.Key,
+    cipher_mode: CipherMode,
     identity_public: giznet.Key,
 };
 
@@ -53,7 +63,13 @@ pub const Store = struct {
         self.* = undefined;
     }
 
-    pub fn create(self: Store, name: []const u8, server_addr: []const u8, server_pub_key: []const u8) !void {
+    pub fn create(
+        self: Store,
+        name: []const u8,
+        server_addr: []const u8,
+        server_pub_key: []const u8,
+        cipher_mode: CipherMode,
+    ) !void {
         try validateName(name);
         const server_key = key.parse(server_pub_key) catch return error.InvalidServerPublicKey;
         const dir = try std.fs.path.join(self.allocator, &.{ self.root, name });
@@ -75,8 +91,12 @@ pub const Store = struct {
         defer self.allocator.free(config_path);
         const config_data = try std.fmt.allocPrint(
             self.allocator,
-            "server:\n  address: {s}\n  public-key: {s}\n",
-            .{ server_addr, key.format(server_key, &server_key_buf) },
+            "server:\n  address: {s}\n  public-key: {s}\n  cipher-mode: {s}\n",
+            .{
+                server_addr,
+                key.format(server_key, &server_key_buf),
+                formatCipherMode(cipher_mode),
+            },
         );
         defer self.allocator.free(config_data);
         try std.fs.cwd().writeFile(.{
@@ -223,6 +243,7 @@ pub fn info(ctx: *const Context, current_name: []const u8) Info {
         .current = std.mem.eql(u8, ctx.name, current_name),
         .server_address = ctx.config.server.address,
         .server_public_key = ctx.config.server.public_key,
+        .cipher_mode = ctx.config.server.cipher_mode,
         .identity_public = ctx.key_pair.public,
     };
 }
@@ -231,6 +252,7 @@ fn parseConfig(allocator: std.mem.Allocator, data: []const u8) !Config {
     var address: ?[]u8 = null;
     errdefer if (address) |value| allocator.free(value);
     var public_key: ?giznet.Key = null;
+    var cipher_mode: CipherMode = default_cipher_mode;
 
     var lines = std.mem.splitScalar(u8, data, '\n');
     while (lines.next()) |line| {
@@ -241,6 +263,9 @@ fn parseConfig(allocator: std.mem.Allocator, data: []const u8) !Config {
         } else if (std.mem.startsWith(u8, trimmed, "public-key:")) {
             const raw = std.mem.trim(u8, trimmed["public-key:".len..], " \t\"'");
             public_key = key.parse(raw) catch return error.InvalidServerPublicKey;
+        } else if (std.mem.startsWith(u8, trimmed, "cipher-mode:")) {
+            const raw = std.mem.trim(u8, trimmed["cipher-mode:".len..], " \t\"'");
+            cipher_mode = try parseCipherMode(raw);
         }
     }
 
@@ -248,7 +273,38 @@ fn parseConfig(allocator: std.mem.Allocator, data: []const u8) !Config {
         .server = .{
             .address = address orelse return error.MissingServerAddress,
             .public_key = public_key orelse return error.MissingServerPublicKey,
+            .cipher_mode = cipher_mode,
         },
+    };
+}
+
+pub fn parseCipherMode(raw: []const u8) !CipherMode {
+    if (std.mem.eql(u8, raw, "chacha_poly") or
+        std.mem.eql(u8, raw, "chacha-poly") or
+        std.mem.eql(u8, raw, "chacha20_poly1305") or
+        std.mem.eql(u8, raw, "chacha20-poly1305"))
+    {
+        return .chacha_poly;
+    }
+    if (std.mem.eql(u8, raw, "aes_256_gcm") or
+        std.mem.eql(u8, raw, "aes-256-gcm") or
+        std.mem.eql(u8, raw, "aesgcm"))
+    {
+        return .aes_256_gcm;
+    }
+    if (std.mem.eql(u8, raw, "plaintext") or
+        std.mem.eql(u8, raw, "plain-text"))
+    {
+        return .plaintext;
+    }
+    return error.InvalidCipherMode;
+}
+
+pub fn formatCipherMode(mode: CipherMode) []const u8 {
+    return switch (mode) {
+        .chacha_poly => "chacha_poly",
+        .aes_256_gcm => "aes_256_gcm",
+        .plaintext => "plaintext",
     };
 }
 
