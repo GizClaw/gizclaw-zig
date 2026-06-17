@@ -3,15 +3,10 @@ const build_test = @import("build/test.zig");
 
 const lib_giznet = @import("build/lib/giznet.zig");
 const lib_gizclaw = @import("build/lib/gizclaw.zig");
-const cmd_gizclaw = @import("build/cmd/gizclaw.zig");
 
 const Libraries = struct {
     pub const giznet = lib_giznet;
     pub const gizclaw = lib_gizclaw;
-};
-
-const Commands = struct {
-    pub const gizclaw = cmd_gizclaw;
 };
 
 pub fn build(b: *std.Build) void {
@@ -69,14 +64,6 @@ pub fn build(b: *std.Build) void {
 
     inline for (@typeInfo(Libraries).@"struct".decls) |decl| {
         @field(Libraries, decl.name).link(b);
-    }
-
-    inline for (@typeInfo(Commands).@"struct".decls) |decl| {
-        @field(Commands, decl.name).create(b, target, optimize);
-    }
-
-    inline for (@typeInfo(Commands).@"struct".decls) |decl| {
-        @field(Commands, decl.name).link(b);
     }
 
     build_test.createTestModule(b, target, optimize, Libraries);
