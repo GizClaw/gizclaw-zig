@@ -14,12 +14,7 @@
     },
     .dependencies = .{
         .embed = .{
-            .url = "https://codeload.github.com/embed-zig/embed-zig/tar.gz/v2.0.1",
-            .hash = "embed_zig-2.0.1-prAy_AZZZADz-eEX5bbg00oXHAG-fxD_-0ZyYmCP0bhW",
-        },
-        .zig_kcp = .{
-            .url = "https://codeload.github.com/jinzhongjia/zig-kcp/tar.gz/fafdad53e0eb109e717d93e501849d547b6101e1",
-            .hash = "kcp-0.0.1-Z1pMoS2gAgB4tkCwbWBjOEDuqFf3qP8oZKWPDuaCXIEd",
+            .path = "../embed-zig/embed-zig",
         },
         .openapi_codegen = .{
             .path = "../embed-zig/openapi-codegen",

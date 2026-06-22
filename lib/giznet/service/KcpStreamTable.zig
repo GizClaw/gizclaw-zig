@@ -92,7 +92,7 @@ pub fn make(comptime grt: type) type {
         }
 
         pub fn getOrCreateFromFrame(self: *Self, remote_static: Key, service: u64, frame: []const u8) !GetOrCreateResult {
-            return self.getOrCreate(remote_static, service, try kcp_ns.getconv(frame));
+            return self.getOrCreate(remote_static, service, try getConv(frame));
         }
 
         pub fn removeRemote(self: *Self, remote_static: Key) void {
@@ -139,6 +139,14 @@ pub fn make(comptime grt: type) type {
             return false;
         }
     };
+}
+
+fn getConv(frame: []const u8) !u32 {
+    if (frame.len < @sizeOf(u32)) return error.KcpFrameTooSmall;
+    return @as(u32, frame[0]) |
+        (@as(u32, frame[1]) << 8) |
+        (@as(u32, frame[2]) << 16) |
+        (@as(u32, frame[3]) << 24);
 }
 
 pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {

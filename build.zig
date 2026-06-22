@@ -19,21 +19,17 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .sysroot = sysroot,
     });
-    const zig_kcp_dep = b.dependency("zig_kcp", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     const glib = embed_dep.module("glib");
     const gstd = embed_dep.module("gstd");
     const embed = embed_dep.module("embed");
+    const kcp = embed_dep.module("thirdparty/kcp");
     const openapi = embed_dep.module("openapi");
     const codegen = embed_dep.module("codegen");
 
     b.modules.put("glib", glib) catch @panic("OOM");
     b.modules.put("gstd", gstd) catch @panic("OOM");
     b.modules.put("embed", embed) catch @panic("OOM");
-    b.modules.put("kcp", zig_kcp_dep.module("kcp")) catch @panic("OOM");
+    b.modules.put("kcp", kcp) catch @panic("OOM");
     b.modules.put("openapi", openapi) catch @panic("OOM");
     b.modules.put("codegen", codegen) catch @panic("OOM");
 

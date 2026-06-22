@@ -67,7 +67,7 @@ pub fn make(comptime grt: type) type {
         remote_static: Key,
         service: u64,
         stream: u32,
-        kcp: *kcp_ns.Kcp,
+        kcp: [*c]kcp_ns.Kcp,
         pools: *packet.Pools,
         shared: SharedArc.Arc,
         write_segment_bytes: u32,
@@ -202,12 +202,12 @@ pub fn make(comptime grt: type) type {
             pools: *packet.Pools,
             config: Config,
         ) !Self {
-            const kcp = try kcp_ns.create(allocator, stream, null);
+            const kcp = kcp_ns.create(stream, null) orelse return error.KcpCreateFailed;
             errdefer kcp_ns.release(kcp);
             kcp_ns.setOutput(kcp, output);
-            kcp_ns.setNodelay(kcp, config.kcp_nodelay, config.kcp_interval, config.kcp_resend, config.kcp_no_congestion_control);
+            try setNodelay(kcp, config.kcp_nodelay, config.kcp_interval, config.kcp_resend, config.kcp_no_congestion_control);
             if (config.kcp_send_window != 0 or config.kcp_recv_window != 0) {
-                kcp_ns.wndsize(kcp, config.kcp_send_window, config.kcp_recv_window);
+                try wndsize(kcp, config.kcp_send_window, config.kcp_recv_window);
             }
 
             const read_ch = try makeChannelRef(ReadChannel, ReadChannelArc, allocator, config.channel_capacity);
@@ -232,7 +232,7 @@ pub fn make(comptime grt: type) type {
                 .kcp = kcp,
                 .pools = pools,
                 .shared = try SharedArc.adopt(allocator, shared_value),
-                .write_segment_bytes = kcp.mss,
+                .write_segment_bytes = kcp.*.mss,
                 .now = grt.time.instant.now(),
             };
         }
@@ -259,9 +259,9 @@ pub fn make(comptime grt: type) type {
                 .stream = self,
                 .callback = callback,
             };
-            const previous_user = self.kcp.user;
-            self.kcp.user = &output_ctx;
-            defer self.kcp.user = previous_user;
+            const previous_user = self.kcp.*.user;
+            self.kcp.*.user = &output_ctx;
+            defer self.kcp.*.user = previous_user;
 
             switch (input) {
                 .inbound => |pkt| {
@@ -276,7 +276,7 @@ pub fn make(comptime grt: type) type {
                         else => return error.InvalidKcpPacket,
                     };
                     try self.update(now);
-                    _ = try kcp_ns.input(self.kcp, frame);
+                    _ = try inputKcp(self.kcp, frame);
                     try self.drainKcpRecv();
                     try self.flush(callback);
                     self.updateWriteBackpressure();
@@ -292,7 +292,7 @@ pub fn make(comptime grt: type) type {
                     };
                     if (write.stream > grt.std.math.maxInt(u32)) return error.InvalidKcpStreamId;
                     if (write.service != self.service or @as(u32, @intCast(write.stream)) != self.stream) return error.KcpStreamMismatch;
-                    _ = try kcp_ns.send(self.kcp, write.payload);
+                    _ = try send(self.kcp, write.payload);
                     self.releaseReservedBytes(write.payload.len);
                     try self.update(now);
                     try self.flush(callback);
@@ -323,11 +323,11 @@ pub fn make(comptime grt: type) type {
         }
 
         fn update(self: *Self, now: glib.time.instant.Time) !void {
-            try kcp_ns.update(self.kcp, kcpTime(now));
+            kcp_ns.update(self.kcp, kcpTime(now));
         }
 
         fn flush(self: *Self, callback: Callback) !void {
-            try kcp_ns.flush(self.kcp);
+            kcp_ns.flush(self.kcp);
             try self.updateNextTick(callback);
         }
 
@@ -338,7 +338,7 @@ pub fn make(comptime grt: type) type {
 
         fn drainKcpRecv(self: *Self) !void {
             while (true) {
-                const peek_size = try kcp_ns.peeksize(self.kcp);
+                const peek_size = kcp_ns.peeksize(self.kcp);
                 if (peek_size <= 0) return;
 
                 const payload_len: usize = @intCast(peek_size);
@@ -348,7 +348,7 @@ pub fn make(comptime grt: type) type {
                     const payload = try self.allocator.alloc(u8, payload_len);
                     defer self.allocator.free(payload);
 
-                    const recv_len = try kcp_ns.recv(self.kcp, payload);
+                    const recv_len = try recv(self.kcp, payload);
                     try self.deliverKcpPayload(payload[0..recv_len]);
                     continue;
                 }
@@ -359,7 +359,7 @@ pub fn make(comptime grt: type) type {
                 const payload_buf = pkt.bufRef()[NoiseMessage.TransportHeaderSize..];
                 if (payload_buf.len < payload_len) return error.BufferTooSmall;
 
-                const recv_len = try kcp_ns.recv(self.kcp, payload_buf[0..payload_len]);
+                const recv_len = try recv(self.kcp, payload_buf[0..payload_len]);
                 try self.deliverInboundPacket(pkt, recv_len);
             }
         }
@@ -402,7 +402,8 @@ pub fn make(comptime grt: type) type {
 
         fn updateWriteBackpressure(self: *Self) void {
             const shared = self.shared.ptr();
-            const pending = kcp_ns.waitsnd(self.kcp);
+            const pending_i = kcp_ns.waitsnd(self.kcp);
+            const pending: u32 = if (pending_i <= 0) 0 else @intCast(pending_i);
             shared.kcp_pending_segments.store(pending, .release);
             const writable_limit = self.writableSegmentLimit();
             shared.writable_segment_limit.store(writable_limit, .release);
@@ -416,8 +417,8 @@ pub fn make(comptime grt: type) type {
             return writableSegmentLimitForKcp(self.kcp);
         }
 
-        fn writableSegmentLimitForKcp(kcp: *const kcp_ns.Kcp) u32 {
-            return if (kcp.snd_wnd == 0) fallback_writable_segment_limit else kcp.snd_wnd;
+        fn writableSegmentLimitForKcp(kcp: [*c]const kcp_ns.Kcp) u32 {
+            return if (kcp.*.snd_wnd == 0) fallback_writable_segment_limit else kcp.*.snd_wnd;
         }
 
         fn makeChannelRef(
@@ -460,14 +461,18 @@ pub fn make(comptime grt: type) type {
             callback: Callback,
         };
 
-        fn output(frame: []const u8, _: *kcp_ns.Kcp, user: ?*anyopaque) !i32 {
-            const ctx: *OutputContext = @ptrCast(@alignCast(user orelse return error.KcpStreamMissingOutputContext));
+        fn output(raw_frame: [*c]const u8, len: c_int, _: [*c]kcp_ns.Kcp, user: ?*anyopaque) callconv(.c) c_int {
+            if (len < 0) return -1;
+            const frame = raw_frame[0..@intCast(len)];
+            const ctx: *OutputContext = @ptrCast(@alignCast(user orelse return -1));
             const self = ctx.stream;
-            const pkt = self.pools.outbound.get() orelse return error.OutOfMemory;
-            errdefer pkt.deinit();
+            const pkt = self.pools.outbound.get() orelse return -1;
 
             const payload_buf = pkt.transportPlaintextBufRef();
-            if (payload_buf.len < frame.len) return error.BufferTooSmall;
+            if (payload_buf.len < frame.len) {
+                pkt.deinit();
+                return -1;
+            }
             @memcpy(payload_buf[0..frame.len], frame);
 
             pkt.remote_static = self.remote_static;
@@ -478,7 +483,10 @@ pub fn make(comptime grt: type) type {
                 .payload = payload_buf[0..frame.len],
             } };
 
-            try ctx.callback.handle(.{ .outbound = pkt });
+            ctx.callback.handle(.{ .outbound = pkt }) catch {
+                pkt.deinit();
+                return -1;
+            };
             return @intCast(frame.len);
         }
 
@@ -488,6 +496,32 @@ pub fn make(comptime grt: type) type {
 
         fn instantFromKcpTime(time_ms: u32) glib.time.instant.Time {
             return @as(glib.time.instant.Time, @intCast(time_ms)) * glib.time.duration.MilliSecond;
+        }
+
+        fn setNodelay(kcp: [*c]kcp_ns.Kcp, nodelay_value: i32, interval: i32, resend: i32, nc: i32) !void {
+            if (kcp_ns.nodelay(kcp, nodelay_value, interval, resend, nc) != 0) return error.KcpNodelayFailed;
+        }
+
+        fn wndsize(kcp: [*c]kcp_ns.Kcp, sndwnd: u32, rcvwnd: u32) !void {
+            if (kcp_ns.wndsize(kcp, @intCast(sndwnd), @intCast(rcvwnd)) != 0) return error.KcpWndsizeFailed;
+        }
+
+        fn send(kcp: [*c]kcp_ns.Kcp, buf: []const u8) !usize {
+            const rc = kcp_ns.send(kcp, @ptrCast(buf.ptr), @intCast(buf.len));
+            if (rc < 0) return error.KcpSendFailed;
+            return @intCast(rc);
+        }
+
+        fn recv(kcp: [*c]kcp_ns.Kcp, buf: []u8) !usize {
+            const rc = kcp_ns.recv(kcp, @ptrCast(buf.ptr), @intCast(buf.len));
+            if (rc < 0) return error.NoData;
+            return @intCast(rc);
+        }
+
+        fn inputKcp(kcp: [*c]kcp_ns.Kcp, buf: []const u8) !i32 {
+            const rc = kcp_ns.input(kcp, @ptrCast(buf.ptr), @intCast(buf.len));
+            if (rc < 0) return error.KcpInputFailed;
+            return rc;
         }
 
         fn bytesToSegments(bytes: u32, segment_bytes: u32) u32 {
@@ -574,12 +608,14 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             }
         }
 
-        fn kcpOutput(raw_frame: []const u8, _: *kcp_ns.Kcp, user: ?*anyopaque) !i32 {
-            const self: *@This() = @ptrCast(@alignCast(user orelse return error.MissingKcpOutputSink));
-            if (self.count >= self.frames.len) return error.FrameSinkFull;
-            if (raw_frame.len > self.frames[self.count].len) return error.FrameTooLarge;
-            @memcpy(self.frames[self.count][0..raw_frame.len], raw_frame);
-            self.lens[self.count] = raw_frame.len;
+        fn kcpOutput(raw_frame: [*c]const u8, len: c_int, _: [*c]kcp_ns.Kcp, user: ?*anyopaque) callconv(.c) c_int {
+            if (len < 0) return -1;
+            const output_frame = raw_frame[0..@intCast(len)];
+            const self: *@This() = @ptrCast(@alignCast(user orelse return -1));
+            if (self.count >= self.frames.len) return -1;
+            if (output_frame.len > self.frames[self.count].len) return -1;
+            @memcpy(self.frames[self.count][0..output_frame.len], output_frame);
+            self.lens[self.count] = output_frame.len;
             self.services[self.count] = service_id;
             self.streams[self.count] = stream_id;
             self.count += 1;
@@ -648,15 +684,34 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
         fn makeKcpAckFrame(buf: *[kcp_ns.OVERHEAD]u8, ts: u32) []const u8 {
             var offset: usize = 0;
-            offset = kcp_ns.codec.encode32u(buf, offset, stream_id);
-            offset = kcp_ns.codec.encode8u(buf, offset, @intCast(kcp_ns.CMD_ACK));
-            offset = kcp_ns.codec.encode8u(buf, offset, 0);
-            offset = kcp_ns.codec.encode16u(buf, offset, @intCast(kcp_ns.WND_RCV));
-            offset = kcp_ns.codec.encode32u(buf, offset, ts);
-            offset = kcp_ns.codec.encode32u(buf, offset, 0);
-            offset = kcp_ns.codec.encode32u(buf, offset, 0);
-            offset = kcp_ns.codec.encode32u(buf, offset, 0);
+            offset = encode32u(buf, offset, stream_id);
+            offset = encode8u(buf, offset, 82);
+            offset = encode8u(buf, offset, 0);
+            offset = encode16u(buf, offset, 128);
+            offset = encode32u(buf, offset, ts);
+            offset = encode32u(buf, offset, 0);
+            offset = encode32u(buf, offset, 0);
+            offset = encode32u(buf, offset, 0);
             return buf[0..offset];
+        }
+
+        fn encode8u(buf: []u8, offset: usize, value: u8) usize {
+            buf[offset] = value;
+            return offset + 1;
+        }
+
+        fn encode16u(buf: []u8, offset: usize, value: u16) usize {
+            buf[offset] = @truncate(value);
+            buf[offset + 1] = @truncate(value >> 8);
+            return offset + 2;
+        }
+
+        fn encode32u(buf: []u8, offset: usize, value: u32) usize {
+            buf[offset] = @truncate(value);
+            buf[offset + 1] = @truncate(value >> 8);
+            buf[offset + 2] = @truncate(value >> 16);
+            buf[offset + 3] = @truncate(value >> 24);
+            return offset + 4;
         }
 
         fn deliverFrames(
@@ -708,17 +763,28 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
         }
 
         fn makeRawKcpFrames(sink: *FrameSink, payload: []const u8, allocator: grt.std.mem.Allocator) !void {
-            const sender = try kcp_ns.create(allocator, stream_id, null);
+            _ = allocator;
+            const sender = kcp_ns.create(stream_id, null) orelse return error.KcpCreateFailed;
             defer kcp_ns.release(sender);
 
             kcp_ns.setOutput(sender, FrameSink.kcpOutput);
-            kcp_ns.setNodelay(sender, test_config.kcp_nodelay, test_config.kcp_interval, test_config.kcp_resend, test_config.kcp_no_congestion_control);
-            const previous_user = sender.user;
-            sender.user = sink;
-            defer sender.user = previous_user;
+            try testSetNodelay(sender, test_config.kcp_nodelay, test_config.kcp_interval, test_config.kcp_resend, test_config.kcp_no_congestion_control);
+            const previous_user = sender.*.user;
+            sender.*.user = sink;
+            defer sender.*.user = previous_user;
 
-            _ = try kcp_ns.send(sender, payload);
-            try kcp_ns.update(sender, 0);
+            _ = try testSend(sender, payload);
+            kcp_ns.update(sender, 0);
+        }
+
+        fn testSetNodelay(kcp: [*c]kcp_ns.Kcp, nodelay_value: i32, interval: i32, resend: i32, nc: i32) !void {
+            if (kcp_ns.nodelay(kcp, nodelay_value, interval, resend, nc) != 0) return error.KcpNodelayFailed;
+        }
+
+        fn testSend(kcp: [*c]kcp_ns.Kcp, buf: []const u8) !usize {
+            const rc = kcp_ns.send(kcp, @ptrCast(buf.ptr), @intCast(buf.len));
+            if (rc < 0) return error.KcpSendFailed;
+            return @intCast(rc);
         }
 
         fn oneWay(
@@ -832,7 +898,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             defer stream.deinit();
 
             const now_ms: u32 = @truncate(@divTrunc(grt.time.instant.now(), glib.time.duration.MilliSecond));
-            stream.kcp.current = now_ms +% 0x60000000;
+            stream.kcp.*.current = now_ms +% 0x60000000;
 
             var frame_buf: [kcp_ns.OVERHEAD]u8 = undefined;
             const frame = Helpers.makeKcpAckFrame(&frame_buf, now_ms);
@@ -840,7 +906,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             var sink = FrameSink{};
             try stream.drive(.{ .inbound = inbound }, sink.callback());
-            try grt.std.testing.expect(stream.kcp.rx_srtt < 1000);
+            try grt.std.testing.expect(stream.kcp.*.rx_srtt < 1000);
         }
 
         fn largeKcpMessageSplitsAcrossReadPackets(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {
