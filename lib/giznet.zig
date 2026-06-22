@@ -14,6 +14,8 @@ pub const GizNet = @import("giznet/GizNet.zig");
 pub const Conn = @import("giznet/Conn.zig");
 pub const HttpTransport = @import("giznet/HttpTransport.zig");
 pub const Listener = @import("giznet/Listener.zig");
+pub const PerfClient = @import("giznet/PerfClient.zig");
+pub const PerfServer = @import("giznet/PerfServer.zig");
 pub const Stream = @import("giznet/Stream.zig");
 pub const StreamConn = @import("giznet/StreamConn.zig");
 pub const DialOptions = @import("giznet/DialOptions.zig");
@@ -44,6 +46,8 @@ pub fn make(comptime grt: type) type {
         pub const Conn = @import("giznet/Conn.zig");
         pub const HttpTransport = @import("giznet/HttpTransport.zig").make(grt);
         pub const Listener = @import("giznet/Listener.zig").make(grt);
+        pub const PerfClient = @import("giznet/PerfClient.zig").make(grt);
+        pub const PerfServer = @import("giznet/PerfServer.zig").make(grt);
         pub const Stream = @import("giznet/Stream.zig");
         pub const StreamConn = @import("giznet/StreamConn.zig").make(grt);
         pub const DialOptions = @import("giznet/DialOptions.zig");

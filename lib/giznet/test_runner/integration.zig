@@ -6,6 +6,7 @@ const ServiceRunner = @import("integration/service.zig");
 const GizNetRunner = @import("integration/giz_net.zig");
 const HttpRunner = @import("integration/http.zig");
 const ListenerRunner = @import("integration/listener.zig");
+const PerfRunner = @import("integration/perf.zig");
 
 pub fn make(comptime grt: type) testing_api.TestRunner {
     const Runner = struct {
@@ -23,6 +24,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             t.run("giz_net", GizNetRunner.make(grt));
             t.run("listener", ListenerRunner.make(grt));
             t.run("http", HttpRunner.make(grt));
+            t.run("perf", PerfRunner.make(grt));
             return true;
         }
 
