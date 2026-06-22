@@ -1,0 +1,44 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "gizclaw connecting event updates state",
+    "description": "The GizClaw set-state custom event moves GizClaw state to connecting.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "on"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "custom": {
+              "type": "gizclaw.set_state",
+              "source_id": 3,
+              "payload": {
+                "state": "connecting"
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "gizclaw_state",
+            "state": {
+              "state": "connecting"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

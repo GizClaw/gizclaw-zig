@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Registration Type",
-    "description": "Gear registration state schema.",
+    "description": "Peer registration state schema.",
     "version": "1.0.0"
   },
   "paths": {},
@@ -22,10 +22,10 @@
             "type": "string"
           },
           "role": {
-            "$ref": "./gear_role.json#/components/schemas/GearRole"
+            "$ref": "./peer_role.json#/components/schemas/PeerRole"
           },
           "status": {
-            "$ref": "./gear_status.json#/components/schemas/GearStatus"
+            "$ref": "./peer_registration_status.json#/components/schemas/PeerRegistrationStatus"
           },
           "auto_registered": {
             "type": "boolean"

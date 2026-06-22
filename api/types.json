@@ -83,20 +83,20 @@
           }
         }
       },
-      "Gear": {
-        "$ref": "./type/gear.json#/components/schemas/Gear"
+      "Peer": {
+        "$ref": "./type/peer.json#/components/schemas/Peer"
       },
-      "GearIMEI": {
-        "$ref": "./type/gear_imei.json#/components/schemas/GearIMEI"
+      "PeerIMEI": {
+        "$ref": "./type/peer_imei.json#/components/schemas/PeerIMEI"
       },
-      "GearLabel": {
-        "$ref": "./type/gear_label.json#/components/schemas/GearLabel"
+      "PeerLabel": {
+        "$ref": "./type/peer_label.json#/components/schemas/PeerLabel"
       },
-      "GearRole": {
-        "$ref": "./type/gear_role.json#/components/schemas/GearRole"
+      "PeerRole": {
+        "$ref": "./type/peer_role.json#/components/schemas/PeerRole"
       },
-      "GearStatus": {
-        "$ref": "./type/gear_status.json#/components/schemas/GearStatus"
+      "PeerRegistrationStatus": {
+        "$ref": "./type/peer_registration_status.json#/components/schemas/PeerRegistrationStatus"
       },
       "HardwareInfo": {
         "$ref": "./type/hardware_info.json#/components/schemas/HardwareInfo"
@@ -340,6 +340,51 @@
       },
       "FlowcraftWorkflowSpec": {
         "$ref": "./type/workflows/flowcraft.json#/components/schemas/FlowcraftWorkflowSpec"
+      },
+      "AgentSelection": {
+        "$ref": "./type/agent_selection.json#/components/schemas/AgentSelection"
+      },
+      "PeerRunAgent": {
+        "$ref": "./type/peer_run_agent.json#/components/schemas/PeerRunAgent"
+      },
+      "PeerRunStatus": {
+        "$ref": "./type/peer_run_status.json#/components/schemas/PeerRunStatus"
+      },
+      "PeerRunStatusState": {
+        "$ref": "./type/peer_run_status.json#/components/schemas/PeerRunStatusState"
+      },
+      "PeerStatus": {
+        "$ref": "./type/peer_status.json#/components/schemas/PeerStatus"
+      },
+      "PeerStreamEvent": {
+        "$ref": "./type/peer_stream_event.json#/components/schemas/PeerStreamEvent"
+      },
+      "PeerStreamEventType": {
+        "$ref": "./type/peer_stream_event.json#/components/schemas/PeerStreamEventType"
+      },
+      "PeerStreamKind": {
+        "$ref": "./type/peer_stream_event.json#/components/schemas/PeerStreamKind"
+      },
+      "Badge": {
+        "$ref": "./type/badge.json#/components/schemas/Badge"
+      },
+      "BadgeSpec": {
+        "$ref": "./type/badge_spec.json#/components/schemas/BadgeSpec"
+      },
+      "BadgeResource": {
+        "$ref": "./resource/badge.json#/components/schemas/BadgeResource"
+      },
+      "PetSpecies": {
+        "$ref": "./type/pet_species.json#/components/schemas/PetSpecies"
+      },
+      "PetSpeciesSpec": {
+        "$ref": "./type/pet_species_spec.json#/components/schemas/PetSpeciesSpec"
+      },
+      "PetSpeciesResource": {
+        "$ref": "./resource/pet_species.json#/components/schemas/PetSpeciesResource"
+      },
+      "PixaMetadata": {
+        "$ref": "./type/pet_species.json#/components/schemas/PixaMetadata"
       }
     }
   }

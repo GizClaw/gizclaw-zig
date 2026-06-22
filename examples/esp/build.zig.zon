@@ -1,0 +1,20 @@
+.{
+    .name = .gizclaw_esp_launcher,
+    .version = "0.0.0",
+    .fingerprint = 0xd91b6283a74a0a21,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{
+        .embed = .{
+            .path = "../../../embed-zig/embed-zig",
+        },
+        .gizclaw = .{
+            .path = "../..",
+        },
+    },
+    .paths = .{
+        "build_config.zig",
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

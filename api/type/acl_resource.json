@@ -17,7 +17,14 @@
           "voice",
           "credential",
           "model",
-          "view"
+          "view",
+          "contact",
+          "friend",
+          "friend_request",
+          "friend_group",
+          "pet_species",
+          "badge",
+          "firmware"
         ]
       },
       "ACLResource": {

@@ -16,8 +16,5 @@
         .embed = .{
             .path = "../embed-zig/embed-zig",
         },
-        .openapi_codegen = .{
-            .path = "../embed-zig/openapi-codegen",
-        },
     },
 }

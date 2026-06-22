@@ -1,0 +1,62 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "wifi sta connected starts ip timeout window",
+    "description": "A WiFi STA connected event records the connection timestamp and starts a no-timeout IP wait window.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "on"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "tick": {
+          "interval": 1,
+          "n": 1
+        }
+      },
+      {
+        "inputs": [
+          {
+            "wifi_sta_connected": {
+              "source_id": 2,
+              "ssid_end": 7,
+              "ssid_buf": "lab-net",
+              "bssid": [
+                16,
+                32,
+                48,
+                64,
+                80,
+                96
+              ],
+              "channel": 6,
+              "rssi": -41,
+              "security": "wpa2"
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi",
+            "state": {
+              "connected": true,
+              "has_ip": false,
+              "connected_at": 1,
+              "connect_timeout": false
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

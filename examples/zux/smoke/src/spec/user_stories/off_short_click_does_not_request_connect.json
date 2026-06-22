@@ -1,0 +1,43 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "off short click does not request connect",
+    "description": "A short Btn click while powered off does not connect WiFi STA.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "off"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "click": 1
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "off"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

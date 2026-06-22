@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Refresh Identifiers Type",
-    "description": "Gear refresh identifiers schema.",
+    "description": "Peer refresh identifiers schema.",
     "version": "1.0.0"
   },
   "paths": {},
@@ -17,13 +17,13 @@
           "imeis": {
             "type": "array",
             "items": {
-              "$ref": "./gear_imei.json#/components/schemas/GearIMEI"
+              "$ref": "./peer_imei.json#/components/schemas/PeerIMEI"
             }
           },
           "labels": {
             "type": "array",
             "items": {
-              "$ref": "./gear_label.json#/components/schemas/GearLabel"
+              "$ref": "./peer_label.json#/components/schemas/PeerLabel"
             }
           }
         }

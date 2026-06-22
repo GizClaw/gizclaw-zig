@@ -13,7 +13,7 @@
   "tags": [
     {
       "name": "Public",
-      "description": "Public gear operations"
+      "description": "Public peer operations"
     },
     {
       "name": "Auth",

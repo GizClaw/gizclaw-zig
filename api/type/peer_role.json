@@ -1,0 +1,22 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Peer Role Type",
+    "description": "PeerRole schema.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "PeerRole": {
+        "type": "string",
+        "enum": [
+          "unspecified",
+          "admin",
+          "server",
+          "client"
+        ]
+      }
+    }
+  }
+}

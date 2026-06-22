@@ -1,0 +1,21 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Peer Status Type",
+    "description": "PeerRegistrationStatus schema.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "PeerRegistrationStatus": {
+        "type": "string",
+        "enum": [
+          "unspecified",
+          "active",
+          "blocked"
+        ]
+      }
+    }
+  }
+}

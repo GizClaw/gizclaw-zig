@@ -1,0 +1,63 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "off hold over 3s keeps wifi off",
+    "description": "Continuing the same hold after power-on does not enable WiFi intent.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "off"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 3000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "off"
+            }
+          }
+        ]
+      },
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 5000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "off"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

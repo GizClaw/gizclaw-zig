@@ -1,0 +1,63 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "off hold over 3s fires power on once",
+    "description": "Continuing the same hold after the power-on threshold applies only once.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "off"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 3000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      },
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 4000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

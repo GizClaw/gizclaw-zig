@@ -1,0 +1,45 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "boot does not connect",
+    "description": "Booting alone does not request WiFi connection.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "off"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "off"
+            }
+          },
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "off"
+            }
+          },
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "off"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

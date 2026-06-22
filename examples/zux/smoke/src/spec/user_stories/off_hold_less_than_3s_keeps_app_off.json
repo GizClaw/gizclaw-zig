@@ -1,0 +1,43 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "off hold less than 3s keeps app off",
+    "description": "Holding Btn for less than 3s while off keeps the app off.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "off"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 2999999999
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "off"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

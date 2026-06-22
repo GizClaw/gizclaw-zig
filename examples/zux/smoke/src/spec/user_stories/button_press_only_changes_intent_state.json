@@ -1,0 +1,55 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "button press only changes intent state",
+    "description": "Button input changes only app-side intent state and does not fabricate lower-level results.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "click": 1
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          },
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "on"
+            }
+          },
+          {
+            "label": "gizclaw_state",
+            "state": {
+              "state": "disconnected"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

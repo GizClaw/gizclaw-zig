@@ -1,0 +1,481 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "RPC API",
+    "description": "Schemas used by the internal framed RPC protocol.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "RPCRequest": {
+        "type": "object",
+        "required": [
+          "v",
+          "id",
+          "method"
+        ],
+        "properties": {
+          "v": {
+            "$ref": "#/components/schemas/RPCVersion"
+          },
+          "id": {
+            "type": "string"
+          },
+          "method": {
+            "$ref": "#/components/schemas/RPCMethod"
+          },
+          "params": {
+            "oneOf": [
+              {
+                "$ref": "./rpc/all.json#/components/schemas/PingRequest"
+              },
+              {
+                "$ref": "./rpc/all.json#/components/schemas/SpeedTestRequest"
+              },
+              {
+                "$ref": "./rpc/client.json#/components/schemas/ClientGetInfoRequest"
+              },
+              {
+                "$ref": "./rpc/client.json#/components/schemas/ClientGetIdentifiersRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetInfoRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerPutInfoRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetRuntimeRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetStatusRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerPutStatusRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetRunAgentRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerSetRunAgentRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerReloadRunRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetRunStatusRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerStopRunRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerRunSayRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FirmwareListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FirmwareGetRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FirmwareDownloadRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkspaceListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkspaceGetRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkspaceCreateRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkspacePutRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkflowListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkflowGetRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkflowCreateRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkflowPutRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ModelListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ModelGetRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/CredentialListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/CredentialGetRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactGetRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactCreateRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactPutRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactDeleteRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendRequestListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendRequestCreateRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendRequestAcceptRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendRequestRejectRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendDeleteRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupGetRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupCreateRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupPutRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupDeleteRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMemberListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMemberAddRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMemberPutRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMemberDeleteRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMessageListRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMessageGetRequest"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMessageSendRequest"
+              }
+            ]
+          }
+        }
+      },
+      "RPCResponse": {
+        "type": "object",
+        "required": [
+          "v",
+          "id"
+        ],
+        "properties": {
+          "v": {
+            "$ref": "#/components/schemas/RPCVersion"
+          },
+          "id": {
+            "type": "string"
+          },
+          "result": {
+            "oneOf": [
+              {
+                "$ref": "./rpc/all.json#/components/schemas/PingResponse"
+              },
+              {
+                "$ref": "./rpc/all.json#/components/schemas/SpeedTestResponse"
+              },
+              {
+                "$ref": "./rpc/client.json#/components/schemas/ClientGetInfoResponse"
+              },
+              {
+                "$ref": "./rpc/client.json#/components/schemas/ClientGetIdentifiersResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetInfoResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerPutInfoResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetRuntimeResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetStatusResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerPutStatusResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetRunAgentResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerSetRunAgentResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerReloadRunResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerGetRunStatusResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerStopRunResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ServerRunSayResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FirmwareListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FirmwareGetResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FirmwareDownloadResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkspaceListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkspaceGetResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkspaceCreateResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkspacePutResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkflowListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkflowGetResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkflowCreateResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/WorkflowPutResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ModelListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ModelGetResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/CredentialListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/CredentialGetResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactGetResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactCreateResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactPutResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/ContactDeleteResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendRequestListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendRequestCreateResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendRequestAcceptResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendRequestRejectResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendDeleteResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupGetResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupCreateResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupPutResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupDeleteResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMemberListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMemberAddResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMemberPutResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMemberDeleteResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMessageListResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMessageGetResponse"
+              },
+              {
+                "$ref": "./rpc/zig_server.json#/components/schemas/FriendGroupMessageSendResponse"
+              }
+            ]
+          },
+          "error": {
+            "$ref": "#/components/schemas/RPCError"
+          }
+        }
+      },
+      "RPCMethod": {
+        "type": "string",
+        "enum": [
+          "all.ping",
+          "all.speed_test.run",
+          "client.info.get",
+          "client.identifiers.get",
+          "server.info.get",
+          "server.info.put",
+          "server.runtime.get",
+          "server.status.get",
+          "server.status.put",
+          "server.run.agent.get",
+          "server.run.agent.set",
+          "server.run.reload",
+          "server.run.status",
+          "server.run.stop",
+          "server.run.say",
+          "server.firmware.list",
+          "server.firmware.get",
+          "server.firmware.download",
+          "server.workspace.list",
+          "server.workspace.get",
+          "server.workspace.create",
+          "server.workspace.put",
+          "server.workflow.list",
+          "server.workflow.get",
+          "server.workflow.create",
+          "server.workflow.put",
+          "server.model.list",
+          "server.model.get",
+          "server.credential.list",
+          "server.credential.get",
+          "server.contact.list",
+          "server.contact.get",
+          "server.contact.create",
+          "server.contact.put",
+          "server.contact.delete",
+          "server.friend.requests.list",
+          "server.friend.requests.create",
+          "server.friend.requests.accept",
+          "server.friend.requests.reject",
+          "server.friend.list",
+          "server.friend.delete",
+          "server.friend_group.list",
+          "server.friend_group.get",
+          "server.friend_group.create",
+          "server.friend_group.put",
+          "server.friend_group.delete",
+          "server.friend_group.members.list",
+          "server.friend_group.members.add",
+          "server.friend_group.members.put",
+          "server.friend_group.members.delete",
+          "server.friend_group.messages.list",
+          "server.friend_group.messages.get",
+          "server.friend_group.messages.send"
+        ]
+      },
+      "RPCVersion": {
+        "type": "integer",
+        "enum": [
+          1
+        ],
+        "x-enum-varnames": [
+          "V1"
+        ]
+      },
+      "RPCErrorCode": {
+        "type": "integer",
+        "enum": [
+          -32600,
+          -32601,
+          -32602,
+          -32603,
+          400,
+          403,
+          404,
+          409
+        ],
+        "x-enum-varnames": [
+          "InvalidRequest",
+          "MethodNotFound",
+          "InvalidParams",
+          "InternalError",
+          "BadRequest",
+          "Forbidden",
+          "NotFound",
+          "Conflict"
+        ]
+      },
+      "RPCError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/RPCErrorCode"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

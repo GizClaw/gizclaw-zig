@@ -1,0 +1,61 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "wifi sta connected event does not change app state",
+    "description": "A WiFi STA connected event does not change app power state.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "on"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "wifi_sta_connected": {
+              "source_id": 2,
+              "ssid_end": 7,
+              "ssid_buf": "lab-net",
+              "bssid": [
+                16,
+                32,
+                48,
+                64,
+                80,
+                96
+              ],
+              "channel": 6,
+              "rssi": -41,
+              "security": "wpa2"
+            }
+          }
+        ]
+      },
+      {
+        "tick": {
+          "interval": 1,
+          "n": 1
+        }
+      },
+      {
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

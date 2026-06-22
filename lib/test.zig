@@ -1,6 +1,8 @@
 const glib = @import("glib");
 const grt = @import("gstd").runtime;
+const std = @import("std");
 const testing_api = glib.testing;
+const kcp = @import("kcp");
 const giznet = @import("giznet");
 const gizclaw = @import("gizclaw");
 
@@ -73,5 +75,25 @@ test "gizclaw/cork" {
 
     t.timeout(5 * glib.time.duration.Second);
     t.run("gizclaw/cork", gizclaw.test_runner.cork.make(grt));
+    if (!t.wait()) return error.TestFailed;
+}
+
+test "kcp/integration" {
+    std.testing.log_level = .info;
+    var t = testing_api.T.new(grt.std, grt.time, .integration);
+    defer t.deinit();
+
+    t.timeout(20 * glib.time.duration.Second);
+    t.run("kcp/integration", kcp.test_runner.integration.make(grt));
+    if (!t.wait()) return error.TestFailed;
+}
+
+test "kcp/unit" {
+    std.testing.log_level = .info;
+    var t = testing_api.T.new(grt.std, grt.time, .net);
+    defer t.deinit();
+
+    t.timeout(10 * glib.time.duration.Second);
+    t.run("kcp/unit", kcp.test_runner.unit.make(grt));
     if (!t.wait()) return error.TestFailed;
 }

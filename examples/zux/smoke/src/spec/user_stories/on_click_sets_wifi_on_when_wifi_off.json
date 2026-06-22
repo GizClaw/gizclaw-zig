@@ -1,0 +1,43 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "on click sets wifi on when wifi off",
+    "description": "A short Btn click while on and WiFi intent off enables WiFi intent.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "click": 1
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

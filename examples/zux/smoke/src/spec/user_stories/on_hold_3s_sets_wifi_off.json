@@ -1,0 +1,43 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "on hold 3s sets wifi off",
+    "description": "Holding Btn for 3s while on disables WiFi intent.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "on"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 3000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "off"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

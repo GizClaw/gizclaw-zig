@@ -1,0 +1,63 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "off hold over 3s keeps app on",
+    "description": "Continuing the same hold after power-on does not turn the app off before release.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "off"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 3000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      },
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 5000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

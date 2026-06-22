@@ -1,0 +1,43 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "off hold 3s sets app on",
+    "description": "Holding Btn for 3s while off powers the app on.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "off"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 3000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Runtime Type",
-    "description": "Gear runtime status schema.",
+    "description": "Peer runtime status schema.",
     "version": "1.0.0"
   },
   "paths": {},

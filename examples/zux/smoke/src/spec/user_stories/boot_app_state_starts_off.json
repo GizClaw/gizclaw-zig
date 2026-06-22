@@ -1,0 +1,33 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "boot app state starts off",
+    "description": "Booting starts with the app powered off.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "off"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "off"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

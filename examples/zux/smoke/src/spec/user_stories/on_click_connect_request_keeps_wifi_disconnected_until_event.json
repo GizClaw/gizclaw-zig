@@ -1,0 +1,58 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "on click connect request keeps wifi disconnected until event",
+    "description": "A WiFi connect request does not mark WiFi connected before the driver reports a connected event.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "strip": {},
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "click": 1
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      },
+      {
+        "tick": {
+          "interval": 1,
+          "n": 1
+        },
+        "outputs": [
+          {
+            "label": "wifi",
+            "state": {
+              "connected": false,
+              "has_ip": false
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

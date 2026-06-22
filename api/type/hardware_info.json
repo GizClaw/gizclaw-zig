@@ -23,13 +23,13 @@
           "imeis": {
             "type": "array",
             "items": {
-              "$ref": "./gear_imei.json#/components/schemas/GearIMEI"
+              "$ref": "./peer_imei.json#/components/schemas/PeerIMEI"
             }
           },
           "labels": {
             "type": "array",
             "items": {
-              "$ref": "./gear_label.json#/components/schemas/GearLabel"
+              "$ref": "./peer_label.json#/components/schemas/PeerLabel"
             }
           }
         }

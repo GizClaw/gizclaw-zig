@@ -20,6 +20,10 @@
       "description": "Declarative admin resource get, put, and delete operations"
     },
     {
+      "name": "BusinessAssets",
+      "description": "Business resource asset upload and download operations"
+    },
+    {
       "name": "ACL",
       "description": "ACL role and policy binding operations"
     },
@@ -119,8 +123,8 @@
               }
             }
           },
-          "501": {
-            "description": "Apply is defined but not implemented",
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -129,8 +133,8 @@
               }
             }
           },
-          "500": {
-            "description": "Internal error",
+          "501": {
+            "description": "Apply is defined but not implemented",
             "content": {
               "application/json": {
                 "schema": {
@@ -195,8 +199,8 @@
               }
             }
           },
-          "501": {
-            "description": "Resource get is defined but not implemented",
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -205,8 +209,8 @@
               }
             }
           },
-          "500": {
-            "description": "Internal error",
+          "501": {
+            "description": "Resource get is defined but not implemented",
             "content": {
               "application/json": {
                 "schema": {
@@ -294,8 +298,8 @@
               }
             }
           },
-          "501": {
-            "description": "Resource put is defined but not implemented",
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -304,8 +308,8 @@
               }
             }
           },
-          "500": {
-            "description": "Internal error",
+          "501": {
+            "description": "Resource put is defined but not implemented",
             "content": {
               "application/json": {
                 "schema": {
@@ -370,6 +374,276 @@
           },
           "409": {
             "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pet-species/{id}/pixa": {
+      "put": {
+        "operationId": "uploadPetSpeciesPixa",
+        "summary": "Upload a pet species PIXA file",
+        "description": "Upload or replace the .pixa asset for an existing pet species resource.",
+        "tags": [
+          "BusinessAssets"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Pet species id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated pet species metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/PetSpecies"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid PIXA file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pet species not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "downloadPetSpeciesPixa",
+        "summary": "Download a pet species PIXA file",
+        "tags": [
+          "BusinessAssets"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Pet species id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Raw PIXA file",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid asset request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pet species or PIXA file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/badges/{id}/icon": {
+      "put": {
+        "operationId": "uploadBadgeIcon",
+        "summary": "Upload a badge icon",
+        "description": "Upload or replace the icon asset for an existing badge resource.",
+        "tags": [
+          "BusinessAssets"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Badge id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated badge metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/Badge"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid icon file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Badge not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "downloadBadgeIcon",
+        "summary": "Download a badge icon",
+        "tags": [
+          "BusinessAssets"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Badge id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Raw badge icon bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid asset request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Badge or icon file not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1667,7 +1941,7 @@
       "post": {
         "operationId": "releaseFirmware",
         "summary": "Promote firmware slots",
-        "description": "Atomically promote slots: stable to rollback, beta to stable, develop to beta, pending to develop, then clear pending. The resulting stable slot must be non-empty.",
+        "description": "Atomically release by shifting slots left in develop, beta, stable, pending order: beta to develop, stable to beta, pending to stable, then clear pending. The resulting stable slot must be non-empty.",
         "tags": [
           "Firmwares"
         ],
@@ -1726,11 +2000,109 @@
         }
       }
     },
+    "/firmwares/{name}/bins/{channel}/{bin}": {
+      "put": {
+        "operationId": "uploadFirmwareBin",
+        "summary": "Upload a firmware bin payload",
+        "description": "Upload raw bytes for a bin declared in the firmware channel configuration. The server stores the payload in the configured firmware asset object store and updates server-owned artifact metadata.",
+        "tags": [
+          "Firmwares"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Firmware name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel",
+            "in": "path",
+            "required": true,
+            "description": "Firmware channel/slot name",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "stable",
+                "beta",
+                "develop",
+                "pending"
+              ]
+            }
+          },
+          {
+            "name": "bin",
+            "in": "path",
+            "required": true,
+            "description": "Firmware bin/artifact name declared in the selected channel",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated firmware",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/Firmware"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid upload request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Firmware, channel, or bin not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/firmwares/{name}/@rollback": {
       "post": {
         "operationId": "rollbackFirmware",
         "summary": "Rollback firmware stable slot",
-        "description": "Atomically swap stable and rollback slots. The resulting stable slot must be non-empty.",
+        "description": "Atomically rollback by shifting slots right in develop, beta, stable, pending order: develop to beta, beta to stable, stable to pending, then clear develop. The resulting stable slot must be non-empty.",
         "tags": [
           "Firmwares"
         ],
@@ -5236,6 +5608,112 @@
           }
         }
       }
+    },
+    "/pet-species": {
+      "get": {
+        "operationId": "listPetSpecies",
+        "summary": "List pet species",
+        "tags": [
+          "BusinessResources"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque cursor returned by the previous list response",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum number of items to return. Omitted or non-positive values use the default page size; values above 200 are clamped.",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List pet species",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetSpeciesList"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/badges": {
+      "get": {
+        "operationId": "listBadges",
+        "summary": "List badges",
+        "tags": [
+          "BusinessResources"
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque cursor returned by the previous list response",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum number of items to return. Omitted or non-positive values use the default page size; values above 200 are clamped.",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List badges",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadgeList"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./types.json#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5265,11 +5743,11 @@
       "RefreshResult": {
         "type": "object",
         "required": [
-          "gear"
+          "peer"
         ],
         "properties": {
-          "gear": {
-            "$ref": "./types.json#/components/schemas/Gear"
+          "peer": {
+            "$ref": "./types.json#/components/schemas/Peer"
           },
           "updated_fields": {
             "type": "array",
@@ -5303,7 +5781,7 @@
         ],
         "properties": {
           "role": {
-            "$ref": "./types.json#/components/schemas/GearRole"
+            "$ref": "./types.json#/components/schemas/PeerRole"
           }
         }
       },
@@ -6019,6 +6497,50 @@
             "type": "array",
             "items": {
               "$ref": "./types.json#/components/schemas/DashScopeTenant"
+            }
+          }
+        }
+      },
+      "PetSpeciesList": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_next"
+        ],
+        "properties": {
+          "has_next": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "./types.json#/components/schemas/PetSpecies"
+            }
+          }
+        }
+      },
+      "BadgeList": {
+        "type": "object",
+        "required": [
+          "items",
+          "has_next"
+        ],
+        "properties": {
+          "has_next": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "./types.json#/components/schemas/Badge"
             }
           }
         }
