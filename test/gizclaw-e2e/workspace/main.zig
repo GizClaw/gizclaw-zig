@@ -3,7 +3,8 @@ const common = @import("common");
 
 const WorkspaceOptions = struct {
     base: common.BaseOptions = .{},
-    config: []const u8 = "test/gizclaw-e2e/workspace/config/doubao-realtime.example.json",
+    config: []const u8 = "../gizclaw-go/test/gizclaw-e2e/workspace/config/doubao-realtime.json",
+    workspace: ?[]const u8 = null,
     skip_run_control: bool = false,
     conversation_smoke: bool = false,
     run_timeout_ms: ?i64 = null,
@@ -23,6 +24,9 @@ const WorkspaceOptions = struct {
             } else if (std.mem.eql(u8, arg, "--config")) {
                 i += 1;
                 out.config = try common.needValue(args, i, arg);
+            } else if (std.mem.eql(u8, arg, "--workspace")) {
+                i += 1;
+                out.workspace = try common.needValue(args, i, arg);
             } else if (std.mem.eql(u8, arg, "--skip-run-control")) {
                 out.skip_run_control = true;
             } else if (std.mem.eql(u8, arg, "--conversation-smoke")) {
@@ -59,7 +63,8 @@ fn printUsage() !void {
         \\  --connect-timeout-ms N Milliseconds to wait for the GizNet handshake
         \\
         \\Workspace:
-        \\  --config FILE          doubao-realtime workspace config JSON
+        \\  --config FILE          Go workspace e2e config JSON
+        \\  --workspace NAME       Workspace name to delete/create/select for this run
         \\  --skip-run-control     Only create/update workflow and workspace
         \\  --conversation-smoke   Send real speech Opus packets and observe event/audio output
         \\  --opus-packets-base64-file FILE
@@ -112,6 +117,24 @@ const WorkspaceConfig = struct {
         };
     }
 
+    fn optionalIntegerValue(self: *const WorkspaceConfig, path: []const []const u8) ?i64 {
+        var value = self.root();
+        for (path) |name| value = value.object.get(name) orelse return null;
+        return switch (value) {
+            .integer => |integer| integer,
+            else => null,
+        };
+    }
+
+    fn optionalBool(self: *const WorkspaceConfig, path: []const []const u8) ?bool {
+        var value = self.root();
+        for (path) |name| value = value.object.get(name) orelse return null;
+        return switch (value) {
+            .bool => |boolean| boolean,
+            else => null,
+        };
+    }
+
     fn optionalString(self: *const WorkspaceConfig, path: []const []const u8) ?[]const u8 {
         var value = self.root();
         for (path) |name| value = value.object.get(name) orelse return null;
@@ -119,6 +142,10 @@ const WorkspaceConfig = struct {
             .string => |text| if (text.len == 0) null else text,
             else => null,
         };
+    }
+
+    fn workspaceName(self: *const WorkspaceConfig) ![]const u8 {
+        return self.optionalString(&.{"workspace"}) orelse try self.string(&.{ "workflow", "name" });
     }
 };
 
@@ -152,9 +179,10 @@ fn runWithSdk(comptime sdk: type, allocator: std.mem.Allocator, ctx: *const comm
     try summary.pass("Connect");
 
     try ensureWorkflow(sdk, allocator, &client, cfg, &summary);
-    try ensureWorkspace(sdk, allocator, &client, cfg, &summary);
+    const workspace_name = options.workspace orelse try cfg.workspaceName();
+    try ensureWorkspace(sdk, allocator, &client, cfg, workspace_name, &summary);
     if (!options.skip_run_control) {
-        try runControl(sdk, &client, cfg, &summary, options.run_timeout_ms);
+        try runControl(sdk, &client, cfg, workspace_name, &summary, options.run_timeout_ms);
         try checkPeerEventStream(sdk, &client, &summary);
         try checkServerRunSay(sdk, &client, cfg, &summary);
         if (options.conversation_smoke) {
@@ -163,9 +191,9 @@ fn runWithSdk(comptime sdk: type, allocator: std.mem.Allocator, ctx: *const comm
             try summary.skip("StampedOpusConversation", "enable with --conversation-smoke");
         }
     } else {
-        try summary.skip("SetServerRunAgent", "disabled by --skip-run-control");
-        try summary.skip("ReloadServerRun", "disabled by --skip-run-control");
-        try summary.skip("WaitServerRunStatus", "disabled by --skip-run-control");
+        try summary.skip("SetServerRunWorkspace", "disabled by --skip-run-control");
+        try summary.skip("ReloadServerRunWorkspace", "disabled by --skip-run-control");
+        try summary.skip("WaitServerRunWorkspace", "disabled by --skip-run-control");
         try summary.skip("OpenPeerEventStream", "disabled by --skip-run-control");
         try summary.skip("ServerRunSay", "disabled by --skip-run-control");
         try summary.skip("StampedOpusConversation", "disabled by --skip-run-control");
@@ -185,27 +213,46 @@ fn ensureWorkflow(comptime sdk: type, allocator: std.mem.Allocator, client: *sdk
     const name = try cfg.string(&.{ "workflow", "name" });
     var workflow = try workflowDocument(sdk, allocator, cfg);
     defer workflow.deinit();
+    const workflow_json = try sdk.models.toJson(allocator, workflow.value);
+    defer allocator.free(workflow_json);
+    std.debug.print("INFO WorkflowRequest {s}\n", .{workflow_json});
+
+    if (client.getWorkflow(.{ .name = name })) |existing| {
+        var parsed = existing;
+        defer parsed.deinit();
+        try summary.pass("GetWorkflow");
+        return;
+    } else |_| {}
 
     if (client.createWorkflow(workflow.value)) |created| {
         var parsed = created;
         defer parsed.deinit();
         try summary.pass("CreateWorkflow");
-    } else |err| switch (err) {
-        error.GearAlreadyExists => {
-            if (client.putWorkflow(.{ .name = name, .body = workflow.value })) |updated| {
-                var parsed = updated;
-                defer parsed.deinit();
-                try summary.pass("PutWorkflow");
-            } else |put_err| try summary.fail("PutWorkflow", put_err);
-        },
-        else => try summary.fail("CreateWorkflow", err),
+    } else |err| {
+        try summary.fail("CreateWorkflow", err);
     }
 }
 
-fn ensureWorkspace(comptime sdk: type, allocator: std.mem.Allocator, client: *sdk.Client, cfg: *const WorkspaceConfig, summary: *common.Summary) !void {
-    const name = try cfg.string(&.{"workspace"});
-    var workspace = try workspaceDocument(sdk, allocator, cfg);
+fn ensureWorkspace(comptime sdk: type, allocator: std.mem.Allocator, client: *sdk.Client, cfg: *const WorkspaceConfig, name: []const u8, summary: *common.Summary) !void {
+    var workspace = try workspaceDocument(sdk, allocator, cfg, name);
     defer workspace.deinit();
+    const workspace_json = try sdk.models.toJson(allocator, workspace.value);
+    defer allocator.free(workspace_json);
+    std.debug.print("INFO WorkspaceRequest {s}\n", .{workspace_json});
+
+    if (client.stopServerRun()) |stopped| {
+        var parsed = stopped;
+        defer parsed.deinit();
+        try summary.pass("StopServerRunBeforeWorkspaceRecreate");
+    } else |_| {}
+    if (client.deleteWorkspace(.{ .name = name })) |deleted| {
+        var parsed = deleted;
+        defer parsed.deinit();
+        try summary.pass("DeleteWorkspaceBeforeCreate");
+    } else |err| switch (err) {
+        error.GearNotFound => try summary.skip("DeleteWorkspaceBeforeCreate", "workspace did not exist"),
+        else => try summary.fail("DeleteWorkspace", err),
+    }
 
     if (client.createWorkspace(workspace.value)) |created| {
         var parsed = created;
@@ -223,23 +270,22 @@ fn ensureWorkspace(comptime sdk: type, allocator: std.mem.Allocator, client: *sd
     }
 }
 
-fn runControl(comptime sdk: type, client: *sdk.Client, cfg: *const WorkspaceConfig, summary: *common.Summary, timeout_ms_override: ?i64) !void {
-    const workspace = try cfg.string(&.{"workspace"});
-    if (client.setServerRunAgent(.{ .workspace_name = workspace })) |selected| {
+fn runControl(comptime sdk: type, client: *sdk.Client, cfg: *const WorkspaceConfig, workspace: []const u8, summary: *common.Summary, timeout_ms_override: ?i64) !void {
+    if (client.setServerRunWorkspace(.{ .workspace_name = workspace })) |selected| {
         var parsed = selected;
         defer parsed.deinit();
-        try summary.pass("SetServerRunAgent");
-    } else |err| try summary.fail("SetServerRunAgent", err);
+        try summary.pass("SetServerRunWorkspace");
+    } else |err| try summary.fail("SetServerRunWorkspace", err);
 
-    if (client.reloadServerRun()) |reloaded| {
+    if (client.reloadServerRunWorkspace()) |reloaded| {
         var parsed = reloaded;
         defer parsed.deinit();
-        try summary.pass("ReloadServerRun");
+        try summary.pass("ReloadServerRunWorkspace");
     } else |err| {
         if (try isWorkspaceRunning(sdk, client, workspace)) {
-            try summary.pass("ReloadServerRun");
+            try summary.pass("ReloadServerRunWorkspace");
         } else {
-            try summary.fail("ReloadServerRun", err);
+            try summary.fail("ReloadServerRunWorkspace", err);
         }
     }
 
@@ -247,13 +293,20 @@ fn runControl(comptime sdk: type, client: *sdk.Client, cfg: *const WorkspaceConf
 }
 
 fn isWorkspaceRunning(comptime sdk: type, client: *sdk.Client, workspace: []const u8) !bool {
-    var status = client.getServerRunStatus(.{}) catch return false;
+    var status = client.getServerRunWorkspace() catch return false;
     defer status.deinit();
-    const workspace_matches = if (status.value.workspace_name) |name|
-        std.mem.eql(u8, name, workspace)
-    else
-        false;
-    return std.mem.eql(u8, status.value.state, "running") and workspace_matches;
+    return std.mem.eql(u8, status.value.runtime_state, "running") and workspaceStateMatches(status.value, workspace);
+}
+
+fn workspaceStateMatches(status: anytype, workspace: []const u8) bool {
+    if (std.mem.eql(u8, status.workspace_name, workspace)) return true;
+    if (status.active_workspace_name) |name| {
+        if (std.mem.eql(u8, name, workspace)) return true;
+    }
+    if (status.selected_workspace_name) |name| {
+        if (std.mem.eql(u8, name, workspace)) return true;
+    }
+    return false;
 }
 
 fn waitForRunStatus(
@@ -267,21 +320,17 @@ fn waitForRunStatus(
     const timeout_ms = timeout_ms_override orelse cfg.optionalInteger(&.{"run_timeout_ms"}, 30_000);
     const deadline = std.time.milliTimestamp() + @max(timeout_ms, 1);
     while (std.time.milliTimestamp() <= deadline) {
-        var status = client.getServerRunStatus(.{}) catch |err| return summary.fail("WaitServerRunStatus", err);
+        var status = client.getServerRunWorkspace() catch |err| return summary.fail("WaitServerRunWorkspace", err);
         defer status.deinit();
-        const workspace_matches = if (status.value.workspace_name) |name|
-            std.mem.eql(u8, name, workspace)
-        else
-            false;
-        if (std.mem.eql(u8, status.value.state, "running") and workspace_matches) {
-            return summary.pass("WaitServerRunStatus");
+        if (std.mem.eql(u8, status.value.runtime_state, "running") and workspaceStateMatches(status.value, workspace)) {
+            return summary.pass("WaitServerRunWorkspace");
         }
-        if (std.mem.eql(u8, status.value.state, "error")) {
-            return summary.fail("WaitServerRunStatus", error.WorkspaceRunError);
+        if (std.mem.eql(u8, status.value.runtime_state, "error")) {
+            return summary.fail("WaitServerRunWorkspace", error.WorkspaceRunError);
         }
         std.Thread.sleep(200 * std.time.ns_per_ms);
     }
-    try summary.fail("WaitServerRunStatus", error.WorkspaceRunTimeout);
+    try summary.fail("WaitServerRunWorkspace", error.WorkspaceRunTimeout);
 }
 
 fn checkPeerEventStream(comptime sdk: type, client: *sdk.Client, summary: *common.Summary) !void {
@@ -310,18 +359,22 @@ const ConversationStats = struct {
     events: usize = 0,
     transcript_events: usize = 0,
     assistant_events: usize = 0,
+    history_events: usize = 0,
     eos_events: usize = 0,
     audio_packets: usize = 0,
     audio_bytes: usize = 0,
     text_bytes: usize = 0,
-    first_event_ms: ?i64 = null,
-    first_transcript_ms: ?i64 = null,
-    first_assistant_text_ms: ?i64 = null,
-    first_assistant_done_ms: ?i64 = null,
-    first_audio_ms: ?i64 = null,
+    after_eos_first_event_ms: ?i64 = null,
+    after_eos_transcript_start_ms: ?i64 = null,
+    after_eos_transcript_done_ms: ?i64 = null,
+    after_eos_text_first_ms: ?i64 = null,
+    assistant_text_done_ms: ?i64 = null,
+    text_first_after_transcript_done_ms: ?i64 = null,
+    after_eos_audio_first_ms: ?i64 = null,
     first_eos_ms: ?i64 = null,
     last_event_ms: ?i64 = null,
     last_audio_ms: ?i64 = null,
+    after_eos_complete_ms: ?i64 = null,
 };
 
 fn runConversationSmoke(
@@ -363,6 +416,7 @@ fn runConversationSmoke(
         .timestamp = send_started_at + @as(i64, @intCast(packets.items.len)) * 20,
     }) catch |err| return summary.fail("StampedOpusConversation", err);
     const send_finished_at = std.time.milliTimestamp();
+    const response_started_at = send_finished_at;
 
     try summary.out.print(
         "INFO ConversationTurn input_packets={d} input_audio_ms={d} send_elapsed_ms={d}\n",
@@ -372,44 +426,70 @@ fn runConversationSmoke(
     var stats = ConversationStats{};
     var opus_buf: [16 * 1024]u8 = undefined;
     const deadline = std.time.milliTimestamp() + @max(timeout_ms, 1);
-    while (std.time.milliTimestamp() <= deadline and (stats.audio_packets == 0 or stats.eos_events == 0)) {
+    var eos_seen_at: ?i64 = null;
+    while (std.time.milliTimestamp() <= deadline) {
+        if (eos_seen_at) |seen_at| {
+            if (stats.audio_packets > 0 and std.time.milliTimestamp() - seen_at >= 700) break;
+        }
         if (client.readPeerStreamChunk(&stream, &opus_buf)) |chunk_result| {
             var result = chunk_result;
             defer result.deinit();
             switch (result.chunk()) {
                 .event => |event| {
                     const now = std.time.milliTimestamp();
-                    const elapsed_ms = now - send_started_at;
+                    const elapsed_ms = now - response_started_at;
                     stats.events += 1;
-                    if (stats.first_event_ms == null) stats.first_event_ms = elapsed_ms;
+                    if (stats.after_eos_first_event_ms == null) stats.after_eos_first_event_ms = elapsed_ms;
                     stats.last_event_ms = elapsed_ms;
+                    if (event.type == .workspace_history_updated) stats.history_events += 1;
                     if (event.label) |label| {
                         if (std.mem.eql(u8, label, "transcript")) {
                             stats.transcript_events += 1;
-                            if (stats.first_transcript_ms == null) stats.first_transcript_ms = elapsed_ms;
+                            if (event.type == .text_done and stats.after_eos_transcript_done_ms == null) {
+                                stats.after_eos_transcript_done_ms = elapsed_ms;
+                            }
+                            if (event.text) |text| {
+                                if (std.mem.trim(u8, text, " \t\r\n").len != 0 and stats.after_eos_transcript_start_ms == null) {
+                                    stats.after_eos_transcript_start_ms = elapsed_ms;
+                                }
+                            }
                         }
                         if (std.mem.eql(u8, label, "assistant")) {
                             stats.assistant_events += 1;
-                            if (event.text != null and stats.first_assistant_text_ms == null) stats.first_assistant_text_ms = elapsed_ms;
-                            if (event.type == .text_done and stats.first_assistant_done_ms == null) stats.first_assistant_done_ms = elapsed_ms;
+                            if (event.type == .text_done and stats.assistant_text_done_ms == null) {
+                                stats.assistant_text_done_ms = elapsed_ms;
+                            }
+                            if (event.text) |text| {
+                                if (std.mem.trim(u8, text, " \t\r\n").len != 0 and stats.after_eos_text_first_ms == null) {
+                                    stats.after_eos_text_first_ms = elapsed_ms;
+                                    if (stats.after_eos_transcript_done_ms) |done_ms| {
+                                        if (elapsed_ms > done_ms) stats.text_first_after_transcript_done_ms = elapsed_ms - done_ms;
+                                    }
+                                }
+                            }
                         }
                     }
                     if (event.type == .eos) {
                         stats.eos_events += 1;
                         if (stats.first_eos_ms == null) stats.first_eos_ms = elapsed_ms;
+                        if (event.label) |label| {
+                            if (std.mem.eql(u8, label, "assistant") and eos_seen_at == null) {
+                                eos_seen_at = now;
+                            }
+                        }
                     }
                     if (event.text) |value| stats.text_bytes += value.len;
                     try printConversationEvent(&summary.out, elapsed_ms, event);
                 },
                 .stamped_opus => |frame| {
                     const now = std.time.milliTimestamp();
-                    const elapsed_ms = now - send_started_at;
+                    const elapsed_ms = now - response_started_at;
                     stats.audio_packets += 1;
                     stats.audio_bytes += frame.frame.len;
-                    if (stats.first_audio_ms == null) stats.first_audio_ms = elapsed_ms;
+                    if (stats.after_eos_audio_first_ms == null) stats.after_eos_audio_first_ms = elapsed_ms;
                     stats.last_audio_ms = elapsed_ms;
                     try summary.out.print(
-                        "AUDIO ConversationTurn +{d}ms timestamp={d} bytes={d} packet={d}\n",
+                        "AUDIO ConversationTurn after_eos={d}ms timestamp={d} bytes={d} packet={d}\n",
                         .{ elapsed_ms, frame.timestamp, frame.frame.len, stats.audio_packets },
                     );
                 },
@@ -426,33 +506,39 @@ fn runConversationSmoke(
     if (stats.audio_packets == 0) {
         return summary.fail("StampedOpusConversation", error.MissingConversationAudio);
     }
+    stats.after_eos_complete_ms = stats.first_eos_ms orelse stats.last_audio_ms orelse stats.last_event_ms;
     try summary.pass("StampedOpusConversation");
     try summary.out.print(
-        "INFO StampedOpusConversation input_packets={d} events={d} transcript_events={d} assistant_events={d} eos_events={d} text_bytes={d} audio_packets={d} audio_bytes={d}",
+        "INFO StampedOpusConversation input_packets={d} events={d} transcript_events={d} assistant_events={d} history_events={d} eos_events={d} text_bytes={d} audio_packets={d} audio_bytes={d} workspace_uplink_send_ms={d}",
         .{
             packets.items.len,
             stats.events,
             stats.transcript_events,
             stats.assistant_events,
+            stats.history_events,
             stats.eos_events,
             stats.text_bytes,
             stats.audio_packets,
             stats.audio_bytes,
+            send_finished_at - send_started_at,
         },
     );
-    try printOptionalMs(&summary.out, "first_event_ms", stats.first_event_ms);
-    try printOptionalMs(&summary.out, "first_transcript_ms", stats.first_transcript_ms);
-    try printOptionalMs(&summary.out, "first_assistant_text_ms", stats.first_assistant_text_ms);
-    try printOptionalMs(&summary.out, "first_assistant_done_ms", stats.first_assistant_done_ms);
-    try printOptionalMs(&summary.out, "first_audio_ms", stats.first_audio_ms);
+    try printOptionalMs(&summary.out, "after_eos_first_event_ms", stats.after_eos_first_event_ms);
+    try printOptionalMs(&summary.out, "after_eos_transcript_start_ms", stats.after_eos_transcript_start_ms);
+    try printOptionalMs(&summary.out, "after_eos_transcript_done_ms", stats.after_eos_transcript_done_ms);
+    try printOptionalMs(&summary.out, "after_eos_text_first_ms", stats.after_eos_text_first_ms);
+    try printOptionalMs(&summary.out, "assistant_text_done_ms", stats.assistant_text_done_ms);
+    try printOptionalMs(&summary.out, "text_first_after_transcript_done_ms", stats.text_first_after_transcript_done_ms);
+    try printOptionalMs(&summary.out, "after_eos_audio_first_ms", stats.after_eos_audio_first_ms);
     try printOptionalMs(&summary.out, "first_eos_ms", stats.first_eos_ms);
     try printOptionalMs(&summary.out, "last_event_ms", stats.last_event_ms);
     try printOptionalMs(&summary.out, "last_audio_ms", stats.last_audio_ms);
+    try printOptionalMs(&summary.out, "after_eos_complete_ms", stats.after_eos_complete_ms);
     try summary.out.writeAll("\n");
 }
 
 fn printConversationEvent(out: anytype, elapsed_ms: i64, event: anytype) !void {
-    try out.print("EVENT ConversationTurn +{d}ms type={s}", .{ elapsed_ms, peerStreamEventTypeName(event.type) });
+    try out.print("EVENT ConversationTurn after_eos={d}ms type={s}", .{ elapsed_ms, peerStreamEventTypeName(event.type) });
     if (event.kind) |kind| try out.print(" kind={s}", .{peerStreamKindName(kind)});
     if (event.label) |label| try out.print(" label={s}", .{label});
     if (event.stream_id) |stream_id| try out.print(" stream_id={s}", .{stream_id});
@@ -494,6 +580,7 @@ fn peerStreamEventTypeName(value: anytype) []const u8 {
         .eos => "eos",
         .text_delta => "text.delta",
         .text_done => "text.done",
+        .workspace_history_updated => "workspace.history.updated",
     };
 }
 
@@ -563,15 +650,19 @@ fn durationFromMillis(timeout_ms: i64) common.grt.time.duration.Duration {
 }
 
 fn workflowDocument(comptime sdk: type, allocator: std.mem.Allocator, cfg: *const WorkspaceConfig) !std.json.Parsed(sdk.models.WorkflowCreateRequest) {
+    if (std.mem.eql(u8, try cfg.string(&.{"agent"}), "ast-translate")) {
+        return astTranslateWorkflowDocument(sdk, allocator, cfg);
+    }
     var out = std.Io.Writer.Allocating.init(allocator);
     defer out.deinit();
     const w = &out.writer;
-    try w.writeAll("{\"apiVersion\":\"gizclaw.flowcraft/v1alpha1\",\"kind\":\"FlowcraftWorkflow\",\"metadata\":{\"name\":");
+    const realtime_model = cfg.optionalString(&.{ "workflow", "realtime_model" }) orelse try cfg.string(&.{ "models", "realtime" });
+    try w.writeAll("{\"metadata\":{\"name\":");
     try std.json.Stringify.value(try cfg.string(&.{ "workflow", "name" }), .{}, w);
     try w.writeAll(",\"description\":");
     try std.json.Stringify.value(try cfg.string(&.{ "workflow", "description" }), .{}, w);
-    try w.writeAll("},\"spec\":{\"realtime_model\":");
-    try std.json.Stringify.value(try cfg.string(&.{ "models", "realtime" }), .{}, w);
+    try w.writeAll("},\"spec\":{\"driver\":\"doubao-realtime\",\"doubao_realtime\":{\"realtime_model\":");
+    try std.json.Stringify.value(realtime_model, .{}, w);
     try w.writeAll(",\"realtime\":{\"session\":{\"auth_mode\":");
     try std.json.Stringify.value(try cfg.string(&.{ "workflow", "session", "auth_mode" }), .{}, w);
     try w.writeAll(",\"bot_name\":");
@@ -585,25 +676,55 @@ fn workflowDocument(comptime sdk: type, allocator: std.mem.Allocator, cfg: *cons
     try w.print(",\"vad_window_ms\":{d}", .{cfg.optionalInteger(&.{ "workflow", "session", "vad_window_ms" }, 200)});
     try w.writeAll("},\"output\":{\"speaker\":");
     try std.json.Stringify.value(try cfg.string(&.{ "workflow", "output", "speaker" }), .{}, w);
-    try w.writeAll("}}}}");
+    try w.writeAll("}}}}}");
     const json = try out.toOwnedSlice();
     defer allocator.free(json);
     return try sdk.models.fromJson(sdk.models.WorkflowCreateRequest, allocator, json);
 }
 
-fn workspaceDocument(comptime sdk: type, allocator: std.mem.Allocator, cfg: *const WorkspaceConfig) !std.json.Parsed(sdk.models.WorkspaceCreateRequest) {
+fn astTranslateWorkflowDocument(comptime sdk: type, allocator: std.mem.Allocator, cfg: *const WorkspaceConfig) !std.json.Parsed(sdk.models.WorkflowCreateRequest) {
     var out = std.Io.Writer.Allocating.init(allocator);
     defer out.deinit();
     const w = &out.writer;
+    const translation_model = cfg.optionalString(&.{ "workflow", "translation_model" }) orelse try cfg.string(&.{ "models", "translation" });
+    try w.writeAll("{\"metadata\":{\"name\":");
+    try std.json.Stringify.value(try cfg.string(&.{ "workflow", "name" }), .{}, w);
+    try w.writeAll(",\"description\":");
+    try std.json.Stringify.value(cfg.optionalString(&.{ "workflow", "description" }) orelse "Workspace e2e workflow", .{}, w);
+    try w.writeAll("},\"spec\":{\"driver\":\"ast-translate\",\"ast_translate\":{\"translation_model\":");
+    try std.json.Stringify.value(translation_model, .{}, w);
+    try appendOptionalStringField(w, "mode", cfg.optionalString(&.{ "workflow", "ast_translate", "mode" }));
+    try appendOptionalObjectField(w, "voice", cfg.optionalObject(&.{ "workflow", "ast_translate", "voice" }));
+    try appendOptionalStringField(w, "speaker_id", cfg.optionalString(&.{ "workflow", "ast_translate", "speaker_id" }));
+    try appendOptionalBoolField(w, "is_custom_speaker", cfg.optionalBool(&.{ "workflow", "ast_translate", "is_custom_speaker" }));
+    try appendOptionalStringField(w, "tts_resource_id", cfg.optionalString(&.{ "workflow", "ast_translate", "tts_resource_id" }));
+    try appendOptionalIntegerField(w, "speech_rate", cfg.optionalIntegerValue(&.{ "workflow", "ast_translate", "speech_rate" }));
+    try appendOptionalBoolField(w, "enable_source_language_detect", cfg.optionalBool(&.{ "workflow", "ast_translate", "enable_source_language_detect" }));
+    try appendOptionalBoolField(w, "denoise", cfg.optionalBool(&.{ "workflow", "ast_translate", "denoise" }));
+    try appendOptionalStringField(w, "resource_id", cfg.optionalString(&.{ "workflow", "ast_translate", "resource_id" }));
+    try appendOptionalStringField(w, "auth_mode", cfg.optionalString(&.{ "workflow", "ast_translate", "auth_mode" }));
+    try w.writeAll("}}}");
+    const json = try out.toOwnedSlice();
+    defer allocator.free(json);
+    return try sdk.models.fromJson(sdk.models.WorkflowCreateRequest, allocator, json);
+}
+
+fn workspaceDocument(comptime sdk: type, allocator: std.mem.Allocator, cfg: *const WorkspaceConfig, workspace_name: []const u8) !std.json.Parsed(sdk.models.WorkspaceCreateRequest) {
+    if (std.mem.eql(u8, try cfg.string(&.{"agent"}), "ast-translate")) {
+        return astTranslateWorkspaceDocument(sdk, allocator, cfg, workspace_name);
+    }
+    var out = std.Io.Writer.Allocating.init(allocator);
+    defer out.deinit();
+    const w = &out.writer;
+    const realtime_model = cfg.optionalString(&.{ "workflow", "realtime_model" }) orelse try cfg.string(&.{ "models", "realtime" });
     try w.writeAll("{\"name\":");
-    try std.json.Stringify.value(try cfg.string(&.{"workspace"}), .{}, w);
+    try std.json.Stringify.value(workspace_name, .{}, w);
     try w.writeAll(",\"workflow_name\":");
     try std.json.Stringify.value(try cfg.string(&.{ "workflow", "name" }), .{}, w);
-    try w.writeAll(",\"created_at\":\"1970-01-01T00:00:00Z\",\"updated_at\":\"1970-01-01T00:00:00Z\"");
     try w.writeAll(",\"parameters\":{\"agent_type\":");
     try std.json.Stringify.value(try cfg.string(&.{"agent"}), .{}, w);
     try w.writeAll(",\"realtime_model\":");
-    try std.json.Stringify.value(try cfg.string(&.{ "models", "realtime" }), .{}, w);
+    try std.json.Stringify.value(realtime_model, .{}, w);
     if (cfg.optionalObject(&.{ "workflow", "parameters" })) |params| {
         var iter = params.iterator();
         while (iter.next()) |entry| {
@@ -617,4 +738,58 @@ fn workspaceDocument(comptime sdk: type, allocator: std.mem.Allocator, cfg: *con
     const json = try out.toOwnedSlice();
     defer allocator.free(json);
     return try sdk.models.fromJson(sdk.models.WorkspaceCreateRequest, allocator, json);
+}
+
+fn astTranslateWorkspaceDocument(comptime sdk: type, allocator: std.mem.Allocator, cfg: *const WorkspaceConfig, workspace_name: []const u8) !std.json.Parsed(sdk.models.WorkspaceCreateRequest) {
+    var out = std.Io.Writer.Allocating.init(allocator);
+    defer out.deinit();
+    const w = &out.writer;
+    try w.writeAll("{\"name\":");
+    try std.json.Stringify.value(workspace_name, .{}, w);
+    try w.writeAll(",\"workflow_name\":");
+    try std.json.Stringify.value(try cfg.string(&.{ "workflow", "name" }), .{}, w);
+    try w.writeAll(",\"parameters\":{\"agent_type\":\"ast-translate\"");
+    try appendOptionalStringField(w, "translation_model", cfg.optionalString(&.{ "workflow", "parameters", "translation_model" }));
+    try appendOptionalStringField(w, "input", cfg.optionalString(&.{ "workflow", "parameters", "input" }));
+    try appendOptionalStringField(w, "mode", cfg.optionalString(&.{ "workflow", "parameters", "mode" }));
+    try appendOptionalStringField(w, "lang_pair", cfg.optionalString(&.{ "workflow", "parameters", "lang_pair" }));
+    try appendOptionalObjectField(w, "voice", cfg.optionalObject(&.{ "workflow", "parameters", "voice" }));
+    try appendOptionalStringField(w, "speaker_id", cfg.optionalString(&.{ "workflow", "parameters", "speaker_id" }));
+    try appendOptionalBoolField(w, "is_custom_speaker", cfg.optionalBool(&.{ "workflow", "parameters", "is_custom_speaker" }));
+    try appendOptionalStringField(w, "tts_resource_id", cfg.optionalString(&.{ "workflow", "parameters", "tts_resource_id" }));
+    try appendOptionalIntegerField(w, "speech_rate", cfg.optionalIntegerValue(&.{ "workflow", "parameters", "speech_rate" }));
+    try appendOptionalBoolField(w, "enable_source_language_detect", cfg.optionalBool(&.{ "workflow", "parameters", "enable_source_language_detect" }));
+    try appendOptionalBoolField(w, "denoise", cfg.optionalBool(&.{ "workflow", "parameters", "denoise" }));
+    try w.writeAll("}}");
+    const json = try out.toOwnedSlice();
+    defer allocator.free(json);
+    return try sdk.models.fromJson(sdk.models.WorkspaceCreateRequest, allocator, json);
+}
+
+fn appendOptionalStringField(w: anytype, comptime name: []const u8, value: ?[]const u8) !void {
+    if (value) |text| {
+        try w.writeAll(",\"" ++ name ++ "\":");
+        try std.json.Stringify.value(text, .{}, w);
+    }
+}
+
+fn appendOptionalBoolField(w: anytype, comptime name: []const u8, value: ?bool) !void {
+    if (value) |boolean| {
+        try w.writeAll(",\"" ++ name ++ "\":");
+        try std.json.Stringify.value(boolean, .{}, w);
+    }
+}
+
+fn appendOptionalIntegerField(w: anytype, comptime name: []const u8, value: ?i64) !void {
+    if (value) |integer| {
+        try w.writeAll(",\"" ++ name ++ "\":");
+        try std.json.Stringify.value(integer, .{}, w);
+    }
+}
+
+fn appendOptionalObjectField(w: anytype, comptime name: []const u8, value: ?std.json.ObjectMap) !void {
+    if (value) |object| {
+        try w.writeAll(",\"" ++ name ++ "\":");
+        try std.json.Stringify.value(std.json.Value{ .object = object }, .{}, w);
+    }
 }

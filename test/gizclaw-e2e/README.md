@@ -1,19 +1,33 @@
 # GizClaw E2E
 
 These binaries exercise the Zig GizClaw client against a real GizClaw server.
-They reuse the Go e2e setup context and shared resources instead of recreating
-provider credentials, models, voices, or ACL views.
+They reuse the Go e2e setup resources instead of recreating provider
+credentials, models, voices, workflows, or ACL views. The Zig e2e client should
+use its own peer key and context, then join the same shared ACL view.
 
 ## Shared Setup
 
-The default context is:
+Start and seed the local Go setup server first. Then create the Zig client
+context and apply its public key to the shared Go e2e ACL view:
 
 ```sh
-../gizclaw-go/test/gizclaw-e2e/.testbench/context/gizclaw/e2e-client
+test/gizclaw-e2e/setup/apply_client_view.sh
 ```
 
-The context supplies the client identity. The server endpoint can be overridden
-when the Go setup context points at a local service:
+The script writes the Zig context under the Go setup context home by default:
+
+```sh
+test/gizclaw-e2e/.testbench/context/gizclaw/zig-e2e-client
+```
+
+Use the printed `context_dir` with `--context`. The Zig private key text is
+persisted in `.testbench/setup/zig-client.private-key`, not in the source tree.
+Pass `--context-name`, `--context-home`, `--server-workspace`,
+`--server-addr`, `--admin-context`, or `--acl-view` when testing against an
+isolated local setup.
+
+The context supplies the client identity. The server endpoint can still be
+overridden when a context points at a local service:
 
 ```sh
 zig build run-gizclaw-e2e-rpc -- \
@@ -62,6 +76,16 @@ swagger. The Zig client exposes typed `ListVoices` and `GetVoice` helpers backed
 by the Go-compatible peer OpenAI HTTP service (`/v1/voices`), and the RPC runner
 covers those typed helpers alongside the RPC methods.
 
+Workspace history RPCs require `workspace.read` for the caller public key
+subject, not only the shared ACL view. For the default doubao workspace fixture,
+add this binding after the Go setup resources are applied:
+
+```sh
+printf '%s\n' \
+  '{"apiVersion":"gizclaw.admin/v1alpha1","kind":"ACLPolicyBinding","metadata":{"name":"pk-e2e-client-workspace-doubao-realtime"},"spec":{"subject":{"kind":"pk","id":"'"${GIZCLAW_E2E_CLIENT_PUBLIC_KEY}"'"},"resource":{"kind":"workspace","id":"doubao-realtime"},"role":"e2e-client"}}' |
+  gizclaw admin apply --context "${GIZCLAW_E2E_ADMIN_CONTEXT:-e2e-admin}" -f -
+```
+
 To cover firmware download on a local Go setup server, seed an isolated firmware
 fixture with the Go admin CLI and pass the printed flags to the RPC runner:
 
@@ -108,13 +132,17 @@ add/update/list/delete. The peer context must point at the same server.
 
 ```sh
 zig build run-gizclaw-e2e-workspace -- \
-  --config test/gizclaw-e2e/workspace/config/doubao-realtime.example.json
+  --context test/gizclaw-e2e/.testbench/context/gizclaw/zig-e2e-client \
+  --config ../gizclaw-go/test/gizclaw-e2e/workspace/config/doubao-realtime.json \
+  --workspace zig-e2e-doubao-realtime
 ```
 
-The workspace runner creates or updates the workflow and workspace itself. The
-shared setup still owns credentials, provider tenants, models, voices, and ACL
-view resources. The default config targets the same `e2e-*` resource names used
-by the Go e2e setup.
+The workspace runner uses a Go workspace e2e config, upserts the workflow, stops
+the active server run, deletes any old workspace with the selected name, and
+creates the workspace again before each run. The Go setup owns shared
+credentials, provider tenants, models, voices, and ACL view resources.
+Use `--workspace NAME` so Zig e2e owns a workspace name that does not collide
+with the Go workspace e2e programs.
 
 After upsert, the runner selects the workspace, reloads the run agent, waits for
 `GetServerRunStatus` to report `state=running` for the expected workspace, opens
@@ -140,6 +168,29 @@ test/gizclaw-e2e/fixtures/make-opus-packets.sh \
 
 Use `--run-timeout-ms N` to override the run-status wait. Use
 `--skip-run-control` to stop after workflow/workspace upsert.
+
+Latest local AST translation validation against a temporary server created by
+`../gizclaw-go/test/gizclaw-e2e/setup/start.sh`, seeded with the Go setup AST
+resources, then joined with `test/gizclaw-e2e/setup/apply_client_view.sh`:
+
+```text
+zig build run-gizclaw-e2e-workspace -- \
+  --context /tmp/gizclaw-zig-setup.gHAUIU/context/gizclaw/zig-e2e-client \
+  --config ../gizclaw-go/test/gizclaw-e2e/workspace/config/ast-translate.json \
+  --workspace zig-e2e-ast-translate \
+  --conversation-smoke \
+  --opus-packets-base64-file /tmp/gizclaw-zig-ast.MOAh88/go-opus-packets.txt \
+  --conversation-timeout-ms 30000 \
+  --run-timeout-ms 60000
+
+SUMMARY pass=10 skip=1 fail=0
+input_packets=123 workspace_uplink_send_ms=2850
+after_eos_transcript_start_ms=142 after_eos_transcript_done_ms=1953
+after_eos_text_first_ms=274 assistant_text_done_ms=1953
+after_eos_audio_first_ms=2151
+events=24 transcript_events=12 assistant_events=11 history_events=1
+audio_packets=32 audio_bytes=6034
+```
 
 ## Runtime Parameters
 
