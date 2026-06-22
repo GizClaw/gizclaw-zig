@@ -98,6 +98,15 @@ pub fn make(comptime grt: type, comptime config: Config) type {
                 self.* = undefined;
             }
         };
+        pub const WorkspaceHistoryAudioGetResult = struct {
+            metadata: grt.std.json.Parsed(models.WorkspaceHistoryAudioGetResponse),
+            bytes: i64,
+
+            pub fn deinit(self: *WorkspaceHistoryAudioGetResult) void {
+                self.metadata.deinit();
+                self.* = undefined;
+            }
+        };
 
         allocator: Allocator,
         key_pair: giznet.KeyPair,
@@ -309,6 +318,34 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             return try self.callRpcParsed(models.ServerSetRunAgentResponse, "server-run-agent-set", Rpc.method_server_run_agent_set, request);
         }
 
+        pub fn getServerRunWorkspace(self: *Self) !grt.std.json.Parsed(models.ServerGetRunWorkspaceResponse) {
+            return try self.callRpcParsed(models.ServerGetRunWorkspaceResponse, "server-run-workspace-get", Rpc.method_server_run_workspace_get, models.ServerGetRunWorkspaceRequest{});
+        }
+
+        pub fn setServerRunWorkspace(self: *Self, request: models.ServerSetRunWorkspaceRequest) !grt.std.json.Parsed(models.ServerSetRunWorkspaceResponse) {
+            return try self.callRpcParsed(models.ServerSetRunWorkspaceResponse, "server-run-workspace-set", Rpc.method_server_run_workspace_set, request);
+        }
+
+        pub fn reloadServerRunWorkspace(self: *Self) !grt.std.json.Parsed(models.ServerReloadRunWorkspaceResponse) {
+            return try self.callRpcParsed(models.ServerReloadRunWorkspaceResponse, "server-run-workspace-reload", Rpc.method_server_run_workspace_reload, models.ServerReloadRunWorkspaceRequest{});
+        }
+
+        pub fn listServerRunWorkspaceHistory(self: *Self, request: models.ServerListRunWorkspaceHistoryRequest) !grt.std.json.Parsed(models.ServerListRunWorkspaceHistoryResponse) {
+            return try self.callRpcParsed(models.ServerListRunWorkspaceHistoryResponse, "server-run-workspace-history", Rpc.method_server_run_workspace_history, request);
+        }
+
+        pub fn playServerRunWorkspaceHistory(self: *Self, request: models.ServerPlayRunWorkspaceHistoryRequest) !grt.std.json.Parsed(models.ServerPlayRunWorkspaceHistoryResponse) {
+            return try self.callRpcParsed(models.ServerPlayRunWorkspaceHistoryResponse, "server-run-workspace-history-play", Rpc.method_server_run_workspace_history_play, request);
+        }
+
+        pub fn getServerRunWorkspaceMemoryStats(self: *Self, request: models.ServerGetRunWorkspaceMemoryStatsRequest) !grt.std.json.Parsed(models.ServerGetRunWorkspaceMemoryStatsResponse) {
+            return try self.callRpcParsed(models.ServerGetRunWorkspaceMemoryStatsResponse, "server-run-workspace-memory-stats", Rpc.method_server_run_workspace_memory_stats, request);
+        }
+
+        pub fn serverRunWorkspaceRecall(self: *Self, request: models.ServerRunWorkspaceRecallRequest) !grt.std.json.Parsed(models.ServerRunWorkspaceRecallResponse) {
+            return try self.callRpcParsed(models.ServerRunWorkspaceRecallResponse, "server-run-workspace-recall", Rpc.method_server_run_workspace_recall, request);
+        }
+
         pub fn reloadServerRun(self: *Self) !grt.std.json.Parsed(models.ServerReloadRunResponse) {
             return try self.callRpcParsed(models.ServerReloadRunResponse, "server-run-reload", Rpc.method_server_run_reload, models.ServerReloadRunRequest{});
         }
@@ -341,6 +378,44 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             return try self.callRpcParsed(models.WorkspacePutResponse, "workspace-put", Rpc.method_server_workspace_put, request);
         }
 
+        pub fn deleteWorkspace(self: *Self, request: models.WorkspaceDeleteRequest) !grt.std.json.Parsed(models.WorkspaceDeleteResponse) {
+            return try self.callRpcParsed(models.WorkspaceDeleteResponse, "workspace-delete", Rpc.method_server_workspace_delete, request);
+        }
+
+        pub fn listWorkspaceHistory(self: *Self, request: models.WorkspaceHistoryListRequest) !grt.std.json.Parsed(models.WorkspaceHistoryListResponse) {
+            return try self.callRpcParsed(models.WorkspaceHistoryListResponse, "workspace-history-list", Rpc.method_server_workspace_history_list, request);
+        }
+
+        pub fn getWorkspaceHistory(self: *Self, request: models.WorkspaceHistoryGetRequest) !grt.std.json.Parsed(models.WorkspaceHistoryGetResponse) {
+            return try self.callRpcParsed(models.WorkspaceHistoryGetResponse, "workspace-history-get", Rpc.method_server_workspace_history_get, request);
+        }
+
+        pub fn getWorkspaceHistoryAudio(self: *Self, request: models.WorkspaceHistoryAudioGetRequest, writer: anytype) !WorkspaceHistoryAudioGetResult {
+            const conn = self.conn orelse return error.ClientNotConnected;
+            const stream = try conn.openStream(service.rpc);
+            try setStreamDeadline(stream);
+            var rpc = RpcRuntime.Rpc.init(self.allocator, stream);
+            defer rpc.deinit();
+
+            const params = try models.toJson(self.allocator, request);
+            defer self.allocator.free(params);
+            const rpc_request = try RpcRuntime.buildRequest(self.allocator, "workspace-history-audio-get", Rpc.method_server_workspace_history_audio_get, params);
+            defer self.allocator.free(rpc_request);
+
+            try rpc.writeJsonFrame(rpc_request);
+            try rpc.writeEOS();
+
+            const response_data = try rpc.readJsonFrame();
+            defer self.allocator.free(response_data);
+            const metadata = try self.parseRpcResultParsed(models.WorkspaceHistoryAudioGetResponse, response_data);
+            errdefer metadata.deinit();
+            const bytes = try copyBinaryFramesToWriter(&rpc, writer);
+            return .{
+                .metadata = metadata,
+                .bytes = bytes,
+            };
+        }
+
         pub fn listWorkflows(self: *Self, request: models.WorkflowListRequest) !grt.std.json.Parsed(models.WorkflowListResponse) {
             return try self.callRpcParsed(models.WorkflowListResponse, "workflow-list", Rpc.method_server_workflow_list, request);
         }
@@ -355,6 +430,10 @@ pub fn make(comptime grt: type, comptime config: Config) type {
 
         pub fn putWorkflow(self: *Self, request: models.WorkflowPutRequest) !grt.std.json.Parsed(models.WorkflowPutResponse) {
             return try self.callRpcParsed(models.WorkflowPutResponse, "workflow-put", Rpc.method_server_workflow_put, request);
+        }
+
+        pub fn deleteWorkflow(self: *Self, request: models.WorkflowDeleteRequest) !grt.std.json.Parsed(models.WorkflowDeleteResponse) {
+            return try self.callRpcParsed(models.WorkflowDeleteResponse, "workflow-delete", Rpc.method_server_workflow_delete, request);
         }
 
         pub fn listModels(self: *Self, request: models.ModelListRequest) !grt.std.json.Parsed(models.ModelListResponse) {

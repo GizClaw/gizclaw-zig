@@ -12,7 +12,6 @@
         "type": "object",
         "required": [
           "name",
-          "app_id",
           "credential_name",
           "created_at",
           "updated_at"
@@ -22,9 +21,6 @@
             "type": "string"
           },
           "credential_name": {
-            "type": "string"
-          },
-          "app_id": {
             "type": "string"
           },
           "region": {

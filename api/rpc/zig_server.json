@@ -58,6 +58,52 @@
       "ServerSetRunAgentResponse": {
         "$ref": "../type/peer_run_agent.json#/components/schemas/PeerRunAgent"
       },
+      "ServerGetRunWorkspaceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "ServerGetRunWorkspaceResponse": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunWorkspaceState"
+      },
+      "ServerSetRunWorkspaceRequest": {
+        "$ref": "../type/agent_selection.json#/components/schemas/AgentSelection"
+      },
+      "ServerSetRunWorkspaceResponse": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunWorkspaceState"
+      },
+      "ServerReloadRunWorkspaceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "ServerReloadRunWorkspaceResponse": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunWorkspaceState"
+      },
+      "ServerListRunWorkspaceHistoryRequest": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunHistoryListRequest"
+      },
+      "ServerListRunWorkspaceHistoryResponse": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunHistoryListResponse"
+      },
+      "ServerPlayRunWorkspaceHistoryRequest": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunHistoryPlayRequest"
+      },
+      "ServerPlayRunWorkspaceHistoryResponse": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunHistoryPlayResponse"
+      },
+      "ServerGetRunWorkspaceMemoryStatsRequest": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunMemoryStatsRequest"
+      },
+      "ServerGetRunWorkspaceMemoryStatsResponse": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunMemoryStatsResponse"
+      },
+      "ServerRunWorkspaceRecallRequest": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunRecallRequest"
+      },
+      "ServerRunWorkspaceRecallResponse": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunRecallResponse"
+      },
       "ServerReloadRunRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -269,7 +315,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "../type/workspace.json#/components/schemas/Workspace"
+              "$ref": "#/components/schemas/WorkspaceObject"
             }
           },
           "has_next": {
@@ -298,13 +344,30 @@
         ]
       },
       "WorkspaceGetResponse": {
-        "$ref": "../type/workspace.json#/components/schemas/Workspace"
+        "$ref": "#/components/schemas/WorkspaceObject"
       },
       "WorkspaceCreateRequest": {
-        "$ref": "../type/workspace.json#/components/schemas/Workspace"
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/WorkspaceParametersObject"
+          }
+        },
+        "required": [
+          "name",
+          "workflow_name",
+          "parameters"
+        ]
       },
       "WorkspaceCreateResponse": {
-        "$ref": "../type/workspace.json#/components/schemas/Workspace"
+        "$ref": "#/components/schemas/WorkspaceObject"
       },
       "WorkspacePutRequest": {
         "type": "object",
@@ -315,7 +378,7 @@
             "minLength": 1
           },
           "body": {
-            "$ref": "../type/workspace.json#/components/schemas/Workspace"
+            "$ref": "#/components/schemas/WorkspaceCreateRequest"
           }
         },
         "required": [
@@ -324,7 +387,7 @@
         ]
       },
       "WorkspacePutResponse": {
-        "$ref": "../type/workspace.json#/components/schemas/Workspace"
+        "$ref": "#/components/schemas/WorkspaceObject"
       },
       "WorkspaceDeleteRequest": {
         "type": "object",
@@ -340,7 +403,94 @@
         ]
       },
       "WorkspaceDeleteResponse": {
-        "$ref": "../type/workspace.json#/components/schemas/Workspace"
+        "$ref": "#/components/schemas/WorkspaceObject"
+      },
+      "WorkspaceHistoryListRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspace_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "workspace_name"
+        ]
+      },
+      "WorkspaceHistoryListResponse": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunHistoryListResponse"
+      },
+      "WorkspaceHistoryGetRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspace_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "history_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "workspace_name",
+          "history_id"
+        ]
+      },
+      "WorkspaceHistoryGetResponse": {
+        "$ref": "../type/peer_run_workspace.json#/components/schemas/PeerRunHistoryEntry"
+      },
+      "WorkspaceHistoryAudioGetRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspace_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "history_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "workspace_name",
+          "history_id"
+        ]
+      },
+      "WorkspaceHistoryAudioGetResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspace_name": {
+            "type": "string"
+          },
+          "history_id": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "workspace_name",
+          "history_id",
+          "mime_type",
+          "size_bytes"
+        ]
       },
       "WorkflowListRequest": {
         "type": "object",
@@ -362,7 +512,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "../type/workflow_document.json#/components/schemas/WorkflowDocument"
+              "$ref": "#/components/schemas/WorkflowObject"
             }
           },
           "has_next": {
@@ -391,13 +541,26 @@
         ]
       },
       "WorkflowGetResponse": {
-        "$ref": "../type/workflow_document.json#/components/schemas/WorkflowDocument"
+        "$ref": "#/components/schemas/WorkflowObject"
       },
       "WorkflowCreateRequest": {
-        "$ref": "../type/workflow_document.json#/components/schemas/WorkflowDocument"
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/WorkflowMetadataObject"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/WorkflowSpecObject"
+          }
+        },
+        "required": [
+          "metadata",
+          "spec"
+        ]
       },
       "WorkflowCreateResponse": {
-        "$ref": "../type/workflow_document.json#/components/schemas/WorkflowDocument"
+        "$ref": "#/components/schemas/WorkflowObject"
       },
       "WorkflowPutRequest": {
         "type": "object",
@@ -408,7 +571,7 @@
             "minLength": 1
           },
           "body": {
-            "$ref": "../type/workflow_document.json#/components/schemas/WorkflowDocument"
+            "$ref": "#/components/schemas/WorkflowCreateRequest"
           }
         },
         "required": [
@@ -417,7 +580,7 @@
         ]
       },
       "WorkflowPutResponse": {
-        "$ref": "../type/workflow_document.json#/components/schemas/WorkflowDocument"
+        "$ref": "#/components/schemas/WorkflowObject"
       },
       "WorkflowDeleteRequest": {
         "type": "object",
@@ -433,7 +596,7 @@
         ]
       },
       "WorkflowDeleteResponse": {
-        "$ref": "../type/workflow_document.json#/components/schemas/WorkflowDocument"
+        "$ref": "#/components/schemas/WorkflowObject"
       },
       "ModelListRequest": {
         "type": "object",
@@ -455,7 +618,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "../type/model.json#/components/schemas/Model"
+              "$ref": "#/components/schemas/ModelObject"
             }
           },
           "has_next": {
@@ -484,7 +647,7 @@
         ]
       },
       "ModelGetResponse": {
-        "$ref": "../type/model.json#/components/schemas/Model"
+        "$ref": "#/components/schemas/ModelObject"
       },
       "CredentialListRequest": {
         "type": "object",
@@ -506,7 +669,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "../type/credential.json#/components/schemas/Credential"
+              "$ref": "#/components/schemas/CredentialObject"
             }
           },
           "has_next": {
@@ -535,11 +698,11 @@
         ]
       },
       "CredentialGetResponse": {
-        "$ref": "../type/credential.json#/components/schemas/Credential"
+        "$ref": "#/components/schemas/CredentialObject"
       },
       "ContactObject": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string"
@@ -549,14 +712,6 @@
           },
           "phone_number": {
             "type": "string"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -611,7 +766,7 @@
       },
       "ContactCreateRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "display_name": {
             "type": "string"
@@ -626,7 +781,7 @@
       },
       "ContactPutRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string"
@@ -637,10 +792,7 @@
           "phone_number": {
             "type": "string"
           }
-        },
-        "required": [
-          "id"
-        ]
+        }
       },
       "ContactPutResponse": {
         "$ref": "#/components/schemas/ContactObject"
@@ -662,12 +814,12 @@
       },
       "FriendRequestObject": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string"
           },
-          "from_peer_id": {
+          "peer_id": {
             "type": "string"
           },
           "to_peer_id": {
@@ -675,21 +827,6 @@
           },
           "message": {
             "type": "string"
-          },
-          "state": {
-            "$ref": "#/components/schemas/FriendRequestState"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "responded_at": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -735,7 +872,7 @@
       },
       "FriendRequestCreateRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "to_peer_id": {
             "type": "string"
@@ -746,11 +883,7 @@
           "message": {
             "type": "string"
           }
-        },
-        "required": [
-          "to_peer_id",
-          "code"
-        ]
+        }
       },
       "FriendRequestCreateResponse": {
         "$ref": "#/components/schemas/FriendRequestObject"
@@ -787,24 +920,13 @@
       },
       "FriendObject": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string"
           },
           "peer_id": {
             "type": "string"
-          },
-          "request_id": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -859,7 +981,7 @@
       },
       "FriendGroupObject": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string"
@@ -869,17 +991,6 @@
           },
           "description": {
             "type": "string"
-          },
-          "created_by_peer_id": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -934,7 +1045,7 @@
       },
       "FriendGroupCreateRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "name": {
             "type": "string"
@@ -942,17 +1053,14 @@
           "description": {
             "type": "string"
           }
-        },
-        "required": [
-          "name"
-        ]
+        }
       },
       "FriendGroupCreateResponse": {
         "$ref": "#/components/schemas/FriendGroupObject"
       },
       "FriendGroupPutRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string"
@@ -963,10 +1071,7 @@
           "description": {
             "type": "string"
           }
-        },
-        "required": [
-          "id"
-        ]
+        }
       },
       "FriendGroupPutResponse": {
         "$ref": "#/components/schemas/FriendGroupObject"
@@ -988,44 +1093,36 @@
       },
       "FriendGroupMemberObject": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
-            "type": "string"
-          },
-          "friend_group_id": {
             "type": "string"
           },
           "peer_id": {
             "type": "string"
           },
           "role": {
-            "$ref": "#/components/schemas/FriendGroupMemberRole"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
           }
         }
       },
       "FriendGroupMemberListRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
-          "cursor": {
+          "friend_group_id": {
             "type": "string"
           },
           "limit": {
             "type": "integer"
           },
-          "friend_group_id": {
+          "cursor": {
             "type": "string"
           }
-        }
+        },
+        "required": [
+          "friend_group_id"
+        ]
       },
       "FriendGroupMemberListResponse": {
         "type": "object",
@@ -1051,7 +1148,7 @@
       },
       "FriendGroupMemberAddRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "friend_group_id": {
             "type": "string"
@@ -1060,14 +1157,9 @@
             "type": "string"
           },
           "role": {
-            "$ref": "#/components/schemas/FriendGroupMemberMutableRole"
+            "type": "string"
           }
-        },
-        "required": [
-          "friend_group_id",
-          "peer_id",
-          "role"
-        ]
+        }
       },
       "FriendGroupMemberAddResponse": {
         "$ref": "#/components/schemas/FriendGroupMemberObject"
@@ -1093,15 +1185,12 @@
       },
       "FriendGroupMessageObject": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string"
           },
           "friend_group_id": {
-            "type": "string"
-          },
-          "sender_peer_id": {
             "type": "string"
           },
           "audio_path": {
@@ -1111,36 +1200,36 @@
             "type": "string"
           },
           "audio_size_bytes": {
-            "type": "integer",
-            "format": "int64"
+            "type": "integer"
           },
           "ttl_seconds": {
             "type": "integer"
           },
           "expires_at": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
           },
           "created_at": {
-            "type": "string",
-            "format": "date-time"
+            "type": "string"
           }
         }
       },
       "FriendGroupMessageListRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
-          "cursor": {
+          "friend_group_id": {
             "type": "string"
           },
           "limit": {
             "type": "integer"
           },
-          "friend_group_id": {
+          "cursor": {
             "type": "string"
           }
-        }
+        },
+        "required": [
+          "friend_group_id"
+        ]
       },
       "FriendGroupMessageListResponse": {
         "type": "object",
@@ -1166,27 +1255,18 @@
       },
       "FriendGroupMessageSendRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "friend_group_id": {
             "type": "string"
           },
           "audio_base64": {
-            "type": "string",
-            "format": "byte"
+            "type": "string"
           },
           "audio_content_type": {
             "type": "string"
-          },
-          "ttl_seconds": {
-            "type": "integer"
           }
-        },
-        "required": [
-          "friend_group_id",
-          "audio_base64",
-          "audio_content_type"
-        ]
+        }
       },
       "FriendGroupMessageSendResponse": {
         "$ref": "#/components/schemas/FriendGroupMessageObject"
@@ -1224,7 +1304,7 @@
       },
       "FriendGroupMemberPutRequest": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "friend_group_id": {
             "type": "string"
@@ -1233,14 +1313,9 @@
             "type": "string"
           },
           "role": {
-            "$ref": "#/components/schemas/FriendGroupMemberMutableRole"
+            "type": "string"
           }
-        },
-        "required": [
-          "friend_group_id",
-          "id",
-          "role"
-        ]
+        }
       },
       "FriendGroupMemberPutResponse": {
         "$ref": "#/components/schemas/FriendGroupMemberObject"
@@ -1263,6 +1338,272 @@
       },
       "FriendGroupMessageGetResponse": {
         "$ref": "#/components/schemas/FriendGroupMessageObject"
+      },
+      "WorkspaceObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "WorkflowMetadataObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "DoubaoRealtimeSessionObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "auth_mode": {
+            "type": "string"
+          },
+          "bot_name": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "resource_id": {
+            "type": "string"
+          },
+          "system_role": {
+            "type": "string"
+          },
+          "vad_window_ms": {
+            "type": "integer"
+          }
+        }
+      },
+      "DoubaoRealtimeOutputObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "speaker": {
+            "type": "string"
+          }
+        }
+      },
+      "DoubaoRealtimeRuntimeObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/DoubaoRealtimeSessionObject"
+          },
+          "output": {
+            "$ref": "#/components/schemas/DoubaoRealtimeOutputObject"
+          }
+        }
+      },
+      "DoubaoRealtimeWorkflowObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "realtime_model": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "realtime": {
+            "$ref": "#/components/schemas/DoubaoRealtimeRuntimeObject"
+          },
+          "realtime_config": {
+            "$ref": "#/components/schemas/DoubaoRealtimeRuntimeObject"
+          }
+        }
+      },
+      "WorkspaceVoiceObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "realtime_speaker_id": {
+            "type": "string"
+          },
+          "speaker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceSearchObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          },
+          "result_count": {
+            "type": "integer"
+          },
+          "no_result_message": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceMusicObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WorkflowSpecObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "driver": {
+            "type": "string"
+          },
+          "doubao_realtime": {
+            "$ref": "#/components/schemas/DoubaoRealtimeWorkflowObject"
+          },
+          "flowcraft": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "ast_translate": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "driver"
+        ]
+      },
+      "WorkflowObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/WorkflowMetadataObject"
+          }
+        },
+        "required": [
+          "metadata"
+        ]
+      },
+      "WorkspaceParametersObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "agent_type": {
+            "type": "string"
+          },
+          "realtime_model": {
+            "type": "string"
+          },
+          "input": {
+            "type": "string"
+          },
+          "voice": {
+            "$ref": "#/components/schemas/WorkspaceVoiceObject"
+          },
+          "search": {
+            "$ref": "#/components/schemas/WorkspaceSearchObject"
+          },
+          "music": {
+            "$ref": "#/components/schemas/WorkspaceMusicObject"
+          },
+          "e2e": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agent_type"
+        ]
+      },
+      "ModelObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "provider_data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "CredentialObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "description": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "provider",
+          "body"
+        ]
       }
     }
   }

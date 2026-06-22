@@ -1,0 +1,318 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Peer Run Workspace Runtime Types",
+    "description": "Active workspace runtime introspection and replay schemas.",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "PeerRunWorkspaceState": {
+        "type": "object",
+        "required": [
+          "runtime_state",
+          "workspace_name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "workspace_name": {
+            "type": "string"
+          },
+          "selected_workspace_name": {
+            "type": "string"
+          },
+          "pending_workspace_name": {
+            "type": "string"
+          },
+          "active_workspace_name": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "agent_type": {
+            "type": "string"
+          },
+          "runtime_state": {
+            "$ref": "./peer_run_status.json#/components/schemas/PeerRunStatusState"
+          },
+          "message": {
+            "type": "string"
+          },
+          "history_available": {
+            "type": "boolean"
+          },
+          "memory_stats_available": {
+            "type": "boolean"
+          },
+          "recall_available": {
+            "type": "boolean"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PeerRunHistoryEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "name",
+          "text",
+          "created_at",
+          "replay_available"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "gear",
+              "agent"
+            ]
+          },
+          "gear_id": {
+            "type": "string",
+            "description": "Originating gear id. Required for gear entries and omitted for agent entries.",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "replay_available": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PeerRunHistoryListRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "PeerRunHistoryListResponse": {
+        "type": "object",
+        "required": [
+          "available",
+          "items",
+          "has_next"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeerRunHistoryEntry"
+            }
+          },
+          "has_next": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "PeerRunHistoryPlayRequest": {
+        "type": "object",
+        "required": [
+          "history_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "history_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "PeerRunHistoryPlayResponse": {
+        "type": "object",
+        "required": [
+          "accepted",
+          "history_id",
+          "state"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "history_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "PeerRunMemoryStatsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "PeerRunMemoryStatsResponse": {
+        "type": "object",
+        "required": [
+          "available",
+          "enabled",
+          "item_count",
+          "storage_bytes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "item_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "storage_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "message": {
+            "type": "string"
+          },
+          "embedding_enabled": {
+            "type": "boolean"
+          },
+          "embedding_status": {
+            "type": "string"
+          },
+          "index_status": {
+            "type": "string"
+          },
+          "last_updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PeerRunRecallRequest": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PeerRunRecallHit": {
+        "type": "object",
+        "required": [
+          "id",
+          "score",
+          "snippet"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "source_type": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "snippet": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "PeerRunRecallResponse": {
+        "type": "object",
+        "required": [
+          "available",
+          "hits"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeerRunRecallHit"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

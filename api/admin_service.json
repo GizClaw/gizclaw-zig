@@ -5943,7 +5943,6 @@
         "required": [
           "name",
           "provider",
-          "method",
           "body"
         ],
         "properties": {
@@ -5952,9 +5951,6 @@
           },
           "provider": {
             "type": "string"
-          },
-          "method": {
-            "$ref": "./types.json#/components/schemas/CredentialMethod"
           },
           "description": {
             "type": "string",
@@ -6108,7 +6104,6 @@
         "type": "object",
         "required": [
           "name",
-          "app_id",
           "credential_name"
         ],
         "properties": {
@@ -6116,9 +6111,6 @@
             "type": "string"
           },
           "credential_name": {
-            "type": "string"
-          },
-          "app_id": {
             "type": "string"
           },
           "region": {
@@ -6299,9 +6291,7 @@
             "type": "string"
           },
           "parameters": {
-            "type": "object",
-            "additionalProperties": true,
-            "example": {}
+            "$ref": "./types.json#/components/schemas/WorkspaceParameters"
           }
         }
       },

@@ -149,7 +149,8 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 firmware_json="$tmp_dir/firmware.json"
-payload_bin="$tmp_dir/$artifact.bin"
+tar_root="$tmp_dir/tar-root"
+payload_bin="$tmp_dir/$artifact.tar"
 acl_json="$tmp_dir/firmware-acl.json"
 
 python3 - "$firmware_json" "$firmware_id" "$channel" "$artifact" <<'PY'
@@ -171,7 +172,12 @@ with open(path, "w", encoding="utf-8") as f:
     json.dump(doc, f, separators=(",", ":"))
 PY
 
-printf '%s' "$payload" > "$payload_bin"
+mkdir -p "$tar_root"
+printf '%s\n' "$payload" > "$tar_root/payload.txt"
+cat > "$tar_root/manifest.json" <<EOF
+{"firmware_id":"$firmware_id","channel":"$channel","artifact":"$artifact","format":"tar","source":"gizclaw-zig-rpc-e2e"}
+EOF
+tar -cf "$payload_bin" -C "$tar_root" .
 
 python3 - "$acl_json" "$firmware_id" "$subject_kind" "$subject_id" <<'PY'
 import json

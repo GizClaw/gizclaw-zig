@@ -542,6 +542,23 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             try testing.expectEqualStrings("hello", parsed.value.text.?);
             try testing.expectEqual(@as(i64, 123), parsed.value.timestamp.?);
 
+            const history_payload = "{\"v\":1,\"type\":\"workspace.history.updated\",\"label\":\"workspace.history.updated\",\"timestamp\":456,\"last_updated_at\":\"2026-06-22T12:00:00Z\"}";
+            var history_buf: [256]u8 = undefined;
+            any_grt.std.mem.writeInt(u16, history_buf[0..2], @intCast(history_payload.len), .little);
+            any_grt.std.mem.writeInt(u16, history_buf[2..4], @intFromEnum(gizclaw.Rpc.FrameType.json), .little);
+            @memcpy(history_buf[4..][0..history_payload.len], history_payload);
+            var history_impl = MemoryStream{
+                .input = history_buf[0 .. 4 + history_payload.len],
+                .output = &out_buf,
+            };
+            const history_stream = giznet.Stream.init(&history_impl, gizclaw.service.event, 6);
+            var history = try peer_stream.readPeerStreamEvent(allocator, history_stream);
+            defer history.deinit();
+            try testing.expectEqual(gizclaw.peer_stream.PeerStreamEventType.workspace_history_updated, history.value.type);
+            try testing.expectEqualStrings("workspace.history.updated", history.value.label.?);
+            try testing.expectEqual(@as(i64, 456), history.value.timestamp.?);
+            try testing.expectEqualStrings("2026-06-22T12:00:00Z", history.value.last_updated_at.?);
+
             {
                 var chunk_impl = MemoryStream{
                     .input = in_buf[0 .. 4 + want_payload.len],

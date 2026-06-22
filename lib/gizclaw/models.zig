@@ -6,81 +6,34 @@ const options = @import("gizclaw_models_options");
 fn files() openapi.Files {
     return .{
         .items = &.{
-            apiFile("client_service.json"),
+            apiFileAs("client_service_zig.json", "client_service.json"),
             apiFileAs("rpc/zig.json", "rpc.json"),
             apiFile("rpc/all.json"),
             apiFile("rpc/client.json"),
             apiFile("rpc/zig_server.json"),
-            apiFile("rpc/device.json"),
-            apiFile("rpc/gear.json"),
             apiFile("type/agent_selection.json"),
-            apiFile("type/configuration.json"),
-            apiFile("type/credential.json"),
-            apiFile("type/credential_body.json"),
-            apiFile("type/credential_method.json"),
-            apiFile("type/credential_spec.json"),
-            apiFile("type/dashscope_tenant.json"),
-            apiFile("type/dashscope_tenant_spec.json"),
             apiFile("type/device_info.json"),
             apiFile("type/error_payload.json"),
             apiFile("type/error_response.json"),
             apiFile("type/firmware.json"),
             apiFile("type/firmware_artifact.json"),
             apiFile("type/firmware_artifact_kind.json"),
-            apiFile("type/firmware_selection.json"),
             apiFile("type/firmware_slot.json"),
             apiFile("type/firmware_slots.json"),
-            apiFile("type/firmware_spec.json"),
-            apiFile("type/gear.json"),
-            apiFile("type/gear_imei.json"),
-            apiFile("type/gear_label.json"),
-            apiFile("type/gear_role.json"),
-            apiFile("type/gear_status.json"),
-            apiFile("type/gemini_tenant.json"),
-            apiFile("type/gemini_tenant_spec.json"),
             apiFile("type/hardware_info.json"),
-            apiFile("type/minimax_tenant.json"),
-            apiFile("type/minimax_tenant_spec.json"),
-            apiFile("type/model.json"),
-            apiFile("type/model_capabilities.json"),
-            apiFile("type/model_kind.json"),
-            apiFile("type/model_provider.json"),
-            apiFile("type/model_provider_data.json"),
-            apiFile("type/model_provider_kind.json"),
-            apiFile("type/model_source.json"),
-            apiFile("type/model_spec.json"),
-            apiFile("type/openai_tenant.json"),
-            apiFile("type/openai_tenant_spec.json"),
-            apiFile("type/peer.json"),
             apiFile("type/peer_imei.json"),
             apiFile("type/peer_label.json"),
-            apiFile("type/peer_registration_status.json"),
-            apiFile("type/peer_role.json"),
             apiFile("type/peer_run_agent.json"),
             apiFile("type/peer_run_status.json"),
+            apiFile("type/peer_run_workspace.json"),
             apiFile("type/peer_status.json"),
             apiFile("type/peer_stream_event.json"),
-            apiFile("type/provider.json"),
-            apiFile("type/provider_kind.json"),
             apiFile("type/refresh_info.json"),
             apiFile("type/refresh_identifiers.json"),
-            apiFile("type/registration.json"),
             apiFile("type/runtime.json"),
             apiFile("type/server_info.json"),
-            apiFile("type/voice.json"),
-            apiFile("type/voice_provider.json"),
-            apiFile("type/voice_provider_data.json"),
             apiFile("type/voice_provider_kind.json"),
             apiFile("type/voice_source.json"),
-            apiFile("type/voice_spec.json"),
-            apiFile("type/volc_tenant.json"),
-            apiFile("type/volc_tenant_spec.json"),
-            apiFile("type/workflow_api_version.json"),
-            apiFile("type/workflow_document.json"),
-            apiFile("type/workflow_metadata.json"),
-            apiFile("type/workflows/flowcraft.json"),
-            apiFile("type/workspace.json"),
-            apiFile("type/workspace_spec.json"),
         },
     };
 }
@@ -88,6 +41,13 @@ fn files() openapi.Files {
 fn apiFile(comptime path: []const u8) openapi.Files.Entry {
     return .{
         .name = "./" ++ path,
+        .spec = openapi.json.parse(@field(options, apiOptionName(path))),
+    };
+}
+
+fn apiFileAs(comptime path: []const u8, comptime name: []const u8) openapi.Files.Entry {
+    return .{
+        .name = "./" ++ name,
         .spec = openapi.json.parse(@field(options, apiOptionName(path))),
     };
 }
@@ -117,7 +77,6 @@ const Models = blk: {
 pub const toJson = Models.toJson;
 pub const fromJson = Models.fromJson;
 
-pub const Configuration = Models.Configuration;
 pub const AgentSelection = Models.AgentSelection;
 pub const ClientGetIdentifiersRequest = Models.ClientGetIdentifiersRequest;
 pub const ClientGetIdentifiersResponse = Models.ClientGetIdentifiersResponse;
@@ -135,17 +94,21 @@ pub const ContactListResponse = Models.ContactListResponse;
 pub const ContactObject = Models.ContactObject;
 pub const ContactPutRequest = Models.ContactPutRequest;
 pub const ContactPutResponse = Models.ContactPutResponse;
-pub const Credential = Models.Credential;
 pub const CredentialGetRequest = Models.CredentialGetRequest;
 pub const CredentialGetResponse = Models.CredentialGetResponse;
 pub const CredentialListRequest = Models.CredentialListRequest;
 pub const CredentialListResponse = Models.CredentialListResponse;
-pub const DeviceGetIdentifiersRequest = Models.DeviceGetIdentifiersRequest;
-pub const DeviceGetIdentifiersResponse = Models.DeviceGetIdentifiersResponse;
-pub const DeviceGetInfoRequest = Models.DeviceGetInfoRequest;
-pub const DeviceGetInfoResponse = Models.DeviceGetInfoResponse;
+pub const CredentialObject = Models.CredentialObject;
 pub const DeviceInfo = Models.DeviceInfo;
+pub const DoubaoRealtimeOutputObject = Models.DoubaoRealtimeOutputObject;
+pub const DoubaoRealtimeRuntimeObject = Models.DoubaoRealtimeRuntimeObject;
+pub const DoubaoRealtimeSessionObject = Models.DoubaoRealtimeSessionObject;
+pub const DoubaoRealtimeWorkflowObject = Models.DoubaoRealtimeWorkflowObject;
+pub const ErrorPayload = Models.ErrorPayload;
+pub const ErrorResponse = Models.ErrorResponse;
 pub const Firmware = Models.Firmware;
+pub const FirmwareArtifact = Models.FirmwareArtifact;
+pub const FirmwareArtifactKind = Models.FirmwareArtifactKind;
 pub const FirmwareBinMetadata = Models.FirmwareBinMetadata;
 pub const FirmwareChannelName = Models.FirmwareChannelName;
 pub const FirmwareDownloadRequest = Models.FirmwareDownloadRequest;
@@ -154,7 +117,8 @@ pub const FirmwareGetRequest = Models.FirmwareGetRequest;
 pub const FirmwareGetResponse = Models.FirmwareGetResponse;
 pub const FirmwareListRequest = Models.FirmwareListRequest;
 pub const FirmwareListResponse = Models.FirmwareListResponse;
-pub const FirmwareSelection = Models.FirmwareSelection;
+pub const FirmwareSlot = Models.FirmwareSlot;
+pub const FirmwareSlots = Models.FirmwareSlots;
 pub const FriendDeleteRequest = Models.FriendDeleteRequest;
 pub const FriendDeleteResponse = Models.FriendDeleteResponse;
 pub const FriendGroupCreateRequest = Models.FriendGroupCreateRequest;
@@ -171,8 +135,11 @@ pub const FriendGroupMemberDeleteRequest = Models.FriendGroupMemberDeleteRequest
 pub const FriendGroupMemberDeleteResponse = Models.FriendGroupMemberDeleteResponse;
 pub const FriendGroupMemberListRequest = Models.FriendGroupMemberListRequest;
 pub const FriendGroupMemberListResponse = Models.FriendGroupMemberListResponse;
+pub const FriendGroupMemberMutableRole = Models.FriendGroupMemberMutableRole;
+pub const FriendGroupMemberObject = Models.FriendGroupMemberObject;
 pub const FriendGroupMemberPutRequest = Models.FriendGroupMemberPutRequest;
 pub const FriendGroupMemberPutResponse = Models.FriendGroupMemberPutResponse;
+pub const FriendGroupMemberRole = Models.FriendGroupMemberRole;
 pub const FriendGroupMessageGetRequest = Models.FriendGroupMessageGetRequest;
 pub const FriendGroupMessageGetResponse = Models.FriendGroupMessageGetResponse;
 pub const FriendGroupMessageListRequest = Models.FriendGroupMessageListRequest;
@@ -188,6 +155,7 @@ pub const FriendListResponse = Models.FriendListResponse;
 pub const FriendObject = Models.FriendObject;
 pub const FriendRequestAcceptRequest = Models.FriendRequestAcceptRequest;
 pub const FriendRequestAcceptResponse = Models.FriendRequestAcceptResponse;
+pub const FriendRequestBox = Models.FriendRequestBox;
 pub const FriendRequestCreateRequest = Models.FriendRequestCreateRequest;
 pub const FriendRequestCreateResponse = Models.FriendRequestCreateResponse;
 pub const FriendRequestListRequest = Models.FriendRequestListRequest;
@@ -195,41 +163,44 @@ pub const FriendRequestListResponse = Models.FriendRequestListResponse;
 pub const FriendRequestObject = Models.FriendRequestObject;
 pub const FriendRequestRejectRequest = Models.FriendRequestRejectRequest;
 pub const FriendRequestRejectResponse = Models.FriendRequestRejectResponse;
-pub const Gear = Models.Gear;
-pub const GearIMEI = Models.GearIMEI;
-pub const GearLabel = Models.GearLabel;
-pub const GearRole = Models.GearRole;
-pub const GearStatus = Models.GearStatus;
+pub const FriendRequestState = Models.FriendRequestState;
 pub const HardwareInfo = Models.HardwareInfo;
-pub const Model = Models.Model;
 pub const ModelGetRequest = Models.ModelGetRequest;
 pub const ModelGetResponse = Models.ModelGetResponse;
 pub const ModelListRequest = Models.ModelListRequest;
 pub const ModelListResponse = Models.ModelListResponse;
-pub const PeerGetInfoRequest = Models.PeerGetInfoRequest;
-pub const PeerGetInfoResponse = Models.PeerGetInfoResponse;
-pub const PeerGetRuntimeRequest = Models.PeerGetRuntimeRequest;
-pub const PeerGetRuntimeResponse = Models.PeerGetRuntimeResponse;
-pub const PeerPutInfoRequest = Models.PeerPutInfoRequest;
-pub const PeerPutInfoResponse = Models.PeerPutInfoResponse;
+pub const ModelObject = Models.ModelObject;
+pub const PeerIMEI = Models.PeerIMEI;
+pub const PeerLabel = Models.PeerLabel;
 pub const PeerRunAgent = Models.PeerRunAgent;
+pub const PeerRunHistoryEntry = Models.PeerRunHistoryEntry;
+pub const PeerRunHistoryListRequest = Models.PeerRunHistoryListRequest;
+pub const PeerRunHistoryListResponse = Models.PeerRunHistoryListResponse;
+pub const PeerRunHistoryPlayRequest = Models.PeerRunHistoryPlayRequest;
+pub const PeerRunHistoryPlayResponse = Models.PeerRunHistoryPlayResponse;
+pub const PeerRunMemoryStatsRequest = Models.PeerRunMemoryStatsRequest;
+pub const PeerRunMemoryStatsResponse = Models.PeerRunMemoryStatsResponse;
+pub const PeerRunRecallHit = Models.PeerRunRecallHit;
+pub const PeerRunRecallRequest = Models.PeerRunRecallRequest;
+pub const PeerRunRecallResponse = Models.PeerRunRecallResponse;
 pub const PeerRunStatus = Models.PeerRunStatus;
 pub const PeerRunStatusState = Models.PeerRunStatusState;
+pub const PeerRunWorkspaceState = Models.PeerRunWorkspaceState;
 pub const PeerStatus = Models.PeerStatus;
 pub const PeerStreamEvent = Models.PeerStreamEvent;
 pub const PeerStreamEventType = Models.PeerStreamEventType;
 pub const PeerStreamKind = Models.PeerStreamKind;
 pub const PingRequest = Models.PingRequest;
 pub const PingResponse = Models.PingResponse;
-pub const RefreshIdentifiers = Models.RefreshIdentifiers;
-pub const RefreshInfo = Models.RefreshInfo;
-pub const Registration = Models.Registration;
+pub const PlayVoiceStreamEvent = Models.PlayVoiceStreamEvent;
 pub const RPCError = Models.RPCError;
 pub const RPCErrorCode = Models.RPCErrorCode;
 pub const RPCMethod = Models.RPCMethod;
 pub const RPCRequest = Models.RPCRequest;
 pub const RPCResponse = Models.RPCResponse;
 pub const RPCVersion = Models.RPCVersion;
+pub const RefreshIdentifiers = Models.RefreshIdentifiers;
+pub const RefreshInfo = Models.RefreshInfo;
 pub const Runtime = Models.Runtime;
 pub const ServerGetInfoRequest = Models.ServerGetInfoRequest;
 pub const ServerGetInfoResponse = Models.ServerGetInfoResponse;
@@ -237,46 +208,83 @@ pub const ServerGetRunAgentRequest = Models.ServerGetRunAgentRequest;
 pub const ServerGetRunAgentResponse = Models.ServerGetRunAgentResponse;
 pub const ServerGetRunStatusRequest = Models.ServerGetRunStatusRequest;
 pub const ServerGetRunStatusResponse = Models.ServerGetRunStatusResponse;
+pub const ServerGetRunWorkspaceMemoryStatsRequest = Models.ServerGetRunWorkspaceMemoryStatsRequest;
+pub const ServerGetRunWorkspaceMemoryStatsResponse = Models.ServerGetRunWorkspaceMemoryStatsResponse;
+pub const ServerGetRunWorkspaceRequest = Models.ServerGetRunWorkspaceRequest;
+pub const ServerGetRunWorkspaceResponse = Models.ServerGetRunWorkspaceResponse;
 pub const ServerGetRuntimeRequest = Models.ServerGetRuntimeRequest;
 pub const ServerGetRuntimeResponse = Models.ServerGetRuntimeResponse;
 pub const ServerGetStatusRequest = Models.ServerGetStatusRequest;
 pub const ServerGetStatusResponse = Models.ServerGetStatusResponse;
 pub const ServerInfo = Models.ServerInfo;
+pub const ServerListRunWorkspaceHistoryRequest = Models.ServerListRunWorkspaceHistoryRequest;
+pub const ServerListRunWorkspaceHistoryResponse = Models.ServerListRunWorkspaceHistoryResponse;
+pub const ServerPlayRunWorkspaceHistoryRequest = Models.ServerPlayRunWorkspaceHistoryRequest;
+pub const ServerPlayRunWorkspaceHistoryResponse = Models.ServerPlayRunWorkspaceHistoryResponse;
 pub const ServerPutInfoRequest = Models.ServerPutInfoRequest;
 pub const ServerPutInfoResponse = Models.ServerPutInfoResponse;
 pub const ServerPutStatusRequest = Models.ServerPutStatusRequest;
 pub const ServerPutStatusResponse = Models.ServerPutStatusResponse;
 pub const ServerReloadRunRequest = Models.ServerReloadRunRequest;
 pub const ServerReloadRunResponse = Models.ServerReloadRunResponse;
+pub const ServerReloadRunWorkspaceRequest = Models.ServerReloadRunWorkspaceRequest;
+pub const ServerReloadRunWorkspaceResponse = Models.ServerReloadRunWorkspaceResponse;
 pub const ServerRunSayRequest = Models.ServerRunSayRequest;
 pub const ServerRunSayResponse = Models.ServerRunSayResponse;
+pub const ServerRunWorkspaceRecallRequest = Models.ServerRunWorkspaceRecallRequest;
+pub const ServerRunWorkspaceRecallResponse = Models.ServerRunWorkspaceRecallResponse;
 pub const ServerSetRunAgentRequest = Models.ServerSetRunAgentRequest;
 pub const ServerSetRunAgentResponse = Models.ServerSetRunAgentResponse;
+pub const ServerSetRunWorkspaceRequest = Models.ServerSetRunWorkspaceRequest;
+pub const ServerSetRunWorkspaceResponse = Models.ServerSetRunWorkspaceResponse;
 pub const ServerStopRunRequest = Models.ServerStopRunRequest;
 pub const ServerStopRunResponse = Models.ServerStopRunResponse;
 pub const SpeedTestRequest = Models.SpeedTestRequest;
 pub const SpeedTestResponse = Models.SpeedTestResponse;
-pub const Voice = Models.Voice;
+pub const VoiceObject = Models.VoiceObject;
 pub const VoiceProviderKind = Models.VoiceProviderKind;
 pub const VoiceSource = Models.VoiceSource;
 pub const WorkflowCreateRequest = Models.WorkflowCreateRequest;
 pub const WorkflowCreateResponse = Models.WorkflowCreateResponse;
-pub const WorkflowDocument = Models.WorkflowDocument;
+pub const WorkflowDeleteRequest = Models.WorkflowDeleteRequest;
+pub const WorkflowDeleteResponse = Models.WorkflowDeleteResponse;
 pub const WorkflowGetRequest = Models.WorkflowGetRequest;
 pub const WorkflowGetResponse = Models.WorkflowGetResponse;
 pub const WorkflowListRequest = Models.WorkflowListRequest;
 pub const WorkflowListResponse = Models.WorkflowListResponse;
+pub const WorkflowMetadataObject = Models.WorkflowMetadataObject;
+pub const WorkflowObject = Models.WorkflowObject;
 pub const WorkflowPutRequest = Models.WorkflowPutRequest;
 pub const WorkflowPutResponse = Models.WorkflowPutResponse;
-pub const Workspace = Models.Workspace;
+pub const WorkflowSpecObject = Models.WorkflowSpecObject;
 pub const WorkspaceCreateRequest = Models.WorkspaceCreateRequest;
 pub const WorkspaceCreateResponse = Models.WorkspaceCreateResponse;
+pub const WorkspaceDeleteRequest = Models.WorkspaceDeleteRequest;
+pub const WorkspaceDeleteResponse = Models.WorkspaceDeleteResponse;
 pub const WorkspaceGetRequest = Models.WorkspaceGetRequest;
 pub const WorkspaceGetResponse = Models.WorkspaceGetResponse;
+pub const WorkspaceHistoryAudioGetRequest = Models.WorkspaceHistoryAudioGetRequest;
+pub const WorkspaceHistoryAudioGetResponse = Models.WorkspaceHistoryAudioGetResponse;
+pub const WorkspaceHistoryGetRequest = Models.WorkspaceHistoryGetRequest;
+pub const WorkspaceHistoryGetResponse = Models.WorkspaceHistoryGetResponse;
+pub const WorkspaceHistoryListRequest = Models.WorkspaceHistoryListRequest;
+pub const WorkspaceHistoryListResponse = Models.WorkspaceHistoryListResponse;
 pub const WorkspaceListRequest = Models.WorkspaceListRequest;
 pub const WorkspaceListResponse = Models.WorkspaceListResponse;
+pub const WorkspaceMusicObject = Models.WorkspaceMusicObject;
+pub const WorkspaceObject = Models.WorkspaceObject;
+pub const WorkspaceParametersObject = Models.WorkspaceParametersObject;
 pub const WorkspacePutRequest = Models.WorkspacePutRequest;
 pub const WorkspacePutResponse = Models.WorkspacePutResponse;
+pub const WorkspaceSearchObject = Models.WorkspaceSearchObject;
+pub const WorkspaceVoiceObject = Models.WorkspaceVoiceObject;
+
+pub const Credential = Models.CredentialObject;
+pub const Model = Models.ModelObject;
+pub const Voice = Models.VoiceObject;
+pub const Workspace = Models.WorkspaceObject;
+pub const GearIMEI = Models.PeerIMEI;
+pub const GearLabel = Models.PeerLabel;
 
 pub const RpcMethods = struct {
     pub const all_ping = rpcMethod("all.ping");
@@ -295,6 +303,13 @@ pub const RpcMethods = struct {
     pub const server_status_put = rpcMethod("server.status.put");
     pub const server_run_agent_get = rpcMethod("server.run.agent.get");
     pub const server_run_agent_set = rpcMethod("server.run.agent.set");
+    pub const server_run_workspace_get = rpcMethod("server.run.workspace.get");
+    pub const server_run_workspace_set = rpcMethod("server.run.workspace.set");
+    pub const server_run_workspace_reload = rpcMethod("server.run.workspace.reload");
+    pub const server_run_workspace_history = rpcMethod("server.run.workspace.history");
+    pub const server_run_workspace_history_play = rpcMethod("server.run.workspace.history.play");
+    pub const server_run_workspace_memory_stats = rpcMethod("server.run.workspace.memory.stats");
+    pub const server_run_workspace_recall = rpcMethod("server.run.workspace.recall");
     pub const server_run_reload = rpcMethod("server.run.reload");
     pub const server_run_status = rpcMethod("server.run.status");
     pub const server_run_stop = rpcMethod("server.run.stop");
@@ -306,14 +321,25 @@ pub const RpcMethods = struct {
     pub const server_workspace_get = rpcMethod("server.workspace.get");
     pub const server_workspace_create = rpcMethod("server.workspace.create");
     pub const server_workspace_put = rpcMethod("server.workspace.put");
+    pub const server_workspace_delete = rpcMethod("server.workspace.delete");
+    pub const server_workspace_history_list = rpcMethod("server.workspace.history.list");
+    pub const server_workspace_history_get = rpcMethod("server.workspace.history.get");
+    pub const server_workspace_history_audio_get = rpcMethod("server.workspace.history.audio.get");
     pub const server_workflow_list = rpcMethod("server.workflow.list");
     pub const server_workflow_get = rpcMethod("server.workflow.get");
     pub const server_workflow_create = rpcMethod("server.workflow.create");
     pub const server_workflow_put = rpcMethod("server.workflow.put");
+    pub const server_workflow_delete = rpcMethod("server.workflow.delete");
     pub const server_model_list = rpcMethod("server.model.list");
     pub const server_model_get = rpcMethod("server.model.get");
+    pub const server_model_create = rpcMethod("server.model.create");
+    pub const server_model_put = rpcMethod("server.model.put");
+    pub const server_model_delete = rpcMethod("server.model.delete");
     pub const server_credential_list = rpcMethod("server.credential.list");
     pub const server_credential_get = rpcMethod("server.credential.get");
+    pub const server_credential_create = rpcMethod("server.credential.create");
+    pub const server_credential_put = rpcMethod("server.credential.put");
+    pub const server_credential_delete = rpcMethod("server.credential.delete");
     pub const server_contact_list = rpcMethod("server.contact.list");
     pub const server_contact_get = rpcMethod("server.contact.get");
     pub const server_contact_create = rpcMethod("server.contact.create");
@@ -339,7 +365,7 @@ pub const RpcMethods = struct {
     pub const server_friend_group_messages_send = rpcMethod("server.friend_group.messages.send");
 };
 
-fn rpcMethod(comptime value: []const u8) RPCMethod {
+fn rpcMethod(comptime value: []const u8) Models.RPCMethod {
     const schema_or_ref = files().findSchema("./rpc.json", "RPCMethod") orelse
         @compileError("RPCMethod schema not found in ./rpc.json");
     const schema = switch (schema_or_ref) {
@@ -355,11 +381,4 @@ fn rpcMethod(comptime value: []const u8) RPCMethod {
     }
 
     @compileError(glib.std.fmt.comptimePrint("RPC method '{s}' is not declared by api/rpc/zig.json", .{value}));
-}
-
-fn apiFileAs(comptime path: []const u8, comptime name: []const u8) openapi.Files.Entry {
-    return .{
-        .name = "./" ++ name,
-        .spec = openapi.json.parse(@field(options, apiOptionName(path))),
-    };
 }

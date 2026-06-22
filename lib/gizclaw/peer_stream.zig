@@ -14,6 +14,7 @@ pub const PeerStreamEventType = enum {
     eos,
     text_delta,
     text_done,
+    workspace_history_updated,
 
     pub fn jsonStringify(self: PeerStreamEventType, writer: anytype) !void {
         try writer.print("{s}", .{switch (self) {
@@ -21,6 +22,7 @@ pub const PeerStreamEventType = enum {
             .eos => "\"eos\"",
             .text_delta => "\"text.delta\"",
             .text_done => "\"text.done\"",
+            .workspace_history_updated => "\"workspace.history.updated\"",
         }});
     }
 };
@@ -51,6 +53,7 @@ pub const PeerStreamEvent = struct {
     seq: ?i64 = null,
     timestamp: ?i64 = null,
     text: ?[]const u8 = null,
+    last_updated_at: ?[]const u8 = null,
     @"error": ?[]const u8 = null,
 
     pub fn jsonStringify(self: PeerStreamEvent, writer: anytype) !void {
@@ -85,6 +88,10 @@ pub const PeerStreamEvent = struct {
         }
         if (self.text) |value| {
             try writer.objectField("text");
+            try writer.write(value);
+        }
+        if (self.last_updated_at) |value| {
+            try writer.objectField("last_updated_at");
             try writer.write(value);
         }
         if (self.@"error") |value| {
@@ -314,6 +321,7 @@ pub fn readPeerStreamEvent(comptime grt: type, allocator: grt.std.mem.Allocator,
         seq: ?i64 = null,
         timestamp: ?i64 = null,
         text: ?[]const u8 = null,
+        last_updated_at: ?[]const u8 = null,
         @"error": ?[]const u8 = null,
     };
     var wire = try grt.std.json.parseFromSlice(WireEvent, allocator, frame.payload, .{
@@ -333,6 +341,7 @@ pub fn readPeerStreamEvent(comptime grt: type, allocator: grt.std.mem.Allocator,
             .seq = wire.value.seq,
             .timestamp = wire.value.timestamp,
             .text = wire.value.text,
+            .last_updated_at = wire.value.last_updated_at,
             .@"error" = wire.value.@"error",
         },
     };
@@ -343,6 +352,7 @@ fn parsePeerStreamEventType(comptime grt: type, raw: []const u8) !PeerStreamEven
     if (grt.std.mem.eql(u8, raw, "eos")) return .eos;
     if (grt.std.mem.eql(u8, raw, "text.delta")) return .text_delta;
     if (grt.std.mem.eql(u8, raw, "text.done")) return .text_done;
+    if (grt.std.mem.eql(u8, raw, "workspace.history.updated")) return .workspace_history_updated;
     return error.InvalidEnumTag;
 }
 
