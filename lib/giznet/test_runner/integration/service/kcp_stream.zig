@@ -22,9 +22,8 @@ const backpressure_config = KcpStreamType.Config{
     .kcp_nodelay = 1,
     .kcp_interval = 10,
     .kcp_resend = 2,
-    .kcp_no_congestion_control = 1,
-    .max_pending_segments = 1,
-    .resume_pending_segments = 0,
+    .kcp_no_congestion_control = 0,
+    .kcp_send_window = 1,
 };
 
 pub fn make(comptime grt: type) testing_api.TestRunner {
@@ -148,6 +147,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
 
         fn expectRecv(port_value: Stream.Port, expected: []const u8) !void {
             var port = port_value;
+            defer port.deinit();
             try port.setReadDeadline(glib.time.instant.add(grt.time.instant.now(), glib.time.duration.Second));
             const result = try port.recv();
             try grt.std.testing.expect(result.ok);
@@ -165,6 +165,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             defer stream.deinit();
 
             var port = stream.port();
+            defer port.deinit();
             const StartedChannel = grt.sync.Channel(void);
             var started = try StartedChannel.make(allocator, 1);
             defer started.deinit();
@@ -243,6 +244,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             defer server.deinit();
 
             var client_port = client.port();
+            defer client_port.deinit();
             try grt.std.testing.expect((try client_port.waitWritable(16)) > 0);
 
             var client_sink = FrameSink{};
@@ -276,6 +278,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             try Helpers.driveOutbound(&stream, pkt, sink.callback());
 
             var port = stream.port();
+            defer port.deinit();
             try port.setWriteDeadline(glib.time.instant.add(grt.time.instant.now(), glib.time.duration.Second));
 
             const WaitTask = struct {

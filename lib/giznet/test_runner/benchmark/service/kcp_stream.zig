@@ -7,9 +7,9 @@ const NoiseMessage = @import("../../../noise/Message.zig");
 const packet = @import("../../../packet.zig");
 const KcpStreamType = @import("../../../service/KcpStream.zig");
 
-const packet_size_capacity = 64 * 1024;
+const packet_size_capacity = 4096;
 const total_transfer_bytes: usize = 8 * 1024 * 1024;
-const chunk_size: usize = 16 * 1024;
+const chunk_size: usize = 1400;
 const service_id: u64 = 7;
 const stream_id: u32 = 1;
 const remote_key = Key{ .bytes = [_]u8{0x57} ** 32 };
@@ -21,8 +21,6 @@ const stream_config = KcpStreamType.Config{
     .kcp_no_congestion_control = 1,
     .kcp_send_window = 1024,
     .kcp_recv_window = 1024,
-    .max_pending_segments = 1024,
-    .resume_pending_segments = 768,
 };
 
 pub fn make(comptime grt: type) testing_api.TestRunner {
@@ -214,6 +212,7 @@ fn StreamPair(comptime grt: type) type {
                     .client_to_server => self.client.port(),
                     .server_to_client => self.server.port(),
                 };
+                defer source_port.deinit();
                 const requested_len = @min(chunk_size, bytes - sent);
                 var granted_len: usize = 0;
                 while (granted_len == 0) {
@@ -303,6 +302,7 @@ fn StreamPair(comptime grt: type) type {
                 .client_to_server => self.server.port(),
                 .server_to_client => self.client.port(),
             };
+            defer port.deinit();
 
             var received: usize = 0;
             try port.setReadDeadline(grt.time.instant.now());
