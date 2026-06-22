@@ -256,7 +256,7 @@ pub fn initPool(
     comptime packet_size: usize,
 ) !Pool {
     const Impl = make(grt, packet_size);
-    const ImplPool = PoolType.make(grt.std, Impl);
+    const ImplPool = PoolType.makeWithSync(grt.std, grt.sync, Impl);
 
     const PoolImpl = struct {
         allocator: glib.std.mem.Allocator,

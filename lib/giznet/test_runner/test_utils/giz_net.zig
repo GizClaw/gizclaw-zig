@@ -139,7 +139,7 @@ pub fn Fixture(
             error_channel_capacity: usize = peer_count,
             accept_timeout: glib.time.duration.Duration = default_accept_timeout,
             up: GizNetType.UpConfig = .{},
-            transfer_spawn_config: grt.std.Thread.SpawnConfig = .{},
+            transfer_task_options: grt.task.Options = .{},
             transfer_yield_every: usize = 0,
         };
 
@@ -268,9 +268,6 @@ pub fn Fixture(
             var idx = peer_count;
             while (idx > 0) {
                 idx -= 1;
-                if (self.peers[idx].packet_conn) |packet_conn| {
-                    packet_conn.close();
-                }
                 if (self.peers[idx].gnet) |gnet| {
                     gnet.deinit();
                     self.peers[idx].gnet = null;
@@ -422,8 +419,8 @@ pub fn Fixture(
             };
 
             const start_ns = grt.time.instant.now();
-            var reader_thread = try grt.std.Thread.spawn(self.config.transfer_spawn_config, ReaderTask.run, .{&reader_task});
-            var writer_thread = try grt.std.Thread.spawn(self.config.transfer_spawn_config, WriterTask.run, .{&writer_task});
+            const reader_thread = try grt.task.go("giznet/test/transfer/read", self.config.transfer_task_options, grt.task.Routine.init(&reader_task, ReaderTask.run));
+            const writer_thread = try grt.task.go("giznet/test/transfer/write", self.config.transfer_task_options, grt.task.Routine.init(&writer_task, WriterTask.run));
             writer_thread.join();
             reader_thread.join();
             const end_ns = grt.time.instant.now();
@@ -524,7 +521,7 @@ pub fn Fixture(
                         task.checksum +%= buf[written - 1];
                         task.next_seq +%= 1;
                         if (task.yield_every != 0 and task.next_seq % task.yield_every == 0) {
-                            grt.std.Thread.yield() catch {};
+                            grt.time.sleep(0);
                         }
                     }
                 }
@@ -617,8 +614,8 @@ pub fn Fixture(
             };
 
             const start_ns = grt.time.instant.now();
-            var reader_thread = try grt.std.Thread.spawn(self.config.transfer_spawn_config, ReaderTask.run, .{&reader_task});
-            var writer_thread = try grt.std.Thread.spawn(self.config.transfer_spawn_config, WriterTask.run, .{&writer_task});
+            const reader_thread = try grt.task.go("giznet/test/transfer-seq/read", self.config.transfer_task_options, grt.task.Routine.init(&reader_task, ReaderTask.run));
+            const writer_thread = try grt.task.go("giznet/test/transfer-seq/write", self.config.transfer_task_options, grt.task.Routine.init(&writer_task, WriterTask.run));
             writer_thread.join();
             reader_thread.join();
             const end_ns = grt.time.instant.now();
@@ -728,7 +725,7 @@ pub fn Fixture(
                         task.checksum +%= buf[written - 1];
                         task.next_seq +%= 1;
                         if (task.yield_every != 0 and task.next_seq % task.yield_every == 0) {
-                            grt.std.Thread.yield() catch {};
+                            grt.time.sleep(0);
                         }
                     }
                 }
@@ -821,8 +818,8 @@ pub fn Fixture(
             };
 
             const start_ns = grt.time.instant.now();
-            var reader_thread = try grt.std.Thread.spawn(self.config.transfer_spawn_config, ReaderTask.run, .{&reader_task});
-            var writer_thread = try grt.std.Thread.spawn(self.config.transfer_spawn_config, WriterTask.run, .{&writer_task});
+            const reader_thread = try grt.task.go("giznet/test/transfer-observed/read", self.config.transfer_task_options, grt.task.Routine.init(&reader_task, ReaderTask.run));
+            const writer_thread = try grt.task.go("giznet/test/transfer-observed/write", self.config.transfer_task_options, grt.task.Routine.init(&writer_task, WriterTask.run));
             writer_thread.join();
             reader_thread.join();
             const end_ns = grt.time.instant.now();

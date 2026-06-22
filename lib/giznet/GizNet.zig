@@ -57,9 +57,9 @@ pub fn make(comptime grt: type, comptime RuntimeEngine: type, comptime RuntimeCo
         const Self = @This();
 
         pub const UpConfig = struct {
-            drive_spawn_config: grt.std.Thread.SpawnConfig = .{},
-            read_spawn_config: grt.std.Thread.SpawnConfig = .{},
-            timer_spawn_config: grt.std.Thread.SpawnConfig = .{},
+            drive_task_options: grt.task.Options = .{},
+            read_task_options: grt.task.Options = .{},
+            timer_task_options: grt.task.Options = .{},
         };
 
         pub fn init(
@@ -94,9 +94,9 @@ pub fn make(comptime grt: type, comptime RuntimeEngine: type, comptime RuntimeCo
                 self.join();
             }
 
-            try self.runtime.startDrive(config.drive_spawn_config);
-            try self.runtime.startRead(config.read_spawn_config);
-            try self.runtime.startTimer(config.timer_spawn_config);
+            try self.runtime.startDrive(config.drive_task_options);
+            try self.runtime.startRead(config.read_task_options);
+            try self.runtime.startTimer(config.timer_task_options);
             return GizNet.init(self);
         }
 

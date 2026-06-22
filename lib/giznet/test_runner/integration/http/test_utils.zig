@@ -106,8 +106,11 @@ pub fn readAllRequestBody(req: anytype, buf: []u8) !usize {
 
 pub fn ServerTask(comptime grt: type, comptime Server: type) type {
     return struct {
-        pub fn run(server: *Server, listener: grt.net.Listener) void {
-            server.serve(listener) catch {};
+        server: *Server,
+        listener: grt.net.Listener,
+
+        pub fn run(self: *@This()) void {
+            self.server.serve(self.listener) catch {};
         }
     };
 }

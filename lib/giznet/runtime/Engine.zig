@@ -99,7 +99,7 @@ pub fn make(
     const InputChannel = grt.sync.Channel(DriveInput);
     const AcceptChannel = grt.sync.Channel(Conn);
     const Timer = glib.sync.Timer;
-    const TimerImpl = Timer.make(grt.std, grt.time);
+    const TimerImpl = Timer.makeWithTask(grt.std, grt.time, grt.sync, grt.task);
 
     return struct {
         allocator: grt.std.mem.Allocator,
@@ -111,8 +111,8 @@ pub fn make(
         noise: NoiseEngine,
         service: ServiceEngine,
         stats: Stats = .{},
-        drive_thread: ?grt.std.Thread = null,
-        read_thread: ?grt.std.Thread = null,
+        drive_thread: ?grt.task.Handle = null,
+        read_thread: ?grt.task.Handle = null,
         timer: ?Timer = null,
         tick_deadline: ?glib.time.instant.Time = null,
         on_error: Engine.OnError,
@@ -185,23 +185,23 @@ pub fn make(
             self.allocator.destroy(self.packet_pools);
         }
 
-        pub fn startDrive(self: *Self, spawn_config: grt.std.Thread.SpawnConfig) !void {
+        pub fn startDrive(self: *Self, task_options: grt.task.Options) !void {
             if (self.closed.load(.acquire)) return error.RuntimeEngineClosed;
             if (self.drive_thread != null) return error.RuntimeEngineAlreadyStarted;
-            self.drive_thread = try grt.std.Thread.spawn(spawn_config, driveLoop, .{self});
+            self.drive_thread = try grt.task.go("giznet/drive", task_options, grt.task.Routine.init(self, driveLoop));
         }
 
-        pub fn startRead(self: *Self, spawn_config: grt.std.Thread.SpawnConfig) !void {
+        pub fn startRead(self: *Self, task_options: grt.task.Options) !void {
             if (self.closed.load(.acquire)) return error.RuntimeEngineClosed;
             if (self.read_thread != null) return error.RuntimeUdpReaderAlreadyStarted;
-            self.read_thread = try grt.std.Thread.spawn(spawn_config, readLoop, .{self});
+            self.read_thread = try grt.task.go("giznet/read", task_options, grt.task.Routine.init(self, readLoop));
         }
 
-        pub fn startTimer(self: *Self, spawn_config: grt.std.Thread.SpawnConfig) !void {
+        pub fn startTimer(self: *Self, task_options: grt.task.Options) !void {
             if (self.closed.load(.acquire)) return error.RuntimeEngineClosed;
             if (self.timer != null) return error.RuntimeTimerAlreadyStarted;
 
-            const timer_impl = try TimerImpl.init(self.allocator, TimerCallback.call, self, spawn_config);
+            const timer_impl = try TimerImpl.init(self.allocator, TimerCallback.call, self, task_options);
             self.timer = Timer.init(timer_impl);
         }
 
@@ -245,9 +245,10 @@ pub fn make(
             }
 
             if (self.read_thread) |read_thread| {
-                self.conn.close();
+                self.conn.setReadDeadline(grt.time.instant.now());
                 read_thread.join();
                 self.read_thread = null;
+                self.conn.close();
             }
         }
 

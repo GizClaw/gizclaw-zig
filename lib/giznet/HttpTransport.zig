@@ -28,7 +28,7 @@ pub fn make(comptime grt: type) type {
         conn: Conn,
         service_id: u64,
         options: Options,
-        idle_mu: grt.std.Thread.Mutex = .{},
+        idle_mu: grt.sync.Mutex = .{},
         idle_conns: grt.std.ArrayList(NetConn) = .{},
 
         const Self = @This();
@@ -228,7 +228,7 @@ pub fn make(comptime grt: type) type {
             io_buf: []u8,
             send_chunked: bool,
             content_length: usize,
-            thread: ?grt.std.Thread = null,
+            thread: ?grt.task.Handle = null,
             result: ?anyerror = null,
 
             fn spawn(
@@ -253,7 +253,7 @@ pub fn make(comptime grt: type) type {
                     .content_length = content_length,
                 };
                 errdefer self.buffered.deinit();
-                self.thread = try grt.std.Thread.spawn(.{}, RequestBodyState.run, .{self});
+                self.thread = try grt.task.go("giznet/http/request-body", .{}, grt.task.Routine.init(self, RequestBodyState.run));
                 return self;
             }
 

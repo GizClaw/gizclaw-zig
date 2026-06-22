@@ -150,7 +150,7 @@ fn runConcurrentUdpTransfer(
             };
 
             var tasks: [stream_count]Task = undefined;
-            var threads: [stream_count]grt.std.Thread = undefined;
+            var threads: [stream_count]grt.task.Handle = undefined;
             for (0..pair_count) |idx| {
                 const forward_idx = idx * 2;
                 const backward_idx = forward_idx + 1;
@@ -165,7 +165,7 @@ fn runConcurrentUdpTransfer(
             }
 
             for (0..stream_count) |idx| {
-                threads[idx] = try grt.std.Thread.spawn(self.fixture.config.transfer_spawn_config, Task.run, .{&tasks[idx]});
+                threads[idx] = try grt.task.go("giznet/benchmark/packet/transfer", self.fixture.config.transfer_task_options, grt.task.Routine.init(&tasks[idx], Task.run));
             }
             for (0..stream_count) |idx| {
                 threads[idx].join();

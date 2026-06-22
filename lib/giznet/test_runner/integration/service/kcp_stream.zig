@@ -189,11 +189,11 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
                 .port = &port,
                 .started = &started,
             };
-            var thread = try grt.std.Thread.spawn(.{}, Task.run, .{&task});
+            const thread = try grt.task.go("giznet/test/kcp-stream/read-deadline", .{}, grt.task.Routine.init(&task, Task.run));
 
             const started_result = try started.recvTimeout(2 * glib.time.duration.Second);
             try grt.std.testing.expect(started_result.ok);
-            for (0..16) |_| grt.std.Thread.yield() catch {};
+            for (0..16) |_| grt.time.sleep(0);
 
             try port.setReadDeadline(grt.time.instant.now());
             thread.join();
@@ -292,8 +292,8 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             };
 
             var task = WaitTask{ .port = &port };
-            var thread = try grt.std.Thread.spawn(.{}, WaitTask.run, .{&task});
-            for (0..16) |_| grt.std.Thread.yield() catch {};
+            const thread = try grt.task.go("giznet/test/kcp-stream/write-deadline", .{}, grt.task.Routine.init(&task, WaitTask.run));
+            for (0..16) |_| grt.time.sleep(0);
 
             try port.setWriteDeadline(grt.time.instant.now());
             thread.join();

@@ -88,11 +88,9 @@ fn runGetRoundTrip(
     });
     defer server.deinit();
 
-    const server_thread = try grt.std.Thread.spawn(
-        .{},
-        http_utils.ServerTask(grt, Server).run,
-        .{ &server, grt.net.Listener.init(&listener_impl) },
-    );
+    const ServerTask = http_utils.ServerTask(grt, Server);
+    var server_task = ServerTask{ .server = &server, .listener = grt.net.Listener.init(&listener_impl) };
+    const server_thread = try grt.task.go("giznet/test/http/server", .{}, grt.task.Routine.init(&server_task, ServerTask.run));
     defer server_thread.join();
     defer server.close();
 

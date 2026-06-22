@@ -93,11 +93,9 @@ fn runStreamingDownload(comptime grt: type, comptime Fixture: type, allocator: g
         .idle_timeout = 100 * glib.time.duration.MilliSecond,
     });
     defer server.deinit();
-    const server_thread = try grt.std.Thread.spawn(
-        .{},
-        http_utils.ServerTask(grt, Server).run,
-        .{ &server, grt.net.Listener.init(&listener_impl) },
-    );
+    const ServerTask = http_utils.ServerTask(grt, Server);
+    var server_task = ServerTask{ .server = &server, .listener = grt.net.Listener.init(&listener_impl) };
+    const server_thread = try grt.task.go("giznet/test/http/server", .{}, grt.task.Routine.init(&server_task, ServerTask.run));
     defer server_thread.join();
     defer server.close();
 
@@ -154,11 +152,9 @@ fn runFixedLengthDownload(comptime grt: type, comptime Fixture: type, allocator:
         .idle_timeout = 100 * glib.time.duration.MilliSecond,
     });
     defer server.deinit();
-    const server_thread = try grt.std.Thread.spawn(
-        .{},
-        http_utils.ServerTask(grt, Server).run,
-        .{ &server, grt.net.Listener.init(&listener_impl) },
-    );
+    const ServerTask = http_utils.ServerTask(grt, Server);
+    var server_task = ServerTask{ .server = &server, .listener = grt.net.Listener.init(&listener_impl) };
+    const server_thread = try grt.task.go("giznet/test/http/server", .{}, grt.task.Routine.init(&server_task, ServerTask.run));
     defer server_thread.join();
     defer server.close();
 
@@ -185,8 +181,11 @@ fn runSplitChunkCrlfDownload(comptime grt: type, comptime Fixture: type, allocat
     defer pair.deinit();
 
     const RawServer = struct {
-        fn run(conn: giznet.Conn, timeout: glib.time.duration.Duration) void {
-            var stream = conn.accept(timeout) catch return;
+        conn: giznet.Conn,
+        timeout: glib.time.duration.Duration,
+
+        fn run(self: *@This()) void {
+            var stream = self.conn.accept(self.timeout) catch return;
             defer stream.deinit();
 
             var req_buf: [256]u8 = undefined;
@@ -201,11 +200,12 @@ fn runSplitChunkCrlfDownload(comptime grt: type, comptime Fixture: type, allocat
             writeAllStream(stream, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n") catch return;
             writeAllStream(stream, "5\r\nhello") catch return;
             writeAllStream(stream, "\r") catch return;
-            grt.std.Thread.sleep(@intCast(10 * glib.time.duration.MilliSecond));
+            grt.time.sleepMillis(10);
             writeAllStream(stream, "\n0\r\n\r\n") catch return;
         }
     };
-    const server_thread = try grt.std.Thread.spawn(.{}, RawServer.run, .{ pair.b, fixture.config.accept_timeout });
+    var raw_server = RawServer{ .conn = pair.b, .timeout = fixture.config.accept_timeout };
+    const server_thread = try grt.task.go("giznet/test/http/raw-server", .{}, grt.task.Routine.init(&raw_server, RawServer.run));
     defer server_thread.join();
 
     var transport = giznet.HttpTransport.make(grt).init(allocator, pair.a, 27);

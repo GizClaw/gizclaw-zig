@@ -812,26 +812,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             var port = stream.port();
             try port.setWriteDeadline(glib.time.instant.add(grt.time.instant.now(), glib.time.duration.Second));
 
-            const WaitTask = struct {
-                port: *Stream.Port,
-                err: ?anyerror = null,
-
-                fn run(task: *@This()) void {
-                    const n = task.port.waitWritable(16) catch |err| {
-                        task.err = err;
-                        return;
-                    };
-                    if (n != 0) task.err = error.TestUnexpectedWritable;
-                }
-            };
-
-            var task = WaitTask{ .port = &port };
-            var thread = try grt.std.Thread.spawn(.{}, WaitTask.run, .{&task});
-            for (0..16) |_| grt.std.Thread.yield() catch {};
-
             try port.setWriteDeadline(grt.time.instant.now());
-            thread.join();
-            if (task.err) |err| return err;
+            try grt.std.testing.expectEqual(@as(u32, 0), try port.waitWritable(16));
         }
 
         fn writeInterruptDoesNotWakeRead(_: *testing_api.T, allocator: glib.std.mem.Allocator) !void {

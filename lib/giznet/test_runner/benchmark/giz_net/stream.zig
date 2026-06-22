@@ -174,8 +174,8 @@ fn runCase(
             };
 
             const start_ns = grt.time.instant.now();
-            var reader_thread = try grt.std.Thread.spawn(.{}, ReaderTask.run, .{&reader_task});
-            var writer_thread = try grt.std.Thread.spawn(.{}, WriterTask.run, .{&writer_task});
+            const reader_thread = try grt.task.go("giznet/benchmark/stream/read", .{}, grt.task.Routine.init(&reader_task, ReaderTask.run));
+            const writer_thread = try grt.task.go("giznet/benchmark/stream/write", .{}, grt.task.Routine.init(&writer_task, WriterTask.run));
             writer_thread.join();
             reader_thread.join();
             const end_ns = grt.time.instant.now();

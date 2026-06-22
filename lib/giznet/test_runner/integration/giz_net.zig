@@ -199,10 +199,10 @@ fn runConnCloseWakesAccept(
     };
 
     var task = AcceptTask{ .conn = pair.b };
-    var thread = try grt.std.Thread.spawn(.{}, AcceptTask.run, .{&task});
+    const thread = try grt.task.go("giznet/test/accept", .{}, grt.task.Routine.init(&task, AcceptTask.run));
 
     while (!task.started.load(.acquire)) {
-        grt.std.Thread.sleep(@intCast(1 * glib.time.duration.MilliSecond));
+        grt.time.sleepMillis(1);
     }
     try pair.b.close();
     thread.join();
@@ -265,7 +265,7 @@ fn runStreamLargeBufferReadDrainsReadyData(
     // Give the runtime a chance to deliver all already-written KCP payloads.
     // The read under test must not block for these extra chunks; it drains only
     // data that is ready via recvTimeout(0).
-    grt.std.Thread.sleep(@intCast(50 * glib.time.duration.MilliSecond));
+    grt.time.sleepMillis(50);
 
     var buf: [64]u8 = undefined;
     const n = try reader.read(&buf);
@@ -324,11 +324,11 @@ fn runStreamReadDeadlineWake(
         .stream = reader,
         .started = &started,
     };
-    var thread = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, Task.run, .{&task});
+    const thread = try grt.task.go("giznet/test/stream/read-deadline-wake", fixture.config.transfer_task_options, grt.task.Routine.init(&task, Task.run));
 
     const started_result = try started.recvTimeout(fixture.config.accept_timeout);
     try grt.std.testing.expect(started_result.ok);
-    for (0..16) |_| grt.std.Thread.yield() catch {};
+    for (0..16) |_| grt.time.sleep(0);
 
     try reader.setReadDeadline(grt.time.instant.now());
     thread.join();
@@ -402,13 +402,13 @@ fn runStreamReadDeadlinePayloadWins(
     };
 
     var read_task: ReadTask = .{ .stream = reader, .started = &started };
-    var read_thread = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, ReadTask.run, .{&read_task});
+    const read_thread = try grt.task.go("giznet/test/stream/read-deadline-payload/read", fixture.config.transfer_task_options, grt.task.Routine.init(&read_task, ReadTask.run));
 
     const started_result = try started.recvTimeout(fixture.config.accept_timeout);
     try grt.std.testing.expect(started_result.ok);
 
     var write_task: WriteTask = .{ .stream = writer, .payload = payload };
-    var write_thread = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, WriteTask.run, .{&write_task});
+    const write_thread = try grt.task.go("giznet/test/stream/read-deadline-payload/write", fixture.config.transfer_task_options, grt.task.Routine.init(&write_task, WriteTask.run));
     write_thread.join();
     read_thread.join();
 
@@ -464,11 +464,11 @@ fn runStreamReadDeadlineLatePayload(
     };
 
     var read_task: ReadTask = .{ .stream = reader, .started = &started };
-    var read_thread = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, ReadTask.run, .{&read_task});
+    const read_thread = try grt.task.go("giznet/test/stream/read-deadline-late/read", fixture.config.transfer_task_options, grt.task.Routine.init(&read_task, ReadTask.run));
 
     const started_result = try started.recvTimeout(fixture.config.accept_timeout);
     try grt.std.testing.expect(started_result.ok);
-    for (0..16) |_| grt.std.Thread.yield() catch {};
+    for (0..16) |_| grt.time.sleep(0);
 
     try reader.setReadDeadline(grt.time.instant.now());
     read_thread.join();
@@ -544,7 +544,7 @@ fn runStreamReadDeadlineConcurrentUpdates(
                     task.err = err;
                     return;
                 };
-                grt.std.Thread.yield() catch {};
+                grt.time.sleep(0);
             }
             task.stream.setReadDeadline(grt.time.instant.now()) catch |err| {
                 task.err = err;
@@ -553,13 +553,13 @@ fn runStreamReadDeadlineConcurrentUpdates(
     };
 
     var read_task: ReadTask = .{ .stream = reader, .started = &started };
-    var read_thread = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, ReadTask.run, .{&read_task});
+    const read_thread = try grt.task.go("giznet/test/stream/read-deadline-concurrent/read", fixture.config.transfer_task_options, grt.task.Routine.init(&read_task, ReadTask.run));
 
     const started_result = try started.recvTimeout(fixture.config.accept_timeout);
     try grt.std.testing.expect(started_result.ok);
 
     var deadline_task: DeadlineTask = .{ .stream = reader, .timeout = fixture.config.accept_timeout };
-    var deadline_thread = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, DeadlineTask.run, .{&deadline_task});
+    const deadline_thread = try grt.task.go("giznet/test/stream/read-deadline-concurrent/deadline", fixture.config.transfer_task_options, grt.task.Routine.init(&deadline_task, DeadlineTask.run));
     deadline_thread.join();
     read_thread.join();
 
@@ -585,6 +585,17 @@ fn runStreamConcurrentWriteDeadlineReadyWrites(
     const writer = try pair.a.openStream(14);
     defer writer.deinit();
 
+    try writeAll(writer, "w");
+    const reader = try pair.b.accept(fixture.config.accept_timeout);
+    defer reader.deinit();
+    try reader.setReadDeadline(glib.time.instant.add(grt.time.instant.now(), fixture.config.accept_timeout));
+    try readExactDiscard(reader, 1);
+
+    for (0..3) |_| {
+        try writeAll(writer, "w");
+        try readExactDiscard(reader, 1);
+    }
+
     const payloads = [_][]const u8{ "a", "bb", "ccc" };
     const StreamType = @TypeOf(writer);
     const WriteTask = struct {
@@ -606,15 +617,11 @@ fn runStreamConcurrentWriteDeadlineReadyWrites(
     };
 
     var tasks: [payloads.len]WriteTask = undefined;
-    var threads: [payloads.len]grt.std.Thread = undefined;
+    var threads: [payloads.len]grt.task.Handle = undefined;
     for (payloads, 0..) |payload, idx| {
         tasks[idx] = .{ .stream = writer, .payload = payload };
-        threads[idx] = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, WriteTask.run, .{&tasks[idx]});
+        threads[idx] = try grt.task.go("giznet/test/stream/write-deadline-ready/write", fixture.config.transfer_task_options, grt.task.Routine.init(&tasks[idx], WriteTask.run));
     }
-
-    const reader = try pair.b.accept(fixture.config.accept_timeout);
-    defer reader.deinit();
-    try reader.setReadDeadline(glib.time.instant.add(grt.time.instant.now(), fixture.config.accept_timeout));
 
     for (0..payloads.len) |idx| {
         threads[idx].join();
@@ -680,8 +687,8 @@ fn runBidirectionalConcurrentTransfer(
         .rw = pair.backward(0x42),
     };
 
-    var forward_thread = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, Task.run, .{&forward});
-    var backward_thread = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, Task.run, .{&backward});
+    const forward_thread = try grt.task.go("giznet/test/bidirectional/forward", fixture.config.transfer_task_options, grt.task.Routine.init(&forward, Task.run));
+    const backward_thread = try grt.task.go("giznet/test/bidirectional/backward", fixture.config.transfer_task_options, grt.task.Routine.init(&backward, Task.run));
     forward_thread.join();
     backward_thread.join();
 
@@ -742,13 +749,13 @@ fn runMultiPairConcurrentTransfer(
     };
 
     var tasks: [multi_pair_count]Task = undefined;
-    var threads: [multi_pair_count]grt.std.Thread = undefined;
+    var threads: [multi_pair_count]grt.task.Handle = undefined;
     for (0..multi_pair_count) |idx| {
         tasks[idx] = .{
             .fixture = &fixture,
             .rw = pairs[idx].forward(@intCast(0x50 + idx)),
         };
-        threads[idx] = try grt.std.Thread.spawn(fixture.config.transfer_spawn_config, Task.run, .{&tasks[idx]});
+        threads[idx] = try grt.task.go("giznet/test/multi-pair/transfer", fixture.config.transfer_task_options, grt.task.Routine.init(&tasks[idx], Task.run));
     }
 
     for (0..multi_pair_count) |idx| {
@@ -766,6 +773,16 @@ fn writeAll(stream: anytype, payload: []const u8) !void {
         const written = try stream.write(payload[offset..]);
         if (written == 0) return error.ShortWrite;
         offset += written;
+    }
+}
+
+fn readExactDiscard(stream: anytype, len: usize) !void {
+    var remaining = len;
+    var buf: [32]u8 = undefined;
+    while (remaining > 0) {
+        const n = try stream.read(buf[0..@min(buf.len, remaining)]);
+        if (n == 0) return error.ShortRead;
+        remaining -= n;
     }
 }
 

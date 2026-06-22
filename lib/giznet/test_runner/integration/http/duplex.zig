@@ -97,11 +97,9 @@ fn runDuplexStreaming(comptime grt: type, comptime Fixture: type, allocator: grt
         .idle_timeout = 100 * glib.time.duration.MilliSecond,
     });
     defer server.deinit();
-    const server_thread = try grt.std.Thread.spawn(
-        .{},
-        http_utils.ServerTask(grt, Server).run,
-        .{ &server, grt.net.Listener.init(&listener_impl) },
-    );
+    const ServerTask = http_utils.ServerTask(grt, Server);
+    var server_task = ServerTask{ .server = &server, .listener = grt.net.Listener.init(&listener_impl) };
+    const server_thread = try grt.task.go("giznet/test/http/server", .{}, grt.task.Routine.init(&server_task, ServerTask.run));
     defer server_thread.join();
     defer server.close();
 
@@ -111,13 +109,17 @@ fn runDuplexStreaming(comptime grt: type, comptime Fixture: type, allocator: grt
     defer client.deinit();
 
     const Releaser = struct {
-        fn run(ack: *Signal, release: *Signal) void {
-            const sent = ack.recvTimeout(2 * glib.time.duration.Second) catch return;
+        ack: *Signal,
+        release: *Signal,
+
+        fn run(self: *@This()) void {
+            const sent = self.ack.recvTimeout(2 * glib.time.duration.Second) catch return;
             if (!sent.ok) return;
-            _ = release.send({}) catch {};
+            _ = self.release.send({}) catch {};
         }
     };
-    const releaser_thread = try grt.std.Thread.spawn(.{}, Releaser.run, .{ &ack_sent, &release_upload });
+    var releaser = Releaser{ .ack = &ack_sent, .release = &release_upload };
+    const releaser_thread = try grt.task.go("giznet/test/http/releaser", .{}, grt.task.Routine.init(&releaser, Releaser.run));
     defer releaser_thread.join();
 
     const BlockingBody = struct {
