@@ -437,13 +437,19 @@ pub fn make(
             errdefer pkt.deinit();
 
             const plaintext = pkt.transportPlaintextBufRef();
-            if (plaintext.len < 1) return error.BufferTooSmall;
-            plaintext[0] = service_protocol.ProtocolConnCtrl;
+            const close_payload = try prepareConnClosePlaintext(plaintext);
             pkt.remote_static = remote_static;
-            pkt.len = 1;
+            pkt.len = close_payload.len;
 
             var noise_callback = NoiseCallback{ .runtime = self };
             try self.noise.drive(.{ .send_data = pkt }, noise_callback.callback());
+        }
+
+        fn prepareConnClosePlaintext(buffer: []u8) ![]const u8 {
+            if (buffer.len < 2) return error.BufferTooSmall;
+            buffer[0] = service_protocol.ProtocolConnCtrl;
+            buffer[1] = service_protocol.ConnCtrlClose;
+            return buffer[0..2];
         }
 
         fn updateTickDeadline(self: *Self, deadline: glib.time.instant.Time) void {
@@ -737,10 +743,8 @@ pub fn make(
                     self.closed = true;
                     _ = self.runtime.stats.active_peers.fetchSub(1, .monotonic);
                     self.peer_port.close();
-                    const send_result = self.runtime.input.sendTimeout(.{ .close_conn = self.peer_port.remote_static }, 0) catch |err| switch (err) {
-                        error.Timeout => return,
-                        else => return err,
-                    };
+                    if (self.runtime.closed.load(.acquire)) return;
+                    const send_result = try self.runtime.input.send(.{ .close_conn = self.peer_port.remote_static });
                     if (!send_result.ok) return error.RuntimeChannelClosed;
                 }
             }
@@ -843,18 +847,16 @@ pub fn make(
 
             pub fn close(self: *@This()) !void {
                 if (self.closed.swap(true, .acq_rel)) return;
-                const send_result = self.runtime.input.sendTimeout(.{ .close_stream = .{
+                if (self.runtime.closed.load(.acquire)) {
+                    self.port.wakeRead();
+                    self.port.wakeWrite();
+                    return;
+                }
+                const send_result = try self.runtime.input.send(.{ .close_stream = .{
                     .remote_static = self.port.remote_static,
                     .service = self.port.service,
                     .stream = self.port.stream,
-                } }, 0) catch |err| switch (err) {
-                    error.Timeout => {
-                        self.port.wakeRead();
-                        self.port.wakeWrite();
-                        return;
-                    },
-                    else => return err,
-                };
+                } });
                 if (!send_result.ok) return error.RuntimeChannelClosed;
                 self.port.wakeRead();
                 self.port.wakeWrite();
@@ -942,7 +944,19 @@ pub fn make(
 pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
     return glib.testing.TestRunner.fromFn(grt.std, 1024 * 1024, struct {
         fn run(_: *glib.testing.T, allocator: grt.std.mem.Allocator) !void {
+            try connClosePlaintextUsesControlPayload(grt);
             try outboundWriteFailureReturnsPacketToPool(grt, allocator);
+        }
+
+        fn connClosePlaintextUsesControlPayload(comptime any_grt: type) !void {
+            const Runtime = make(any_grt, 1053, .chacha_poly);
+
+            var buffer: [2]u8 = undefined;
+            const payload = try Runtime.prepareConnClosePlaintext(&buffer);
+            try any_grt.std.testing.expectEqual(@as(usize, 2), payload.len);
+            try any_grt.std.testing.expectEqual(service_protocol.ProtocolConnCtrl, payload[0]);
+            try any_grt.std.testing.expectEqual(service_protocol.ConnCtrlClose, payload[1]);
+            try any_grt.std.testing.expectError(error.BufferTooSmall, Runtime.prepareConnClosePlaintext(buffer[0..1]));
         }
 
         fn outboundWriteFailureReturnsPacketToPool(

@@ -249,8 +249,6 @@ pub fn make(comptime grt: type, comptime config: Config) type {
                 self.stream_thread = null;
             }
             if (self.conn) |conn| conn.close() catch {};
-            if (self.root) |root| root.close() catch {};
-            if (self.packet_conn) |packet_conn| packet_conn.close();
             if (self.conn) |conn| {
                 conn.deinit();
                 self.conn = null;
