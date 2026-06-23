@@ -9,7 +9,7 @@ pub const chacha_sdk = gizclaw.make(grt, .{ .cipher_kind = .chacha_poly });
 pub const aes_256_gcm_sdk = gizclaw.make(grt, .{ .cipher_kind = .aes_256_gcm });
 pub const plaintext_sdk = gizclaw.make(grt, .{ .cipher_kind = .plaintext });
 
-pub const default_context_dir = "../gizclaw-go/test/gizclaw-e2e/.testbench/context/gizclaw/e2e-client";
+pub const default_context_dir = "test/gizclaw-e2e/testdata/client-context";
 pub const default_server_addr = "";
 pub const default_server_key = "";
 
@@ -28,8 +28,6 @@ pub const runtime_options = gizclaw.RuntimeOptions{
         .kcp_interval = 10,
         .kcp_resend = 2,
         .kcp_no_congestion_control = 0,
-        .kcp_send_window = 256,
-        .kcp_recv_window = 256,
     },
 };
 

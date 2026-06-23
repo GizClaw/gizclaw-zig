@@ -1,0 +1,6 @@
+*
+!.gitignore
+!client-context/
+client-context/*
+!client-context/config.yaml
+!client-context/identity.key

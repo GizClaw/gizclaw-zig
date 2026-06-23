@@ -177,6 +177,12 @@ pub fn createGizClawE2E(
             .step = "run-gizclaw-e2e-workspace",
             .description = "Run GizClaw workspace e2e checks against a remote server",
         },
+        .{
+            .name = "gizclaw-e2e-speed",
+            .root = "test/gizclaw-e2e/speed/main.zig",
+            .step = "run-gizclaw-e2e-speed",
+            .description = "Run GizClaw speed-test RPC e2e checks against a remote server",
+        },
     };
 
     for (entries) |entry| {

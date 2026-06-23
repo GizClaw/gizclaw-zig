@@ -1,0 +1,4 @@
+server:
+  address: 127.0.0.1:9820
+  public-key: FZvSffUDZbtJWDyqbuDv8nqjYs5jjSuHwZmxDLANVcx7
+  cipher-mode: chacha_poly

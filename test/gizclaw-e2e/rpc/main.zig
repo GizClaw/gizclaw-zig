@@ -63,7 +63,8 @@ fn printUsage() !void {
         \\usage: gizclaw-e2e-rpc [options]
         \\
         \\Connection:
-        \\  --context DIR          Go setup context dir with config.yaml and identity.key
+        \\  --context DIR          GizClaw context dir with config.yaml and identity.key
+        \\                         Default: test/gizclaw-e2e/testdata/client-context
         \\  --no-context           Use explicit --server-* and --client-key values
         \\  --server-addr ADDR     Remote GizClaw server address
         \\  --server-key KEY       Remote GizClaw server public key
