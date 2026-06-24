@@ -544,20 +544,20 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             return try self.callRpcParsed(models.ContactDeleteResponse, "contact-delete", Rpc.method_server_contact_delete, request);
         }
 
-        pub fn listFriendRequests(self: *Self, request: models.FriendRequestListRequest) !grt.std.json.Parsed(models.FriendRequestListResponse) {
-            return try self.callRpcParsed(models.FriendRequestListResponse, "friend-requests-list", Rpc.method_server_friend_requests_list, request);
+        pub fn getFriendInviteToken(self: *Self, request: models.FriendInviteTokenGetRequest) !grt.std.json.Parsed(models.FriendInviteTokenGetResponse) {
+            return try self.callRpcParsed(models.FriendInviteTokenGetResponse, "friend-invite-token-get", Rpc.method_server_friend_invite_token_get, request);
         }
 
-        pub fn createFriendRequest(self: *Self, request: models.FriendRequestCreateRequest) !grt.std.json.Parsed(models.FriendRequestCreateResponse) {
-            return try self.callRpcParsed(models.FriendRequestCreateResponse, "friend-requests-create", Rpc.method_server_friend_requests_create, request);
+        pub fn createFriendInviteToken(self: *Self, request: models.FriendInviteTokenCreateRequest) !grt.std.json.Parsed(models.FriendInviteTokenCreateResponse) {
+            return try self.callRpcParsed(models.FriendInviteTokenCreateResponse, "friend-invite-token-create", Rpc.method_server_friend_invite_token_create, request);
         }
 
-        pub fn acceptFriendRequest(self: *Self, request: models.FriendRequestAcceptRequest) !grt.std.json.Parsed(models.FriendRequestAcceptResponse) {
-            return try self.callRpcParsed(models.FriendRequestAcceptResponse, "friend-requests-accept", Rpc.method_server_friend_requests_accept, request);
+        pub fn clearFriendInviteToken(self: *Self, request: models.FriendInviteTokenClearRequest) !grt.std.json.Parsed(models.FriendInviteTokenClearResponse) {
+            return try self.callRpcParsed(models.FriendInviteTokenClearResponse, "friend-invite-token-clear", Rpc.method_server_friend_invite_token_clear, request);
         }
 
-        pub fn rejectFriendRequest(self: *Self, request: models.FriendRequestRejectRequest) !grt.std.json.Parsed(models.FriendRequestRejectResponse) {
-            return try self.callRpcParsed(models.FriendRequestRejectResponse, "friend-requests-reject", Rpc.method_server_friend_requests_reject, request);
+        pub fn addFriend(self: *Self, request: models.FriendAddRequest) !grt.std.json.Parsed(models.FriendAddResponse) {
+            return try self.callRpcParsed(models.FriendAddResponse, "friend-add", Rpc.method_server_friend_add, request);
         }
 
         pub fn listFriends(self: *Self, request: models.FriendListRequest) !grt.std.json.Parsed(models.FriendListResponse) {
@@ -586,6 +586,22 @@ pub fn make(comptime grt: type, comptime config: Config) type {
 
         pub fn deleteFriendGroup(self: *Self, request: models.FriendGroupDeleteRequest) !grt.std.json.Parsed(models.FriendGroupDeleteResponse) {
             return try self.callRpcParsed(models.FriendGroupDeleteResponse, "friend-group-delete", Rpc.method_server_friend_group_delete, request);
+        }
+
+        pub fn getFriendGroupInviteToken(self: *Self, request: models.FriendGroupInviteTokenGetRequest) !grt.std.json.Parsed(models.FriendGroupInviteTokenGetResponse) {
+            return try self.callRpcParsed(models.FriendGroupInviteTokenGetResponse, "friend-group-invite-token-get", Rpc.method_server_friend_group_invite_token_get, request);
+        }
+
+        pub fn createFriendGroupInviteToken(self: *Self, request: models.FriendGroupInviteTokenCreateRequest) !grt.std.json.Parsed(models.FriendGroupInviteTokenCreateResponse) {
+            return try self.callRpcParsed(models.FriendGroupInviteTokenCreateResponse, "friend-group-invite-token-create", Rpc.method_server_friend_group_invite_token_create, request);
+        }
+
+        pub fn clearFriendGroupInviteToken(self: *Self, request: models.FriendGroupInviteTokenClearRequest) !grt.std.json.Parsed(models.FriendGroupInviteTokenClearResponse) {
+            return try self.callRpcParsed(models.FriendGroupInviteTokenClearResponse, "friend-group-invite-token-clear", Rpc.method_server_friend_group_invite_token_clear, request);
+        }
+
+        pub fn joinFriendGroup(self: *Self, request: models.FriendGroupJoinRequest) !grt.std.json.Parsed(models.FriendGroupJoinResponse) {
+            return try self.callRpcParsed(models.FriendGroupJoinResponse, "friend-group-join", Rpc.method_server_friend_group_join, request);
         }
 
         pub fn listFriendGroupMembers(self: *Self, request: models.FriendGroupMemberListRequest) !grt.std.json.Parsed(models.FriendGroupMemberListResponse) {

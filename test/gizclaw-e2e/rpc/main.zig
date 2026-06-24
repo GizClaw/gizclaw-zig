@@ -671,11 +671,10 @@ fn checkSocialPages(comptime sdk: type, client: *sdk.Client, peer_client: ?*sdk.
     try summary.skip("CreateContact", "social RPC coverage is intentionally deferred");
     try summary.skip("PutContact", "social RPC coverage is intentionally deferred");
     try summary.skip("DeleteContact", "social RPC coverage is intentionally deferred");
-    try summary.skip("ListFriendRequests", "social RPC coverage is intentionally deferred");
-    try summary.skip("ListFriendRequests pagination", "social RPC coverage is intentionally deferred");
-    try summary.skip("CreateFriendRequest", "social RPC coverage is intentionally deferred");
-    try summary.skip("AcceptFriendRequest", "social RPC coverage is intentionally deferred");
-    try summary.skip("RejectFriendRequest", "social RPC coverage is intentionally deferred");
+    try summary.skip("GetFriendInviteToken", "social RPC coverage is intentionally deferred");
+    try summary.skip("CreateFriendInviteToken", "social RPC coverage is intentionally deferred");
+    try summary.skip("ClearFriendInviteToken", "social RPC coverage is intentionally deferred");
+    try summary.skip("AddFriend", "social RPC coverage is intentionally deferred");
     try summary.skip("ListFriends", "social RPC coverage is intentionally deferred");
     try summary.skip("ListFriends pagination", "social RPC coverage is intentionally deferred");
     try summary.skip("DeleteFriend", "social RPC coverage is intentionally deferred");
@@ -685,6 +684,10 @@ fn checkSocialPages(comptime sdk: type, client: *sdk.Client, peer_client: ?*sdk.
     try summary.skip("CreateFriendGroup", "social RPC coverage is intentionally deferred");
     try summary.skip("PutFriendGroup", "social RPC coverage is intentionally deferred");
     try summary.skip("DeleteFriendGroup", "social RPC coverage is intentionally deferred");
+    try summary.skip("GetFriendGroupInviteToken", "social RPC coverage is intentionally deferred");
+    try summary.skip("CreateFriendGroupInviteToken", "social RPC coverage is intentionally deferred");
+    try summary.skip("ClearFriendGroupInviteToken", "social RPC coverage is intentionally deferred");
+    try summary.skip("JoinFriendGroup", "social RPC coverage is intentionally deferred");
     try summary.skip("ListFriendGroupMembers", "social RPC coverage is intentionally deferred");
     try summary.skip("AddFriendGroupMember", "social RPC coverage is intentionally deferred");
     try summary.skip("PutFriendGroupMember", "social RPC coverage is intentionally deferred");
@@ -786,51 +789,6 @@ fn findContactIdByDisplayName(comptime sdk: type, client: *sdk.Client, display_n
 
 fn dupeRequiredString(value: []const u8) ![]u8 {
     return try std.heap.page_allocator.dupe(u8, value);
-}
-
-fn checkFriendRequestMutations(comptime sdk: type, client: *sdk.Client, peer_client: *sdk.Client, peer_id: []const u8, summary: *common.Summary) ![]u8 {
-    try parsed(summary, "ReportFriendOTP reject fixture", peer_client.getServerRunStatus(.{ .friend_otp = "120001" }));
-    var rejected_request = client.createFriendRequest(.{
-        .to_peer_id = peer_id,
-        .code = "120001",
-        .message = "gizclaw-zig rejected fixture",
-    }) catch |err| {
-        try summary.fail("CreateFriendRequest reject fixture", err);
-        return err;
-    };
-    defer rejected_request.deinit();
-    const rejected_id = rejected_request.value.id orelse return error.MissingFriendRequestId;
-    try parsed(summary, "RejectFriendRequest", peer_client.rejectFriendRequest(.{ .id = rejected_id }));
-
-    try parsed(summary, "ReportFriendOTP", peer_client.getServerRunStatus(.{ .friend_otp = "120002" }));
-    var request = client.createFriendRequest(.{
-        .to_peer_id = peer_id,
-        .code = "120002",
-        .message = "gizclaw-zig e2e friend request",
-    }) catch |err| {
-        try summary.fail("CreateFriendRequest", err);
-        return err;
-    };
-    defer request.deinit();
-    const request_id = request.value.id orelse return error.MissingFriendRequestId;
-    try summary.pass("CreateFriendRequest");
-
-    try parsed(summary, "AcceptFriendRequest", peer_client.acceptFriendRequest(.{ .id = request_id }));
-
-    var friends = client.listFriends(.{ .limit = 100 }) catch |err| {
-        try summary.fail("FindAcceptedFriend", err);
-        return err;
-    };
-    defer friends.deinit();
-    for (friends.value.items) |friend| {
-        if (friend.peer_id) |id| {
-            if (std.mem.eql(u8, id, peer_id)) {
-                const found_id = friend.id orelse return error.MissingFriendId;
-                return try dupeRequiredString(found_id);
-            }
-        }
-    }
-    return error.AcceptedFriendNotFound;
 }
 
 fn checkFriendGroupMutations(comptime sdk: type, client: *sdk.Client, peer_id: ?[]const u8, summary: *common.Summary) !void {
@@ -956,18 +914,6 @@ fn checkContactPages(comptime sdk: type, client: *sdk.Client, summary: *common.S
         }
     } else {
         try summary.skip("GetContact", "ListContacts returned no fixture rows");
-    }
-}
-
-fn checkFriendRequestPages(comptime sdk: type, client: *sdk.Client, summary: *common.Summary) !void {
-    var page = client.listFriendRequests(.{ .limit = 1 }) catch |err| return summary.fail("ListFriendRequests", err);
-    defer page.deinit();
-    try summary.pass("ListFriendRequests");
-    try checkPagination(summary, "ListFriendRequests pagination", page.value.has_next, page.value.next_cursor);
-    if (page.value.has_next) {
-        if (page.value.next_cursor) |cursor| {
-            try parsed(summary, "ListFriendRequests next page", client.listFriendRequests(.{ .limit = 1, .cursor = cursor }));
-        }
     }
 }
 

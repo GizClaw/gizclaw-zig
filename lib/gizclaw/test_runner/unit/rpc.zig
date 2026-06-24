@@ -72,6 +72,14 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             try testing.expectEqualStrings("server.firmware.list", models.RpcMethods.server_firmware_list);
             try testing.expectEqualStrings("server.firmware.get", models.RpcMethods.server_firmware_get);
             try testing.expectEqualStrings("server.firmware.download", models.RpcMethods.server_firmware_download);
+            try testing.expectEqualStrings("server.friend.invite_token.get", models.RpcMethods.server_friend_invite_token_get);
+            try testing.expectEqualStrings("server.friend.invite_token.create", models.RpcMethods.server_friend_invite_token_create);
+            try testing.expectEqualStrings("server.friend.invite_token.clear", models.RpcMethods.server_friend_invite_token_clear);
+            try testing.expectEqualStrings("server.friend.add", models.RpcMethods.server_friend_add);
+            try testing.expectEqualStrings("server.friend_group.invite_token.get", models.RpcMethods.server_friend_group_invite_token_get);
+            try testing.expectEqualStrings("server.friend_group.invite_token.create", models.RpcMethods.server_friend_group_invite_token_create);
+            try testing.expectEqualStrings("server.friend_group.invite_token.clear", models.RpcMethods.server_friend_group_invite_token_clear);
+            try testing.expectEqualStrings("server.friend_group.join", models.RpcMethods.server_friend_group_join);
             try testing.expectEqualStrings("server.friend_group.messages.send", models.RpcMethods.server_friend_group_messages_send);
             try testing.expectEqualStrings("server.model.create", gizclaw.Rpc.method_server_model_create);
             try testing.expectEqualStrings("server.model.put", gizclaw.Rpc.method_server_model_put);
@@ -79,6 +87,9 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             try testing.expectEqualStrings("server.credential.create", gizclaw.Rpc.method_server_credential_create);
             try testing.expectEqualStrings("server.credential.put", gizclaw.Rpc.method_server_credential_put);
             try testing.expectEqualStrings("server.credential.delete", gizclaw.Rpc.method_server_credential_delete);
+            try testing.expectEqualStrings("server.friend.invite_token.create", gizclaw.Rpc.method_server_friend_invite_token_create);
+            try testing.expectEqualStrings("server.friend.add", gizclaw.Rpc.method_server_friend_add);
+            try testing.expectEqualStrings("server.friend_group.join", gizclaw.Rpc.method_server_friend_group_join);
             _ = models.RPCRequest;
             _ = models.RPCResponse;
         }
@@ -125,6 +136,29 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             defer credential_create.deinit();
             try testing.expectEqualStrings("zig-e2e-credential", credential_create.value.name);
             try testing.expectEqualStrings("e2e", credential_create.value.provider);
+
+            const friend_add = try models.toJson(allocator, models.FriendAddRequest{ .invite_token = "friend-token" });
+            defer allocator.free(friend_add);
+            try testing.expectEqualStrings("{\"invite_token\":\"friend-token\"}", friend_add);
+
+            var friend_token = try models.fromJson(
+                models.FriendInviteTokenCreateResponse,
+                allocator,
+                "{\"invite_token\":\"friend-token\",\"expires_at\":\"2026-06-24T12:00:00Z\"}",
+            );
+            defer friend_token.deinit();
+            try testing.expectEqualStrings("friend-token", friend_token.value.invite_token);
+
+            const group_token_request = try models.toJson(
+                allocator,
+                models.FriendGroupInviteTokenCreateRequest{ .friend_group_id = "group-1" },
+            );
+            defer allocator.free(group_token_request);
+            try testing.expectEqualStrings("{\"friend_group_id\":\"group-1\"}", group_token_request);
+
+            const group_join = try models.toJson(allocator, models.FriendGroupJoinRequest{ .invite_token = "group-token" });
+            defer allocator.free(group_join);
+            try testing.expectEqualStrings("{\"invite_token\":\"group-token\"}", group_join);
 
             const say = try models.toJson(allocator, models.ServerRunSayRequest{ .text = "hello" });
             defer allocator.free(say);

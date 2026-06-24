@@ -148,15 +148,14 @@ RPC groups. They are reported explicitly instead of being silently omitted.
 | `PutContact` | SKIP | Social RPC coverage is intentionally deferred. |
 | `DeleteContact` | SKIP | Social RPC coverage is intentionally deferred. |
 
-### Friend Request and Friend RPC
+### Friend Invite and Friend RPC
 
 | Test | Result | Notes |
 | --- | --- | --- |
-| `ListFriendRequests` | SKIP | Social RPC coverage is intentionally deferred. |
-| `ListFriendRequests pagination` | SKIP | Social RPC coverage is intentionally deferred. |
-| `CreateFriendRequest` | SKIP | Social RPC coverage is intentionally deferred. |
-| `AcceptFriendRequest` | SKIP | Social RPC coverage is intentionally deferred. |
-| `RejectFriendRequest` | SKIP | Social RPC coverage is intentionally deferred. |
+| `GetFriendInviteToken` | SKIP | Social RPC coverage is intentionally deferred. |
+| `CreateFriendInviteToken` | SKIP | Social RPC coverage is intentionally deferred. |
+| `ClearFriendInviteToken` | SKIP | Social RPC coverage is intentionally deferred. |
+| `AddFriend` | SKIP | Social RPC coverage is intentionally deferred. |
 | `ListFriends` | SKIP | Social RPC coverage is intentionally deferred. |
 | `ListFriends pagination` | SKIP | Social RPC coverage is intentionally deferred. |
 | `DeleteFriend` | SKIP | Social RPC coverage is intentionally deferred. |
@@ -171,6 +170,10 @@ RPC groups. They are reported explicitly instead of being silently omitted.
 | `CreateFriendGroup` | SKIP | Social RPC coverage is intentionally deferred. |
 | `PutFriendGroup` | SKIP | Social RPC coverage is intentionally deferred. |
 | `DeleteFriendGroup` | SKIP | Social RPC coverage is intentionally deferred. |
+| `GetFriendGroupInviteToken` | SKIP | Social RPC coverage is intentionally deferred. |
+| `CreateFriendGroupInviteToken` | SKIP | Social RPC coverage is intentionally deferred. |
+| `ClearFriendGroupInviteToken` | SKIP | Social RPC coverage is intentionally deferred. |
+| `JoinFriendGroup` | SKIP | Social RPC coverage is intentionally deferred. |
 | `ListFriendGroupMembers` | SKIP | Social RPC coverage is intentionally deferred. |
 | `AddFriendGroupMember` | SKIP | Social RPC coverage is intentionally deferred. |
 | `PutFriendGroupMember` | SKIP | Social RPC coverage is intentionally deferred. |
@@ -192,7 +195,7 @@ RPC groups. They are reported explicitly instead of being silently omitted.
 - Firmware download requires explicit firmware artifact flags, server-side
   firmware asset storage, and a seeded artifact. The current fixture uploads a
   locally generated tar file as `stable/main`.
-- Contact, friend request, friend, and friend group RPCs are intentionally
+- Contact, friend invite, friend, and friend group RPCs are intentionally
   deferred and reported as skips.
 - Workspace and workflow mutation coverage creates isolated fixtures and cleans
   them up in the same run.
