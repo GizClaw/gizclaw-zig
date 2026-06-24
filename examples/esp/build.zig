@@ -3,12 +3,15 @@ const embed_pkg = @import("embed");
 
 const default_wifi_ssid = "";
 const default_wifi_password = "";
-const default_gizclaw_server_addr = "";
-const default_gizclaw_server_key = "";
+const default_gizclaw_server_addr = "115.190.62.76:9820";
+const default_gizclaw_server_key = "FZvSffUDZbtJWDyqbuDv8nqjYs5jjSuHwZmxDLANVcx7";
 const default_gizclaw_client_key = "";
-const default_giznet_benchmark_suite = "service";
-const default_giznet_benchmark_relay_host = "192.168.1.6";
-const default_giznet_benchmark_relay_base_port: u16 = 39001;
+const default_chat_workspace = "doubao-realtime";
+const default_chat_workflow = "doubao-realtime";
+const default_chat_mode = "push_to_talk";
+const default_giznet_testrunner_suite = "service";
+const default_giznet_testrunner_relay_host = "192.168.1.6";
+const default_giznet_testrunner_relay_base_port: u16 = 39001;
 
 const SmokeBuildConfig = struct {
     wifi_ssid: []const u8,
@@ -16,15 +19,18 @@ const SmokeBuildConfig = struct {
     gizclaw_server_addr: []const u8,
     gizclaw_server_key: []const u8,
     gizclaw_client_key: []const u8,
-    giznet_benchmark_suite: []const u8,
-    giznet_benchmark_relay_host: []const u8,
-    giznet_benchmark_relay_base_port: u16,
+    chat_workspace: []const u8,
+    chat_workflow: []const u8,
+    chat_default_mode: []const u8,
+    giznet_testrunner_suite: []const u8,
+    giznet_testrunner_relay_host: []const u8,
+    giznet_testrunner_relay_base_port: u16,
 };
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const board_name = b.option([]const u8, "board", "Board under esp.embed.boards") orelse "devkit";
-    const app_name = b.option([]const u8, "app", "Selected Zux app: smoke, benchmark, or http_client") orelse "smoke";
+    const app_name = b.option([]const u8, "app", "Selected Zux app: speedtest, testrunner, or chat_smoke") orelse "speedtest";
     const smoke_config = smokeBuildConfigFromOptions(b);
 
     const embed_build_dep = b.dependency("embed", .{});
@@ -70,15 +76,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "esp", .module = embed_dep.module("esp") },
+            .{ .name = "lvgl_osal", .module = embed_dep.module("thirdparty/lvgl_osal") },
             .{ .name = "selected_app", .module = selected_app },
             .{ .name = "launcher_options", .module = launcher_options_module },
         },
         .link_libc = true,
     });
 
-    const board_component = addBoardComponent(b, embed_build_dep, board_name);
-    const app_components = if (std.mem.eql(u8, app_name, "http_client"))
-        &.{ board_component, addPosixHttpProbeComponent(b) }
+    const board_component = addBoardComponent(b, embed_build_dep, board_name, app_name);
+    const app_components = if (needsJsonCompat(board_name))
+        &.{ board_component, addJsonCompatComponent(b) }
     else
         &.{board_component};
     const app = embed_pkg.esp.idf.addApp(b, "launcher", .{
@@ -111,14 +118,14 @@ fn createSelectedApp(
     smoke_config: SmokeBuildConfig,
     app_name: []const u8,
 ) *std.Build.Module {
-    const root_source_file = if (std.mem.eql(u8, app_name, "smoke"))
-        b.path("../zux/smoke/src/app.zig")
-    else if (std.mem.eql(u8, app_name, "benchmark"))
-        b.path("../zux/benchmark/src/app.zig")
-    else if (std.mem.eql(u8, app_name, "http_client"))
-        b.path("../zux/http_client/src/app.zig")
+    const root_source_file = if (std.mem.eql(u8, app_name, "speedtest"))
+        b.path("../zux/speedtest/src/app.zig")
+    else if (std.mem.eql(u8, app_name, "testrunner"))
+        b.path("../zux/testrunner/src/app.zig")
+    else if (std.mem.eql(u8, app_name, "chat_smoke"))
+        b.path("../zux/chat_smoke/src/app.zig")
     else
-        std.debug.panic("unknown zux app: {s}; expected smoke, benchmark, or http_client", .{app_name});
+        std.debug.panic("unknown zux app: {s}; expected speedtest, testrunner, or chat_smoke", .{app_name});
 
     const module = b.createModule(.{
         .root_source_file = root_source_file,
@@ -131,6 +138,7 @@ fn createSelectedApp(
             .{ .name = "giznet", .module = gizclaw_dep.module("giznet") },
             .{ .name = "kcp", .module = gizclaw_dep.module("kcp") },
             .{ .name = "launcher", .module = embed_dep.module("apps/launcher") },
+            .{ .name = "lvgl", .module = embed_dep.module("thirdparty/lvgl") },
         },
     });
     module.addOptions("build_config", smokeBuildConfigOptions(b, smoke_config));
@@ -139,14 +147,17 @@ fn createSelectedApp(
 
 fn smokeBuildConfigFromOptions(b: *std.Build) SmokeBuildConfig {
     return .{
-        .wifi_ssid = b.option([]const u8, "wifi_ssid", "WiFi SSID for the zux smoke app") orelse default_wifi_ssid,
-        .wifi_password = b.option([]const u8, "wifi_password", "WiFi password for the zux smoke app") orelse default_wifi_password,
+        .wifi_ssid = b.option([]const u8, "wifi_ssid", "WiFi SSID for the zux speedtest app") orelse default_wifi_ssid,
+        .wifi_password = b.option([]const u8, "wifi_password", "WiFi password for the zux speedtest app") orelse default_wifi_password,
         .gizclaw_server_addr = b.option([]const u8, "gizclaw_server_addr", "GizClaw server host:port") orelse default_gizclaw_server_addr,
         .gizclaw_server_key = b.option([]const u8, "gizclaw_server_key", "GizClaw server public key") orelse default_gizclaw_server_key,
         .gizclaw_client_key = b.option([]const u8, "gizclaw_client_key", "GizClaw client private key") orelse default_gizclaw_client_key,
-        .giznet_benchmark_suite = b.option([]const u8, "benchmark_suite", "GizNet benchmark suite: service, kcp_stream, kcp_stream_real_udp, kcp_stream_relay_udp, noise, giz_net, or all") orelse default_giznet_benchmark_suite,
-        .giznet_benchmark_relay_host = b.option([]const u8, "benchmark_relay_host", "Host IP for the kcp_stream_relay_udp benchmark") orelse default_giznet_benchmark_relay_host,
-        .giznet_benchmark_relay_base_port = b.option(u16, "benchmark_relay_base_port", "Base UDP port for the kcp_stream_relay_udp benchmark") orelse default_giznet_benchmark_relay_base_port,
+        .chat_workspace = b.option([]const u8, "chat_workspace", "GizClaw chat smoke workspace name") orelse default_chat_workspace,
+        .chat_workflow = b.option([]const u8, "chat_workflow", "GizClaw chat smoke workflow name") orelse default_chat_workflow,
+        .chat_default_mode = b.option([]const u8, "chat_default_mode", "GizClaw chat smoke mode: push_to_talk or realtime") orelse default_chat_mode,
+        .giznet_testrunner_suite = b.option([]const u8, "testrunner_suite", "GizNet TestRunner suite: service, kcp_stream, kcp_stream_real_udp, kcp_stream_relay_udp, noise, giz_net, or all") orelse default_giznet_testrunner_suite,
+        .giznet_testrunner_relay_host = b.option([]const u8, "testrunner_relay_host", "Host IP for the kcp_stream_relay_udp TestRunner suite") orelse default_giznet_testrunner_relay_host,
+        .giznet_testrunner_relay_base_port = b.option(u16, "testrunner_relay_base_port", "Base UDP port for the kcp_stream_relay_udp TestRunner suite") orelse default_giznet_testrunner_relay_base_port,
     };
 }
 
@@ -157,9 +168,12 @@ fn smokeBuildConfigOptions(b: *std.Build, config: SmokeBuildConfig) *std.Build.S
     options.addOption([]const u8, "gizclaw_server_addr", config.gizclaw_server_addr);
     options.addOption([]const u8, "gizclaw_server_key", config.gizclaw_server_key);
     options.addOption([]const u8, "gizclaw_client_key", config.gizclaw_client_key);
-    options.addOption([]const u8, "giznet_benchmark_suite", config.giznet_benchmark_suite);
-    options.addOption([]const u8, "giznet_benchmark_relay_host", config.giznet_benchmark_relay_host);
-    options.addOption(u16, "giznet_benchmark_relay_base_port", config.giznet_benchmark_relay_base_port);
+    options.addOption([]const u8, "chat_workspace", config.chat_workspace);
+    options.addOption([]const u8, "chat_workflow", config.chat_workflow);
+    options.addOption([]const u8, "chat_default_mode", config.chat_default_mode);
+    options.addOption([]const u8, "giznet_testrunner_suite", config.giznet_testrunner_suite);
+    options.addOption([]const u8, "giznet_testrunner_relay_host", config.giznet_testrunner_relay_host);
+    options.addOption(u16, "giznet_testrunner_relay_base_port", config.giznet_testrunner_relay_base_port);
     return options;
 }
 
@@ -266,13 +280,16 @@ fn addBoardComponent(
     b: *std.Build,
     embed_dep: *std.Build.Dependency,
     name: []const u8,
+    app_name: []const u8,
 ) *embed_pkg.esp.idf.Component {
     const board = resolveBoard(name);
     const component = embed_pkg.esp.idf.Component.create(b, .{ .name = board.component_name });
-    component.addFile(.{
-        .relative_path = "idf_component.yml",
-        .file = embed_dep.path(espBoardPath(b, board, "idf_component.yml")),
-    });
+    if (!skipBoardDependencyFile(board, app_name)) {
+        component.addFile(.{
+            .relative_path = "idf_component.yml",
+            .file = embed_dep.path(espBoardPath(b, board, "idf_component.yml")),
+        });
+    }
     if (board.include_path) |include_path| {
         component.addIncludePath(embed_dep.path(espBoardPath(b, board, include_path)));
     }
@@ -280,25 +297,36 @@ fn addBoardComponent(
         .root = embed_dep.path(espBoardPath(b, board, "bindings")),
         .files = board.c_files,
     });
+    if (std.mem.eql(u8, board.name, szp.name)) {
+        component.addCSourceFiles(.{
+            .root = embed_dep.path("esp/lib/embed/audio"),
+            .files = &.{ "es8311_es7210_native.c", "esp_sr_native.c" },
+        });
+    }
     for (board.requires) |require| {
         component.addRequire(require);
     }
     return component;
 }
 
-fn addPosixHttpProbeComponent(b: *std.Build) *embed_pkg.esp.idf.Component {
-    const component = embed_pkg.esp.idf.Component.create(b, .{ .name = "posix_http_probe" });
-    component.addCSourceFiles(.{
-        .root = b.path("src"),
-        .files = &.{
-            "posix_http_probe.c",
-            "esp_http_client_probe.c",
-        },
+fn skipBoardDependencyFile(board: Board, app_name: []const u8) bool {
+    _ = board;
+    _ = app_name;
+    return false;
+}
+
+fn addJsonCompatComponent(b: *std.Build) *embed_pkg.esp.idf.Component {
+    const component = embed_pkg.esp.idf.Component.create(b, .{ .name = "json" });
+    component.addFile(.{
+        .relative_path = "idf_component.yml",
+        .file = b.path("components/json_compat/idf_component.yml"),
     });
-    component.addRequire("esp_http_client");
-    component.addRequire("esp_timer");
-    component.addRequire("lwip");
+    component.addRequire("espressif__cjson");
     return component;
+}
+
+fn needsJsonCompat(board_name: []const u8) bool {
+    return std.mem.eql(u8, board_name, szp.name);
 }
 
 fn resolveBoard(name: []const u8) Board {

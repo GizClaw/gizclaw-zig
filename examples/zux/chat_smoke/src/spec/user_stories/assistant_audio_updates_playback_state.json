@@ -1,0 +1,6 @@
+{
+  "name": "assistant_audio_updates_playback_state",
+  "expect": {
+    "chat": "playing"
+  }
+}

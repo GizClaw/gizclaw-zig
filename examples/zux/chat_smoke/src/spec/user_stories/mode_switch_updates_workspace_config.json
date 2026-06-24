@@ -1,0 +1,6 @@
+{
+  "name": "mode_switch_updates_workspace_config",
+  "expect": {
+    "mode": "realtime"
+  }
+}

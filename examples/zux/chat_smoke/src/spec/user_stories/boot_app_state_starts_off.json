@@ -1,0 +1,6 @@
+{
+  "name": "boot_app_state_starts_off",
+  "expect": {
+    "chat": "idle"
+  }
+}

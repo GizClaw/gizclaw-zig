@@ -1,0 +1,6 @@
+{
+  "name": "error_updates_visible_state",
+  "expect": {
+    "error_visible": true
+  }
+}

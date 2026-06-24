@@ -1,0 +1,6 @@
+{
+  "name": "gizclaw_connected_updates_state",
+  "expect": {
+    "gizclaw": "connected"
+  }
+}

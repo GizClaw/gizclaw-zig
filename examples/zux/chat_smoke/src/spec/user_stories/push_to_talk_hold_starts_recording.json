@@ -1,0 +1,6 @@
+{
+  "name": "push_to_talk_hold_starts_recording",
+  "expect": {
+    "chat": "recording"
+  }
+}

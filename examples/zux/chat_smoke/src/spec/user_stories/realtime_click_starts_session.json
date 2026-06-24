@@ -1,0 +1,6 @@
+{
+  "name": "realtime_click_starts_session",
+  "expect": {
+    "realtime": "started"
+  }
+}

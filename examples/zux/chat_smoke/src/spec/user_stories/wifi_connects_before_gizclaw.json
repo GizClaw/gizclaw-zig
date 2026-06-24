@@ -1,0 +1,6 @@
+{
+  "name": "wifi_connects_before_gizclaw",
+  "expect": {
+    "order": ["wifi", "gizclaw"]
+  }
+}

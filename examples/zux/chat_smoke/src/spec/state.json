@@ -1,0 +1,9 @@
+{
+  "state": {
+    "wifi": "disconnected",
+    "mode": "push_to_talk",
+    "gizclaw": "disconnected",
+    "chat": "idle",
+    "error": null
+  }
+}

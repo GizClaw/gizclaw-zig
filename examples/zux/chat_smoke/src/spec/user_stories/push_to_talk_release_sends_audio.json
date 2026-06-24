@@ -1,0 +1,6 @@
+{
+  "name": "push_to_talk_release_sends_audio",
+  "expect": {
+    "uplink_audio": true
+  }
+}
