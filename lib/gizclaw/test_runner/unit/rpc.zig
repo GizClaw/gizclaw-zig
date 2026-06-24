@@ -624,6 +624,42 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             }
 
             {
+                var close_out: [1]u8 = undefined;
+                var close_impl = MemoryStream{ .output = &close_out };
+                var event_stream = peer_stream.PeerEventStream{
+                    .allocator = allocator,
+                    .stream = giznet.Stream.init(&close_impl, gizclaw.service.event, 7),
+                };
+                event_stream.close();
+                try testing.expect(close_impl.closed);
+                event_stream.deinit();
+                try testing.expect(close_impl.deinited);
+            }
+
+            {
+                const eos_frame = [_]u8{ 0, 0, 0, 0 };
+                var empty_event_out: [1]u8 = undefined;
+                var empty_event_impl = MemoryStream{
+                    .input = &eos_frame,
+                    .output = &empty_event_out,
+                };
+                var audio_timeout_out: [1]u8 = undefined;
+                var audio_timeout_impl = MemoryConn{ .output = &audio_timeout_out };
+                var combined = peer_stream.PeerStream{
+                    .event_stream = .{
+                        .allocator = allocator,
+                        .stream = giznet.Stream.init(&empty_event_impl, gizclaw.service.event, 8),
+                    },
+                    .subscriber = .{
+                        .conn = giznet.Conn.init(&audio_timeout_impl),
+                        .read_timeout = glib.time.duration.MilliSecond,
+                    },
+                };
+                defer combined.deinit();
+                try testing.expectError(error.Timeout, combined.readChunk(&out_buf));
+            }
+
+            {
                 var audio_out: [256]u8 = undefined;
                 var audio_impl = MemoryStream{ .output = &audio_out };
                 const audio_stream = giznet.Stream.init(&audio_impl, gizclaw.service.event, 3);
