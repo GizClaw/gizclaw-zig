@@ -2,6 +2,7 @@ const glib = @import("glib");
 const testing_api = glib.testing;
 
 const ClientRunner = @import("unit/Client.zig");
+const ContextRunner = @import("unit/Context.zig");
 const KeyRunner = @import("unit/key.zig");
 const RpcRunner = @import("unit/rpc.zig");
 
@@ -17,6 +18,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             _ = allocator;
 
             t.run("Client", ClientRunner.make(grt));
+            t.run("Context", ContextRunner.make(grt));
             t.run("key", KeyRunner.make(grt));
             t.run("rpc", RpcRunner.make(grt));
             return true;

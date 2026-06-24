@@ -2,6 +2,7 @@
 
 pub const Client = @import("gizclaw/Client.zig");
 pub const Config = Client.Config;
+pub const Context = @import("gizclaw/Context.zig");
 pub const RuntimeOptions = Client.RuntimeOptions;
 pub const key = @import("gizclaw/key.zig");
 pub const models = @import("gizclaw/models.zig");
@@ -19,6 +20,7 @@ pub const test_runner = struct {
 pub fn make(comptime grt: type, comptime config: Config) type {
     return struct {
         pub const Client = @import("gizclaw/Client.zig").make(grt, config);
+        pub const Context = @import("gizclaw/Context.zig").make(grt);
         pub const Rpc = @import("gizclaw/Rpc.zig").make(grt);
         pub const key = @import("gizclaw/key.zig").make(grt);
         pub const models = @import("gizclaw/models.zig");
