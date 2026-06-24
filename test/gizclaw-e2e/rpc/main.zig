@@ -232,8 +232,8 @@ fn checkStopRun(comptime sdk: type, client: *sdk.Client, summary: *common.Summar
 fn checkResources(comptime sdk: type, client: *sdk.Client, peer_client: ?*sdk.Client, peer_id: ?[]const u8, summary: *common.Summary, options: RpcOptions) !void {
     try checkWorkspacePages(sdk, client, summary, options);
     try checkWorkflowPages(sdk, client, summary, options);
-    try checkModelPages(sdk, client, summary);
-    try checkCredentialPages(sdk, client, summary);
+    try checkModelPages(sdk, client, summary, options);
+    try checkCredentialPages(sdk, client, summary, options);
     try checkVoicePages(sdk, client, summary);
     try checkFirmwarePages(sdk, client, summary, options);
     try checkSocialPages(sdk, client, peer_client, peer_id, summary, options);
@@ -473,7 +473,7 @@ fn workspaceJson(name: []const u8, workflow_name: []const u8, updated: bool) ![]
     return try out.toOwnedSlice();
 }
 
-fn checkModelPages(comptime sdk: type, client: *sdk.Client, summary: *common.Summary) !void {
+fn checkModelPages(comptime sdk: type, client: *sdk.Client, summary: *common.Summary, options: RpcOptions) !void {
     var page = client.listModels(.{ .limit = 1 }) catch |err| return summary.fail("ListModels", err);
     defer page.deinit();
     try summary.pass("ListModels");
@@ -488,9 +488,16 @@ fn checkModelPages(comptime sdk: type, client: *sdk.Client, summary: *common.Sum
     } else {
         try summary.skip("GetModel", "ListModels returned no fixture rows");
     }
+    if (options.allow_mutations) {
+        try checkModelMutations(sdk, client, summary);
+    } else {
+        try summary.skip("CreateModel", "mutates model fixtures; rerun with --allow-mutations and model write ACL");
+        try summary.skip("PutModel", "requires model mutation fixture");
+        try summary.skip("DeleteModel", "requires model mutation fixture");
+    }
 }
 
-fn checkCredentialPages(comptime sdk: type, client: *sdk.Client, summary: *common.Summary) !void {
+fn checkCredentialPages(comptime sdk: type, client: *sdk.Client, summary: *common.Summary, options: RpcOptions) !void {
     var page = client.listCredentials(.{ .limit = 1 }) catch |err| return summary.fail("ListCredentials", err);
     defer page.deinit();
     try summary.pass("ListCredentials");
@@ -505,6 +512,105 @@ fn checkCredentialPages(comptime sdk: type, client: *sdk.Client, summary: *commo
     } else {
         try summary.skip("GetCredential", "ListCredentials returned no fixture rows");
     }
+    if (options.allow_mutations) {
+        try checkCredentialMutations(sdk, client, summary);
+    } else {
+        try summary.skip("CreateCredential", "mutates credential fixtures; rerun with --allow-mutations and credential write ACL");
+        try summary.skip("PutCredential", "requires credential mutation fixture");
+        try summary.skip("DeleteCredential", "requires credential mutation fixture");
+    }
+}
+
+fn checkModelMutations(comptime sdk: type, client: *sdk.Client, summary: *common.Summary) !void {
+    const suffix = std.time.milliTimestamp();
+    var name_buf: [80]u8 = undefined;
+    const id = try std.fmt.bufPrint(&name_buf, "zig-e2e-rpc-model-{d}", .{suffix});
+
+    var created = false;
+    defer if (created) {
+        var deleted = client.deleteModel(.{ .id = id }) catch null;
+        if (deleted) |*value| value.deinit();
+    };
+
+    const create_json = try modelCreateJson(id, false);
+    defer std.heap.page_allocator.free(create_json);
+    var create_request = try sdk.models.fromJson(sdk.models.ModelCreateRequest, std.heap.page_allocator, create_json);
+    defer create_request.deinit();
+    var create_result = client.createModel(create_request.value) catch |err| return summary.fail("CreateModel", err);
+    defer create_result.deinit();
+    created = true;
+    try summary.pass("CreateModel");
+
+    const put_json = try modelCreateJson(id, true);
+    defer std.heap.page_allocator.free(put_json);
+    var put_body = try sdk.models.fromJson(sdk.models.ModelCreateRequest, std.heap.page_allocator, put_json);
+    defer put_body.deinit();
+    try parsed(summary, "PutModel", client.putModel(.{
+        .id = id,
+        .body = put_body.value,
+    }));
+
+    try parsed(summary, "DeleteModel", client.deleteModel(.{ .id = id }));
+    created = false;
+}
+
+fn checkCredentialMutations(comptime sdk: type, client: *sdk.Client, summary: *common.Summary) !void {
+    const suffix = std.time.milliTimestamp();
+    var name_buf: [96]u8 = undefined;
+    const name = try std.fmt.bufPrint(&name_buf, "zig-e2e-rpc-credential-{d}", .{suffix});
+
+    var created = false;
+    defer if (created) {
+        var deleted = client.deleteCredential(.{ .name = name }) catch null;
+        if (deleted) |*value| value.deinit();
+    };
+
+    const create_json = try credentialCreateJson(name, false);
+    defer std.heap.page_allocator.free(create_json);
+    var create_request = try sdk.models.fromJson(sdk.models.CredentialCreateRequest, std.heap.page_allocator, create_json);
+    defer create_request.deinit();
+    var create_result = client.createCredential(create_request.value) catch |err| return summary.fail("CreateCredential", err);
+    defer create_result.deinit();
+    created = true;
+    try summary.pass("CreateCredential");
+
+    const put_json = try credentialCreateJson(name, true);
+    defer std.heap.page_allocator.free(put_json);
+    var put_body = try sdk.models.fromJson(sdk.models.CredentialCreateRequest, std.heap.page_allocator, put_json);
+    defer put_body.deinit();
+    try parsed(summary, "PutCredential", client.putCredential(.{
+        .name = name,
+        .body = put_body.value,
+    }));
+
+    try parsed(summary, "DeleteCredential", client.deleteCredential(.{ .name = name }));
+    created = false;
+}
+
+fn modelCreateJson(id: []const u8, updated: bool) ![]u8 {
+    var out = std.Io.Writer.Allocating.init(std.heap.page_allocator);
+    defer out.deinit();
+    const w = &out.writer;
+    try w.writeAll("{\"id\":");
+    try std.json.Stringify.value(id, .{}, w);
+    try w.writeAll(",\"kind\":\"e2e\",\"source\":\"zig\",\"provider\":{\"kind\":\"e2e\"},\"name\":");
+    try std.json.Stringify.value(id, .{}, w);
+    try w.writeAll(",\"description\":");
+    try std.json.Stringify.value(if (updated) "gizclaw-zig e2e model updated" else "gizclaw-zig e2e model", .{}, w);
+    try w.writeAll(",\"provider_data\":{\"e2e\":true}}");
+    return try out.toOwnedSlice();
+}
+
+fn credentialCreateJson(name: []const u8, updated: bool) ![]u8 {
+    var out = std.Io.Writer.Allocating.init(std.heap.page_allocator);
+    defer out.deinit();
+    const w = &out.writer;
+    try w.writeAll("{\"name\":");
+    try std.json.Stringify.value(name, .{}, w);
+    try w.writeAll(",\"provider\":\"e2e\",\"description\":");
+    try std.json.Stringify.value(if (updated) "gizclaw-zig e2e credential updated" else "gizclaw-zig e2e credential", .{}, w);
+    try w.writeAll(",\"body\":{\"token\":\"zig-e2e\"}}");
+    return try out.toOwnedSlice();
 }
 
 fn checkVoicePages(comptime sdk: type, client: *sdk.Client, summary: *common.Summary) !void {

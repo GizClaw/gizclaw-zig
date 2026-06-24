@@ -453,12 +453,36 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             return try self.callRpcParsed(models.ModelGetResponse, "model-get", Rpc.method_server_model_get, request);
         }
 
+        pub fn createModel(self: *Self, request: models.ModelCreateRequest) !grt.std.json.Parsed(models.ModelCreateResponse) {
+            return try self.callRpcParsed(models.ModelCreateResponse, "model-create", Rpc.method_server_model_create, request);
+        }
+
+        pub fn putModel(self: *Self, request: models.ModelPutRequest) !grt.std.json.Parsed(models.ModelPutResponse) {
+            return try self.callRpcParsed(models.ModelPutResponse, "model-put", Rpc.method_server_model_put, request);
+        }
+
+        pub fn deleteModel(self: *Self, request: models.ModelDeleteRequest) !grt.std.json.Parsed(models.ModelDeleteResponse) {
+            return try self.callRpcParsed(models.ModelDeleteResponse, "model-delete", Rpc.method_server_model_delete, request);
+        }
+
         pub fn listCredentials(self: *Self, request: models.CredentialListRequest) !grt.std.json.Parsed(models.CredentialListResponse) {
             return try self.callRpcParsed(models.CredentialListResponse, "credential-list", Rpc.method_server_credential_list, request);
         }
 
         pub fn getCredential(self: *Self, request: models.CredentialGetRequest) !grt.std.json.Parsed(models.CredentialGetResponse) {
             return try self.callRpcParsed(models.CredentialGetResponse, "credential-get", Rpc.method_server_credential_get, request);
+        }
+
+        pub fn createCredential(self: *Self, request: models.CredentialCreateRequest) !grt.std.json.Parsed(models.CredentialCreateResponse) {
+            return try self.callRpcParsed(models.CredentialCreateResponse, "credential-create", Rpc.method_server_credential_create, request);
+        }
+
+        pub fn putCredential(self: *Self, request: models.CredentialPutRequest) !grt.std.json.Parsed(models.CredentialPutResponse) {
+            return try self.callRpcParsed(models.CredentialPutResponse, "credential-put", Rpc.method_server_credential_put, request);
+        }
+
+        pub fn deleteCredential(self: *Self, request: models.CredentialDeleteRequest) !grt.std.json.Parsed(models.CredentialDeleteResponse) {
+            return try self.callRpcParsed(models.CredentialDeleteResponse, "credential-delete", Rpc.method_server_credential_delete, request);
         }
 
         pub fn listVoices(self: *Self, request: VoiceListRequest) !grt.std.json.Parsed(models.ClientVoiceListResponse) {

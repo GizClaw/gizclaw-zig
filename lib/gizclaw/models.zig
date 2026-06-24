@@ -286,6 +286,30 @@ pub const Workspace = Models.WorkspaceObject;
 pub const GearIMEI = Models.PeerIMEI;
 pub const GearLabel = Models.PeerLabel;
 
+pub const ModelCreateRequest = ModelObject;
+pub const ModelCreateResponse = ModelObject;
+pub const ModelPutRequest = struct {
+    id: []const u8,
+    body: ModelObject,
+};
+pub const ModelPutResponse = ModelObject;
+pub const ModelDeleteRequest = struct {
+    id: []const u8,
+};
+pub const ModelDeleteResponse = ModelObject;
+
+pub const CredentialCreateRequest = CredentialObject;
+pub const CredentialCreateResponse = CredentialObject;
+pub const CredentialPutRequest = struct {
+    name: []const u8,
+    body: CredentialObject,
+};
+pub const CredentialPutResponse = CredentialObject;
+pub const CredentialDeleteRequest = struct {
+    name: []const u8,
+};
+pub const CredentialDeleteResponse = CredentialObject;
+
 pub const RpcMethods = struct {
     pub const all_ping = rpcMethod("all.ping");
     pub const all_speed_test_run = rpcMethod("all.speed_test.run");

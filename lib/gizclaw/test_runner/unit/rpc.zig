@@ -61,12 +61,24 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             try testing.expectEqualStrings("server.workflow.put", models.RpcMethods.server_workflow_put);
             try testing.expectEqualStrings("server.model.list", models.RpcMethods.server_model_list);
             try testing.expectEqualStrings("server.model.get", models.RpcMethods.server_model_get);
+            try testing.expectEqualStrings("server.model.create", models.RpcMethods.server_model_create);
+            try testing.expectEqualStrings("server.model.put", models.RpcMethods.server_model_put);
+            try testing.expectEqualStrings("server.model.delete", models.RpcMethods.server_model_delete);
             try testing.expectEqualStrings("server.credential.list", models.RpcMethods.server_credential_list);
             try testing.expectEqualStrings("server.credential.get", models.RpcMethods.server_credential_get);
+            try testing.expectEqualStrings("server.credential.create", models.RpcMethods.server_credential_create);
+            try testing.expectEqualStrings("server.credential.put", models.RpcMethods.server_credential_put);
+            try testing.expectEqualStrings("server.credential.delete", models.RpcMethods.server_credential_delete);
             try testing.expectEqualStrings("server.firmware.list", models.RpcMethods.server_firmware_list);
             try testing.expectEqualStrings("server.firmware.get", models.RpcMethods.server_firmware_get);
             try testing.expectEqualStrings("server.firmware.download", models.RpcMethods.server_firmware_download);
             try testing.expectEqualStrings("server.friend_group.messages.send", models.RpcMethods.server_friend_group_messages_send);
+            try testing.expectEqualStrings("server.model.create", gizclaw.Rpc.method_server_model_create);
+            try testing.expectEqualStrings("server.model.put", gizclaw.Rpc.method_server_model_put);
+            try testing.expectEqualStrings("server.model.delete", gizclaw.Rpc.method_server_model_delete);
+            try testing.expectEqualStrings("server.credential.create", gizclaw.Rpc.method_server_credential_create);
+            try testing.expectEqualStrings("server.credential.put", gizclaw.Rpc.method_server_credential_put);
+            try testing.expectEqualStrings("server.credential.delete", gizclaw.Rpc.method_server_credential_delete);
             _ = models.RPCRequest;
             _ = models.RPCResponse;
         }
@@ -86,6 +98,33 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             defer page.deinit();
             try testing.expectEqual(@as(usize, 0), page.value.items.len);
             try testing.expect(!page.value.has_next);
+
+            const model_create = try models.toJson(allocator, models.ModelCreateRequest{
+                .id = "zig-e2e-model",
+                .kind = "e2e",
+                .source = "zig",
+                .name = "Zig E2E Model",
+            });
+            defer allocator.free(model_create);
+            try testing.expectEqualStrings("{\"id\":\"zig-e2e-model\",\"kind\":\"e2e\",\"source\":\"zig\",\"name\":\"Zig E2E Model\"}", model_create);
+
+            var model_put = try models.fromJson(
+                models.ModelPutRequest,
+                allocator,
+                "{\"id\":\"zig-e2e-model\",\"body\":{\"id\":\"zig-e2e-model\",\"kind\":\"e2e\",\"source\":\"zig\"}}",
+            );
+            defer model_put.deinit();
+            try testing.expectEqualStrings("zig-e2e-model", model_put.value.id);
+            try testing.expectEqualStrings("zig-e2e-model", model_put.value.body.id);
+
+            var credential_create = try models.fromJson(
+                models.CredentialCreateRequest,
+                allocator,
+                "{\"name\":\"zig-e2e-credential\",\"provider\":\"e2e\",\"body\":{}}",
+            );
+            defer credential_create.deinit();
+            try testing.expectEqualStrings("zig-e2e-credential", credential_create.value.name);
+            try testing.expectEqualStrings("e2e", credential_create.value.provider);
 
             const say = try models.toJson(allocator, models.ServerRunSayRequest{ .text = "hello" });
             defer allocator.free(say);
