@@ -179,24 +179,20 @@ fn loadContextDir(allocator: std.mem.Allocator, dir: []const u8, options: BaseOp
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
         if (std.mem.startsWith(u8, trimmed, "address:")) {
-            const raw = std.mem.trim(u8, trimmed["address:".len..], " \t\"'");
+            const raw = yamlScalar(trimmed["address:".len..]);
             server_addr = try allocator.dupe(u8, raw);
         } else if (std.mem.startsWith(u8, trimmed, "public-key:")) {
-            const raw = std.mem.trim(u8, trimmed["public-key:".len..], " \t\"'");
+            const raw = yamlScalar(trimmed["public-key:".len..]);
             server_key = key.parse(raw) catch return error.InvalidServerPublicKey;
         } else if (std.mem.startsWith(u8, trimmed, "cipher-mode:")) {
-            const raw = std.mem.trim(u8, trimmed["cipher-mode:".len..], " \t\"'");
+            const raw = yamlScalar(trimmed["cipher-mode:".len..]);
             cipher_mode = try parseCipherMode(raw);
         }
     }
 
     const identity_path = try std.fs.path.join(allocator, &.{ dir, "identity.key" });
     defer allocator.free(identity_path);
-    const identity = try std.fs.cwd().readFileAlloc(allocator, identity_path, 32);
-    defer allocator.free(identity);
-    if (identity.len != 32) return error.InvalidIdentityKey;
-    var private: giznet.Key = .{};
-    @memcpy(&private.bytes, identity);
+    const private = try readPrivateKeyBytes(identity_path, error.InvalidIdentityKey);
 
     if (options.server_addr) |override| {
         if (server_addr) |value| allocator.free(value);
@@ -217,6 +213,22 @@ fn loadContextDir(allocator: std.mem.Allocator, dir: []const u8, options: BaseOp
         .key_pair = try key.fromPrivate(private),
         .connect_timeout = connectTimeout(options),
     };
+}
+
+fn yamlScalar(raw: []const u8) []const u8 {
+    return std.mem.trim(u8, raw, " \t\"'");
+}
+
+fn readPrivateKeyBytes(path: []const u8, invalid_error: anyerror) !giznet.Key {
+    const data = std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 32) catch |err| switch (err) {
+        error.FileNotFound => return invalid_error,
+        else => return err,
+    };
+    defer std.heap.page_allocator.free(data);
+    if (data.len != 32) return invalid_error;
+    var private: giznet.Key = .{};
+    @memcpy(&private.bytes, data);
+    return private;
 }
 
 fn connectTimeout(options: BaseOptions) ?grt.time.duration.Duration {

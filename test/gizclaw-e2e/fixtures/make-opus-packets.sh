@@ -2,6 +2,7 @@
 set -euo pipefail
 
 text="hello from gizclaw zig workspace test"
+voice=""
 out_file=""
 keep_audio=0
 
@@ -14,6 +15,7 @@ Generate a real speech Opus packet fixture for workspace conversation smoke.
 Options:
   --out FILE       Output file: one base64-encoded Opus packet per line
   --text TEXT      Speech text to synthesize
+  --voice VOICE    Optional macOS say voice, for example Tingting for zh_CN
   --keep-audio     Keep sibling .aiff and .ogg files next to the output
 EOF
 }
@@ -26,6 +28,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --text)
       text="$2"
+      shift 2
+      ;;
+    --voice)
+      voice="$2"
       shift 2
       ;;
     --keep-audio)
@@ -63,7 +69,11 @@ base="${out_file%.*}"
 aiff="$base.aiff"
 ogg="$base.ogg"
 
-say -o "$aiff" "$text"
+if [[ -n "$voice" ]]; then
+  say -v "$voice" -o "$aiff" "$text"
+else
+  say -o "$aiff" "$text"
+fi
 ffmpeg -hide_banner -loglevel error -y \
   -i "$aiff" \
   -ac 1 \

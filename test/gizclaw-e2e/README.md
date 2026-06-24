@@ -2,29 +2,30 @@
 
 These binaries exercise the Zig GizClaw client against a real GizClaw server.
 They reuse the Go e2e setup resources instead of recreating provider
-credentials, models, voices, workflows, or ACL views. The Zig e2e client should
-use its own peer key and context, then join the same shared ACL view.
+credentials, models, voices, workflows, or ACL views. The default Zig e2e
+client context is committed under `test/gizclaw-e2e/testdata/client-context`.
 
 ## Shared Setup
 
-Start and seed the local Go setup server first. Then create the Zig client
-context and apply its public key to the shared Go e2e ACL view:
+Start and seed the local Go setup server first:
 
 ```sh
-test/gizclaw-e2e/setup/apply_client_view.sh
+../gizclaw-go/test/gizclaw-e2e/setup/start-server.sh
+../gizclaw-go/test/gizclaw-e2e/setup/reset_data.sh
 ```
 
-The script writes the Zig context under the Go setup context home by default:
+The Zig runners use this context by default:
 
 ```sh
-test/gizclaw-e2e/.testbench/context/gizclaw/zig-e2e-client
+test/gizclaw-e2e/testdata/client-context
 ```
 
-Use the printed `context_dir` with `--context`. The Zig private key text is
-persisted in `.testbench/setup/zig-client.private-key`, not in the source tree.
-Pass `--context-name`, `--context-home`, `--server-workspace`,
-`--server-addr`, `--admin-context`, or `--acl-view` when testing against an
-isolated local setup.
+The committed context uses its own Zig peer key and the Go setup server public
+key. It is expected to be attached to the shared Go e2e ACL view by the Go setup
+resources. Use `test/gizclaw-e2e/setup/apply_client_view.sh` only when creating
+an isolated temporary Zig peer/context.
+Context files store the remote server public key as `server.public-key`. They
+must not require the server private key.
 
 The context supplies the client identity. The server endpoint can still be
 overridden when a context points at a local service:
@@ -132,9 +133,9 @@ add/update/list/delete. The peer context must point at the same server.
 
 ```sh
 zig build run-gizclaw-e2e-workspace -- \
-  --context test/gizclaw-e2e/.testbench/context/gizclaw/zig-e2e-client \
-  --config ../gizclaw-go/test/gizclaw-e2e/workspace/config/doubao-realtime.json \
-  --workspace zig-e2e-doubao-realtime
+  --context test/gizclaw-e2e/testdata/client-context \
+  --config ../gizclaw-go/test/gizclaw-e2e/testdata/workspaces/doubao-realtime.json \
+  --workspace e2e-doubao-realtime-push-to-talk-roundtrip
 ```
 
 The workspace runner uses a Go workspace e2e config, upserts the workflow, stops
@@ -158,38 +159,38 @@ peer event and at least one audio packet. Without the Opus fixture, the runner
 records `StampedOpusConversation` as an explicit skip instead of sending invalid
 silence. Use `--conversation-timeout-ms N` to override the observation window.
 
-On macOS with `ffmpeg`, generate a short real speech fixture with:
+On macOS with `ffmpeg`, generate a short real speech fixture with a matching
+language voice:
 
 ```sh
 test/gizclaw-e2e/fixtures/make-opus-packets.sh \
+  --voice Tingting \
   --out /tmp/gizclaw-zig-opus-packets.txt \
-  --text "hello from gizclaw zig workspace test"
+  --text "今天天气很好，请回复收到。"
 ```
 
 Use `--run-timeout-ms N` to override the run-status wait. Use
 `--skip-run-control` to stop after workflow/workspace upsert.
 
-Latest local AST translation validation against a temporary server created by
-`../gizclaw-go/test/gizclaw-e2e/setup/start.sh`, seeded with the Go setup AST
-resources, then joined with `test/gizclaw-e2e/setup/apply_client_view.sh`:
+Latest local Doubao realtime validation against the Go setup server:
 
 ```text
 zig build run-gizclaw-e2e-workspace -- \
-  --context /tmp/gizclaw-zig-setup.gHAUIU/context/gizclaw/zig-e2e-client \
-  --config ../gizclaw-go/test/gizclaw-e2e/workspace/config/ast-translate.json \
-  --workspace zig-e2e-ast-translate \
+  --context test/gizclaw-e2e/testdata/client-context \
+  --config ../gizclaw-go/test/gizclaw-e2e/testdata/workspaces/doubao-realtime.json \
+  --workspace e2e-doubao-realtime-push-to-talk-roundtrip \
   --conversation-smoke \
-  --opus-packets-base64-file /tmp/gizclaw-zig-ast.MOAh88/go-opus-packets.txt \
-  --conversation-timeout-ms 30000 \
-  --run-timeout-ms 60000
+  --opus-packets-base64-file /tmp/gizclaw-tingting-opus/packets.txt \
+  --conversation-timeout-ms 240000 \
+  --run-timeout-ms 90000
 
-SUMMARY pass=10 skip=1 fail=0
-input_packets=123 workspace_uplink_send_ms=2850
-after_eos_transcript_start_ms=142 after_eos_transcript_done_ms=1953
-after_eos_text_first_ms=274 assistant_text_done_ms=1953
-after_eos_audio_first_ms=2151
-events=24 transcript_events=12 assistant_events=11 history_events=1
-audio_packets=32 audio_bytes=6034
+SUMMARY pass=11 skip=0 fail=0
+input_packets=163 workspace_uplink_send_ms=3806
+after_eos_transcript_start_ms=531 after_eos_transcript_done_ms=563
+after_eos_text_first_ms=1182 assistant_text_done_ms=1182
+after_eos_audio_first_ms=1411
+events=8 transcript_events=3 assistant_events=3 history_events=2
+audio_packets=40 audio_bytes=7821
 ```
 
 ## Runtime Parameters
