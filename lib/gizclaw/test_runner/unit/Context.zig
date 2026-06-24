@@ -1,4 +1,5 @@
 const glib = @import("glib");
+const giznet = @import("giznet");
 const gizclaw = @import("../../../gizclaw.zig");
 
 pub fn make(comptime grt: type) glib.testing.TestRunner {
@@ -39,6 +40,20 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             try testing.expectEqual(gizclaw.Context.IdentitySource.generated, generated_identity.source);
             try testing.expectEqual(@as(usize, 1), generated.sync_count);
             try testing.expect(generated.len != 0);
+
+            var identity_bytes: [32]u8 = undefined;
+            for (&identity_bytes, 0..) |*byte, index| byte.* = @intCast(index + 1);
+            var host = try Context.fromHostData(
+                grt.std.testing.allocator,
+                "server:\n  address: \"192.0.2.1:9820\"\n  public-key: '041061050R3GG28A1C60T3GF208H44RM2MB1E60S38DHR78Y3WG0'\n  cipher-mode: plaintext\n",
+                &identity_bytes,
+                .{ .context_dir = "unused" },
+            );
+            defer host.deinit();
+            try testing.expectEqualStrings("192.0.2.1:9820", host.config.server_addr);
+            try testing.expect(host.config.server_key.eql(try lib.key.parse(server_text)));
+            try testing.expectEqual(giznet.noise.Cipher.Kind.plaintext, host.config.cipher_kind);
+            try testing.expect(host.config.key_pair.private.eql((try lib.key.fromPrivate(.{ .bytes = identity_bytes })).private));
         }
     }.run);
 }
