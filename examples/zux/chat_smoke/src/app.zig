@@ -9,8 +9,22 @@ const reducers_mod = @import("reducers.zig");
 const renders_mod = @import("renders.zig");
 const runtime_mod = @import("runtime.zig");
 
-pub const DesktopPlatformCtx = struct {};
-pub const TestPlatformCtx = struct {};
+const Preferences = embed.system.Preferences;
+
+var desktop_preferences = MemoryPreferencesProvider{};
+var test_preferences = MemoryPreferencesProvider{};
+
+pub const DesktopPlatformCtx = struct {
+    pub fn preferencesProvider(_: anytype) !Preferences.Provider {
+        return Preferences.Provider.init(&desktop_preferences);
+    }
+};
+
+pub const TestPlatformCtx = struct {
+    pub fn preferencesProvider(_: anytype) !Preferences.Provider {
+        return Preferences.Provider.init(&test_preferences);
+    }
+};
 
 fn EmptyRegistry(comptime T: type) type {
     return struct {
@@ -125,6 +139,7 @@ fn ChatSmokeZuxApp(comptime platform_grt: type) type {
 
 pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
     const log = platform_grt.std.log.scoped(.chat_smoke);
+    const sdk = gizclaw.make(platform_grt, .{});
     return launcher.make(struct {
         const Self = @This();
 
@@ -137,6 +152,7 @@ pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
         reducers: reducers_mod.Reducers = .{},
         renders: renders_mod.Renders = .{},
         runtime: runtime_mod.Runtime = .{},
+        gizclaw_config: sdk.Context.Config,
         started: bool = false,
 
         pub fn init(allocator: glib.std.mem.Allocator, base_config: ZuxApp.InitConfig) !*Self {
@@ -145,9 +161,11 @@ pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
 
             var init_config = base_config;
             init_config.allocator = allocator;
+            const gizclaw_config = try loadGizClawConfig(allocator);
             self.* = .{
                 .allocator = allocator,
                 .zux_app = try ZuxApp.init(init_config),
+                .gizclaw_config = gizclaw_config,
             };
             errdefer self.zux_app.deinit();
 
@@ -159,8 +177,11 @@ pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
                 .mode = parseMode(build_config.chat_default_mode),
             });
 
-            _ = platform_ctx;
-            _ = gizclaw;
+            var public_buf: [52]u8 = undefined;
+            log.info("chat_smoke gizclaw context ready server={s} public={s}", .{
+                self.gizclaw_config.server_addr,
+                sdk.key.format(self.gizclaw_config.key_pair.public, &public_buf),
+            });
             return self;
         }
 
@@ -193,6 +214,27 @@ pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
 
         pub fn createTestRunner() glib.testing.TestRunner {
             return chatSmokeTestRunner(platform_grt);
+        }
+
+        fn loadGizClawConfig(allocator: glib.std.mem.Allocator) !sdk.Context.Config {
+            if (comptime @hasDecl(platform_ctx, "preferencesProvider")) {
+                var provider_impl = try platform_ctx.preferencesProvider(allocator);
+                const provider = if (@TypeOf(provider_impl) == Preferences.Provider)
+                    provider_impl
+                else
+                    provider_impl.handle();
+                return try sdk.Context.fromPreferences(.{
+                    .server_addr = build_config.gizclaw_server_addr,
+                    .server_key = build_config.gizclaw_server_key,
+                    .client_key = build_config.gizclaw_client_key,
+                }, provider);
+            }
+
+            return try sdk.Context.fromExplicit(.{
+                .server_addr = build_config.gizclaw_server_addr,
+                .server_key = build_config.gizclaw_server_key,
+                .client_key = build_config.gizclaw_client_key,
+            });
         }
     });
 }
@@ -228,3 +270,46 @@ fn modeName(mode: consts.Mode) []const u8 {
         .unknown => "unknown",
     };
 }
+
+const MemoryPreferencesProvider = struct {
+    store: MemoryPreferencesStore = .{},
+
+    pub fn open(self: *MemoryPreferencesProvider, namespace: []const u8, options: Preferences.OpenOptions) Preferences.OpenError!Preferences.Store {
+        _ = options;
+        if (!glib.std.mem.eql(u8, namespace, "gizclaw")) return error.NotFound;
+        return Preferences.Store.init(&self.store);
+    }
+};
+
+const MemoryPreferencesStore = struct {
+    value: [64]u8 = undefined,
+    len: usize = 0,
+
+    pub fn get(self: *MemoryPreferencesStore, key: []const u8, out: []u8) Preferences.GetError!usize {
+        if (!glib.std.mem.eql(u8, key, "client_key")) return error.NotFound;
+        if (self.len == 0) return error.NotFound;
+        if (out.len < self.len) return error.BufferTooSmall;
+        @memcpy(out[0..self.len], self.value[0..self.len]);
+        return self.len;
+    }
+
+    pub fn put(self: *MemoryPreferencesStore, key: []const u8, value: []const u8) Preferences.PutError!void {
+        if (!glib.std.mem.eql(u8, key, "client_key")) return error.InvalidKey;
+        if (value.len > self.value.len) return error.ValueTooLarge;
+        @memcpy(self.value[0..value.len], value);
+        self.len = value.len;
+    }
+
+    pub fn remove(self: *MemoryPreferencesStore, key: []const u8) Preferences.RemoveError!void {
+        if (!glib.std.mem.eql(u8, key, "client_key")) return error.NotFound;
+        self.len = 0;
+    }
+
+    pub fn contains(self: *MemoryPreferencesStore, key: []const u8) bool {
+        return glib.std.mem.eql(u8, key, "client_key") and self.len != 0;
+    }
+
+    pub fn clear(self: *MemoryPreferencesStore) Preferences.ClearError!void {
+        self.len = 0;
+    }
+};
