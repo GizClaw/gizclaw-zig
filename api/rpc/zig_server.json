@@ -115,11 +115,7 @@
       "ServerGetRunStatusRequest": {
         "type": "object",
         "additionalProperties": false,
-        "properties": {
-          "friend_otp": {
-            "type": "string"
-          }
-        }
+        "properties": {}
       },
       "ServerGetRunStatusResponse": {
         "$ref": "../type/peer_run_status.json#/components/schemas/PeerRunStatus"
@@ -302,6 +298,9 @@
           "cursor": {
             "type": "string"
           },
+          "prefix": {
+            "type": "string"
+          },
           "limit": {
             "type": "integer",
             "minimum": 1
@@ -415,6 +414,13 @@
           },
           "cursor": {
             "type": "string"
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
           },
           "limit": {
             "type": "integer",
@@ -812,111 +818,70 @@
       "ContactDeleteResponse": {
         "$ref": "#/components/schemas/ContactObject"
       },
-      "FriendRequestObject": {
+      "FriendInviteTokenGetRequest": {
         "type": "object",
-        "additionalProperties": true,
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "peer_id": {
-            "type": "string"
-          },
-          "to_peer_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          }
-        }
+        "additionalProperties": false,
+        "properties": {}
       },
-      "FriendRequestListRequest": {
+      "FriendInviteTokenGetResponse": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "cursor": {
+          "invite_token": {
             "type": "string"
           },
-          "limit": {
-            "type": "integer"
-          },
-          "box": {
-            "$ref": "#/components/schemas/FriendRequestBox"
-          },
-          "state": {
-            "$ref": "#/components/schemas/FriendRequestState"
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
-      "FriendRequestListResponse": {
+      "FriendInviteTokenCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "FriendInviteTokenCreateResponse": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FriendRequestObject"
-            }
+          "invite_token": {
+            "type": "string"
           },
-          "has_next": {
-            "type": "boolean"
-          },
-          "next_cursor": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "invite_token",
+          "expires_at"
+        ]
+      },
+      "FriendInviteTokenClearRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "FriendInviteTokenClearResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "FriendAddRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "invite_token": {
             "type": "string"
           }
         },
         "required": [
-          "items",
-          "has_next"
+          "invite_token"
         ]
       },
-      "FriendRequestCreateRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "properties": {
-          "to_peer_id": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          }
-        }
-      },
-      "FriendRequestCreateResponse": {
-        "$ref": "#/components/schemas/FriendRequestObject"
-      },
-      "FriendRequestAcceptRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ]
-      },
-      "FriendRequestAcceptResponse": {
-        "$ref": "#/components/schemas/FriendRequestObject"
-      },
-      "FriendRequestRejectRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ]
-      },
-      "FriendRequestRejectResponse": {
-        "$ref": "#/components/schemas/FriendRequestObject"
+      "FriendAddResponse": {
+        "$ref": "#/components/schemas/FriendObject"
       },
       "FriendObject": {
         "type": "object",
@@ -1090,6 +1055,105 @@
       },
       "FriendGroupDeleteResponse": {
         "$ref": "#/components/schemas/FriendGroupObject"
+      },
+      "FriendGroupInviteTokenGetRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "friend_group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "friend_group_id"
+        ]
+      },
+      "FriendGroupInviteTokenGetResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "invite_token": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FriendGroupInviteTokenCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "friend_group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "friend_group_id"
+        ]
+      },
+      "FriendGroupInviteTokenCreateResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "invite_token": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "invite_token",
+          "expires_at"
+        ]
+      },
+      "FriendGroupInviteTokenClearRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "friend_group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "friend_group_id"
+        ]
+      },
+      "FriendGroupInviteTokenClearResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "FriendGroupJoinRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "invite_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invite_token"
+        ]
+      },
+      "FriendGroupJoinResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "group": {
+            "$ref": "#/components/schemas/FriendGroupObject"
+          },
+          "member": {
+            "$ref": "#/components/schemas/FriendGroupMemberObject"
+          }
+        },
+        "required": [
+          "group",
+          "member"
+        ]
       },
       "FriendGroupMemberObject": {
         "type": "object",
@@ -1270,22 +1334,6 @@
       },
       "FriendGroupMessageSendResponse": {
         "$ref": "#/components/schemas/FriendGroupMessageObject"
-      },
-      "FriendRequestState": {
-        "type": "string",
-        "enum": [
-          "pending",
-          "accepted",
-          "rejected"
-        ]
-      },
-      "FriendRequestBox": {
-        "type": "string",
-        "enum": [
-          "all",
-          "incoming",
-          "outgoing"
-        ]
       },
       "FriendGroupMemberRole": {
         "type": "string",
@@ -1603,6 +1651,94 @@
           "name",
           "provider",
           "body"
+        ]
+      },
+      "FriendRequestObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "peer_id": {
+            "type": "string"
+          },
+          "to_peer_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FriendRequestCreateRequest": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "to_peer_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FriendRequestAcceptRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "FriendRequestRejectRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "FriendRequestCreateResponse": {
+        "$ref": "#/components/schemas/FriendRequestObject"
+      },
+      "FriendRequestAcceptResponse": {
+        "$ref": "#/components/schemas/FriendRequestObject"
+      },
+      "FriendRequestRejectResponse": {
+        "$ref": "#/components/schemas/FriendRequestObject"
+      },
+      "FriendRequestListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FriendRequestObject"
+            }
+          },
+          "has_next": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "has_next"
         ]
       }
     }

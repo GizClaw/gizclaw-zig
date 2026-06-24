@@ -1,66 +1,40 @@
 # API Definitions
 
-This directory contains the source OpenAPI specifications for GizClaw HTTP APIs.
-These JSON files are the contract used by generated Go clients, server
-interfaces, and shared API types under `pkg/gizclaw/api/`.
+This directory contains the subset of GizClaw API specifications consumed by
+the Zig client SDK. It is synced from `../gizclaw-go/api`, but intentionally
+does not mirror the Go admin/public HTTP API packages.
 
 ## Layout
 
-- `admin_service.json`, `openai_service.json`, `server_public.json`,
-  and `rpc.json` define API surfaces or shared
-  protocol documents.
-- `types.json` collects shared schemas and exposes them through
-  `#/components/schemas`.
-- `type/*.json` contains reusable shared schema definitions.
+- `client_service.json` defines the local GizClaw client HTTP surface.
+- `client_service_zig.json` is the Zig-friendly filtered client service input.
+- `rpc.json` defines the internal framed peer RPC protocol.
 - `rpc/*.json` contains reusable RPC method schema definitions.
-- `resource/*.json` contains declarative admin resource schemas used by
-  `admin apply`, `admin show`, and related resource APIs.
+- `type/*.json` contains reusable shared schema definitions required by the
+  client service and peer RPC model generation.
+
+Admin HTTP APIs such as `admin_service.json` and declarative admin resource
+schemas under `resource/` belong to `gizclaw-go` and are intentionally not part
+of this Zig client SDK mirror.
 
 ## Generated Code
 
-Generated Go code lives outside this directory:
-
-- `pkg/gizclaw/api/adminservice/generated.go`
-- `pkg/gizclaw/api/apitypes/generated.go`
-- `pkg/gizclaw/api/openaiservice/generated.go`
-- `pkg/gizclaw/api/rpcapi/generated.go`
-- `pkg/gizclaw/api/serverpublic/generated.go`
-
-Do not edit generated files by hand. Change the source schema in `api/`, then
-regenerate the corresponding Go package.
-
-Common commands:
+Generated Go and TypeScript SDKs live in `gizclaw-go`; do not edit those
+generated files from this repository. Change the source schema in
+`../gizclaw-go/api`, regenerate it there, then sync the client subset here with:
 
 ```sh
-go generate ./pkg/gizclaw/api/adminservice
-go generate ./pkg/gizclaw/api/apitypes
-go generate ./pkg/gizclaw/api/openaiservice
-go generate ./pkg/gizclaw/api/rpcapi
-go generate ./pkg/gizclaw/api/serverpublic
-```
-
-When in doubt, regenerate all API packages:
-
-```sh
-go generate ./pkg/gizclaw/api/...
+tools/sync-gizclaw-go-api.sh ../gizclaw-go
 ```
 
 ## Maintenance Guidelines
 
-- Treat files in `api/` as public contracts. Keep changes small, explicit, and
-  covered by tests at the service or CLI boundary.
-- Prefer adding reusable schemas under `type/` or `resource/` and referencing
-  them from top-level OpenAPI documents instead of duplicating inline schemas.
+- Treat files in `api/` as synced API contracts. Keep local Zig-only filtering
+  in `tools/sync-gizclaw-go-api.sh` or `client_service_zig.json` generation.
+- Prefer adding reusable schemas under `type/` and referencing them from
+  top-level OpenAPI documents instead of duplicating inline schemas.
 - Keep schema names, discriminator values, and path operation IDs stable unless
   the caller-facing contract is intentionally changing.
-- When adding or changing an endpoint, update the OpenAPI document, regenerate
-  Go code, implement the strict server interface, and add tests for both success
-  and user-visible error paths.
-- When changing declarative admin resources, verify `resourcemanager` behavior
-  and CLI stories under `test/gizclaw-e2e/cmd/` when applicable.
-- Run focused tests for the touched API surface and coverage-sensitive packages.
-  For broader API changes, prefer:
-
-```sh
-go test ./pkg/gizclaw/... ./cmd/... -count=1
-```
+- When adding or changing an endpoint, update the OpenAPI document in
+  `gizclaw-go`, regenerate the Go package there, sync this repo, and run the
+  focused Zig client tests.

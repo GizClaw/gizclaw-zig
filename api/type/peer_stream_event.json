@@ -54,6 +54,10 @@
             "type": "integer",
             "format": "int64"
           },
+          "last_updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
           "kind": {
             "$ref": "#/components/schemas/PeerStreamKind"
           },
@@ -65,10 +69,6 @@
           },
           "text": {
             "type": "string"
-          },
-          "last_updated_at": {
-            "type": "string",
-            "format": "date-time"
           },
           "error": {
             "type": "string"

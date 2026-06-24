@@ -9,7 +9,7 @@ if [[ ! -d "$src" ]]; then
   exit 1
 fi
 
-mkdir -p api/rpc api/resource api/type/workflows
+mkdir -p api/rpc api/type
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -19,8 +19,10 @@ fi
 if [[ -f api/rpc/zig_server.json ]]; then
   cp api/rpc/zig_server.json "$tmp_dir/zig_server.json"
 fi
-rm -rf api/rpc api/resource api/type
-mkdir -p api/rpc api/resource api/type/workflows
+rm -rf api/rpc api/type
+rm -f api/admin_service.json api/openai_service.json api/server_public.json api/types.json
+rm -rf api/resource
+mkdir -p api/rpc api/type
 if [[ -f "$tmp_dir/zig.json" ]]; then
   cp "$tmp_dir/zig.json" api/rpc/zig.json
 fi
@@ -49,34 +51,38 @@ copy_glob() {
   cp "${files[@]}" "$to_dir/"
 }
 
-copy_file "$src/admin_service.json" api/admin_service.json
+copy_type() {
+  local name="$1"
+  copy_file "$src/type/$name.json" "api/type/$name.json"
+}
+
 copy_file "$src/client_service.json" api/client_service.json
 copy_file "$src/rpc.json" api/rpc.json
-copy_file "$src/server_public.json" api/server_public.json
-copy_file "$src/types.json" api/types.json
-
-if [[ -f "$src/openai_service.json" ]]; then
-  cp "$src/openai_service.json" api/openai_service.json
-elif [[ -f "$src/openai-compat/v1/service.json" ]]; then
-  cp "$src/openai-compat/v1/service.json" api/openai_service.json
-fi
 
 copy_glob "$src/rpc/*.json" api/rpc
-copy_glob "$src/resource/*.json" api/resource
-copy_glob "$src/type/*.json" api/type
-copy_glob "$src/type/workflows/*.json" api/type/workflows
-
-if command -v jq >/dev/null 2>&1 && [[ -f api/type/workspace_parameters.json ]]; then
-  tmp_json="$tmp_dir/workspace_parameters.json"
-  jq '
-    .components.schemas.ASTTranslateWorkspaceParameters.properties.voice["$ref"] =
-      "./workflows/ast_translate.json#/components/schemas/ASTTranslateVoiceParameters"
-    | del(.components.schemas.ASTTranslateVoiceParameters)
-    | del(.components.schemas.ASTTranslateInternalSpeakerParameters)
-    | del(.components.schemas.ASTTranslateExternalVoiceParameters)
-  ' api/type/workspace_parameters.json > "$tmp_json"
-  mv "$tmp_json" api/type/workspace_parameters.json
-fi
+copy_type agent_selection
+copy_type device_info
+copy_type error_payload
+copy_type error_response
+copy_type firmware
+copy_type firmware_artifact
+copy_type firmware_artifact_kind
+copy_type firmware_slot
+copy_type firmware_slots
+copy_type hardware_info
+copy_type peer_imei
+copy_type peer_label
+copy_type peer_run_agent
+copy_type peer_run_status
+copy_type peer_run_workspace
+copy_type peer_status
+copy_type peer_stream_event
+copy_type refresh_info
+copy_type refresh_identifiers
+copy_type runtime
+copy_type server_info
+copy_type voice_provider_kind
+copy_type voice_source
 
 if command -v jq >/dev/null 2>&1 && [[ -f api/rpc/server.json ]]; then
   jq '
