@@ -306,7 +306,10 @@ pub fn make(
                     }
                     pkt.deinit();
                 },
-                .response => try self.consumeResponse(pkt, on_result),
+                .response => {
+                    const response = try Handshake.parseResponse(pkt.bytes());
+                    try self.consumeResponseParsed(pkt, response, on_result);
+                },
             };
         }
 
@@ -365,6 +368,15 @@ pub fn make(
             on_result: Engine.Callback,
         ) !void {
             const response = try Handshake.parseResponse(pkt.bytes());
+            try self.consumeResponseParsed(pkt, response, on_result);
+        }
+
+        fn consumeResponseParsed(
+            self: *Self,
+            pkt: *packet.Inbound,
+            response: Handshake.ResponseMessage,
+            on_result: Engine.Callback,
+        ) !void {
             const peer = self.peers.findPendingHandshakeByLocalSessionIndex(response.initiator_session_index) orelse return error.HandshakeNotFound;
             const pending_handshake = if (peer.pending_handshake) |*pending_handshake| pending_handshake else return error.HandshakeNotFound;
 
@@ -478,6 +490,7 @@ pub fn make(
             request: Engine.InitiateHandshake,
             on_result: Engine.Callback,
         ) !void {
+            const now = Self.instantNow();
             const peer = try self.peers.getOrCreate(request.remote_key);
             if (peer.pending_handshake) |*pending_handshake| {
                 peer.endpoint = request.remote_endpoint;
@@ -493,7 +506,7 @@ pub fn make(
 
             const pkt = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer pkt.deinit();
-            try self.startPendingHandshake(peer, request.remote_endpoint, request.keepalive_interval, Self.instantNow(), pkt);
+            try self.startPendingHandshake(peer, request.remote_endpoint, request.keepalive_interval, now, pkt);
             try self.emitEvent(on_result, .{ .outbound = pkt });
         }
 
@@ -654,12 +667,13 @@ pub fn make(
         fn emitRetryHandshake(self: *Self, local_session_index: u32, on_result: Engine.Callback) !void {
             const peer = self.peers.findPendingHandshakeByLocalSessionIndex(local_session_index) orelse return;
             const pending_handshake = if (peer.pending_handshake) |pending_handshake| pending_handshake else return;
+            const now = Self.instantNow();
 
             const pkt = self.outbound_pool.get() orelse return error.OutOfMemory;
             errdefer pkt.deinit();
             peer.clearPendingHandshake();
             log.warn("handshake retry local_index={d}", .{local_session_index});
-            try self.startPendingHandshake(peer, pending_handshake.endpoint, peer.keepalive_interval, Self.instantNow(), pkt);
+            try self.startPendingHandshake(peer, pending_handshake.endpoint, peer.keepalive_interval, now, pkt);
             try self.emitEvent(on_result, .{ .outbound = pkt });
         }
 
