@@ -22,10 +22,26 @@ test/gizclaw-e2e/testdata/client-context
 
 The committed context uses its own Zig peer key and the Go setup server public
 key. It is expected to be attached to the shared Go e2e ACL view by the Go setup
-resources. Use `test/gizclaw-e2e/setup/apply_client_view.sh` only when creating
-an isolated temporary Zig peer/context.
+resources.
 Context files store the remote server public key as `server.public-key`. They
 must not require the server private key.
+
+To attach a new Zig client identity to the Go e2e view, apply the peer public
+key with the Go setup helper after the Go setup resources are seeded:
+
+```sh
+../gizclaw-go/test/gizclaw-e2e/setup/apply_client_view.sh <peer-public-key>
+```
+
+The helper uses the Go e2e admin context and applies a `PeerConfig` that maps
+the peer to the default `e2e-client` view. Pass a second argument to use another
+view:
+
+```sh
+../gizclaw-go/test/gizclaw-e2e/setup/apply_client_view.sh \
+  <peer-public-key> \
+  <view-name>
+```
 
 The context supplies the client identity. The server endpoint can still be
 overridden when a context points at a local service:

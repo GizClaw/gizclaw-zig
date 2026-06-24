@@ -105,6 +105,26 @@ pub fn make(comptime grt: type) type {
             }
         };
 
+        pub const SpeedTestProgressSnapshot = struct {
+            elapsed_ns: i128,
+            up_bytes: i64,
+            down_bytes: i64,
+            up_total: i64,
+            down_total: i64,
+            up_mbps_milli: u64,
+            down_mbps_milli: u64,
+        };
+
+        pub const SpeedTestProgress = struct {
+            ctx: ?*anyopaque = null,
+            interval: glib.time.duration.Duration = glib.time.duration.Second,
+            callback: ?*const fn (?*anyopaque, SpeedTestProgressSnapshot) void = null,
+
+            fn enabled(self: SpeedTestProgress) bool {
+                return self.callback != null;
+            }
+        };
+
         pub const Rpc = struct {
             allocator: Allocator,
             stream: giznet.Stream,
@@ -158,6 +178,15 @@ pub fn make(comptime grt: type) type {
                 id: []const u8,
                 request: models.SpeedTestRequest,
             ) !SpeedTestResult {
+                return try self.speedTestWithProgress(id, request, .{});
+            }
+
+            pub fn speedTestWithProgress(
+                self: *Rpc,
+                id: []const u8,
+                request: models.SpeedTestRequest,
+                progress: SpeedTestProgress,
+            ) !SpeedTestResult {
                 try validateSpeedTestRequest(request);
                 log.info("speed test request build id={s} up_bytes={d} down_bytes={d}", .{
                     id,
@@ -184,9 +213,14 @@ pub fn make(comptime grt: type) type {
                 try self.readSpeedTestAck(response_data, request);
                 log.info("speed test ack ok", .{});
 
-                var trace = SpeedTestTrace{};
-                const trace_ptr: ?*SpeedTestTrace = if (speed_test_trace_enabled) &trace else null;
-                const trace_thread = if (speed_test_trace_enabled)
+                var trace = SpeedTestTrace{
+                    .up_total = request.up_content_length,
+                    .down_total = request.down_content_length,
+                    .progress = progress,
+                };
+                const use_trace = speed_test_trace_enabled or progress.enabled();
+                const trace_ptr: ?*SpeedTestTrace = if (use_trace) &trace else null;
+                const trace_thread = if (use_trace)
                     try grt.task.go("gizclaw/rpc/speed_trace", .{
                         .min_stack_size = speed_test_trace_stack_size,
                     }, glib.task.Routine.init(&trace, SpeedTestTrace.run))
@@ -359,6 +393,10 @@ pub fn make(comptime grt: type) type {
 
         const SpeedTestTrace = struct {
             done: grt.std.atomic.Value(bool) = grt.std.atomic.Value(bool).init(false),
+            start: glib.time.instant.Time = 0,
+            up_total: i64 = 0,
+            down_total: i64 = 0,
+            progress: SpeedTestProgress = .{},
             upload_before_frame: grt.std.atomic.Value(u64) = grt.std.atomic.Value(u64).init(0),
             upload_after_frame: grt.std.atomic.Value(u64) = grt.std.atomic.Value(u64).init(0),
             upload_bytes: grt.std.atomic.Value(u64) = grt.std.atomic.Value(u64).init(0),
@@ -370,23 +408,51 @@ pub fn make(comptime grt: type) type {
             download_read_target: grt.std.atomic.Value(u64) = grt.std.atomic.Value(u64).init(0),
 
             fn run(self: *@This()) void {
+                self.start = grt.time.instant.now();
                 while (!self.done.load(.acquire)) {
-                    grt.time.sleep(speed_test_trace_interval);
+                    grt.time.sleep(self.sleepInterval());
                     if (self.done.load(.acquire)) break;
                     self.logSnapshot();
                 }
             }
 
+            fn sleepInterval(self: *@This()) glib.time.duration.Duration {
+                if (self.progress.enabled() and self.progress.interval > 0) return self.progress.interval;
+                return speed_test_trace_interval;
+            }
+
             fn logSnapshot(self: *@This()) void {
+                const elapsed_ns = grt.time.instant.sub(grt.time.instant.now(), self.start);
+                const up_bytes: i64 = @intCast(self.upload_bytes.load(.monotonic));
+                const down_bytes: i64 = @intCast(self.download_bytes.load(.monotonic));
+                const snapshot: SpeedTestProgressSnapshot = .{
+                    .elapsed_ns = elapsed_ns,
+                    .up_bytes = up_bytes,
+                    .down_bytes = down_bytes,
+                    .up_total = self.up_total,
+                    .down_total = self.down_total,
+                    .up_mbps_milli = mbpsMilli(up_bytes, elapsed_ns),
+                    .down_mbps_milli = mbpsMilli(down_bytes, elapsed_ns),
+                };
+                if (self.progress.callback) |callback| {
+                    callback(self.progress.ctx, snapshot);
+                }
                 log.info(
-                    "speed test heartbeat up_frames={d}/{d} up_bytes={d} down_frames={d}/{d} down_bytes={d} read_phase={s} read_offset={d}/{d}",
+                    "speed test heartbeat elapsed_ms={d} up_frames={d}/{d} up_bytes={d}/{d} down_frames={d}/{d} down_bytes={d}/{d} up_mbps={d}.{d:0>3} down_mbps={d}.{d:0>3} read_phase={s} read_offset={d}/{d}",
                     .{
+                        @divTrunc(elapsed_ns, glib.time.duration.MilliSecond),
                         self.upload_after_frame.load(.monotonic),
                         self.upload_before_frame.load(.monotonic),
-                        self.upload_bytes.load(.monotonic),
+                        up_bytes,
+                        self.up_total,
                         self.download_after_frame.load(.monotonic),
                         self.download_before_frame.load(.monotonic),
-                        self.download_bytes.load(.monotonic),
+                        down_bytes,
+                        self.down_total,
+                        @divTrunc(snapshot.up_mbps_milli, 1000),
+                        @mod(snapshot.up_mbps_milli, 1000),
+                        @divTrunc(snapshot.down_mbps_milli, 1000),
+                        @mod(snapshot.down_mbps_milli, 1000),
                         readPhaseName(self.download_read_phase.load(.monotonic)),
                         self.download_read_offset.load(.monotonic),
                         self.download_read_target.load(.monotonic),
@@ -627,6 +693,15 @@ pub fn make(comptime grt: type) type {
             const bits: f64 = @floatFromInt(bytes * 8);
             const seconds: f64 = @as(f64, @floatFromInt(duration_ns)) / @as(f64, grt.time.duration.Second);
             return bits / seconds / 1_000_000;
+        }
+
+        fn mbpsMilli(bytes: i64, duration_ns: i128) u64 {
+            if (bytes <= 0 or duration_ns <= 0) return 0;
+            const bits = @as(i128, bytes) * 8;
+            const milli_mbps = @divTrunc(bits * glib.time.duration.Second, duration_ns * 1000);
+            if (milli_mbps <= 0) return 0;
+            if (milli_mbps > grt.std.math.maxInt(u64)) return grt.std.math.maxInt(u64);
+            return @intCast(milli_mbps);
         }
     };
 }

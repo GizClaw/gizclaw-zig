@@ -67,6 +67,8 @@ pub fn make(comptime grt: type, comptime config: Config) type {
         pub const Runtime = RuntimePackage;
         pub const GizNetImpl = RuntimeGizNet;
         pub const SpeedTestResult = RpcRuntime.SpeedTestResult;
+        pub const SpeedTestProgress = RpcRuntime.SpeedTestProgress;
+        pub const SpeedTestProgressSnapshot = RpcRuntime.SpeedTestProgressSnapshot;
         pub const OpenPeerStreamOptions = peer_stream.OpenPeerStreamOptions;
         pub const PeerAudioTurnOptions = peer_stream.PeerAudioTurnOptions;
         pub const PeerEventStream = PeerStreamRuntime.PeerEventStream;
@@ -241,7 +243,7 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             self.* = undefined;
         }
 
-        fn disconnect(self: *Self) void {
+        pub fn disconnect(self: *Self) void {
             self.closing.store(true, .release);
 
             if (self.stream_thread) |thread| {
@@ -280,12 +282,21 @@ pub fn make(comptime grt: type, comptime config: Config) type {
         }
 
         pub fn speedTest(self: *Self, request: models.SpeedTestRequest, timeout: ?glib.time.duration.Duration) !SpeedTestResult {
+            return try self.speedTestWithProgress(request, timeout, .{});
+        }
+
+        pub fn speedTestWithProgress(
+            self: *Self,
+            request: models.SpeedTestRequest,
+            timeout: ?glib.time.duration.Duration,
+            progress: SpeedTestProgress,
+        ) !SpeedTestResult {
             const conn = self.conn orelse return error.ClientNotConnected;
             const stream = try conn.openStream(service.rpc);
             try setStreamDeadlineFor(stream, timeout orelse default_speed_test_timeout);
             var rpc = RpcRuntime.Rpc.init(self.allocator, stream);
             defer rpc.deinit();
-            return try rpc.speedTest(Rpc.method_speed_test_run, request);
+            return try rpc.speedTestWithProgress(Rpc.method_speed_test_run, request, progress);
         }
 
         pub fn getServerInfo(self: *Self) !grt.std.json.Parsed(models.ServerGetInfoResponse) {

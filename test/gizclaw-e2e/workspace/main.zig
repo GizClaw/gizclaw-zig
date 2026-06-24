@@ -3,7 +3,7 @@ const common = @import("common");
 
 const WorkspaceOptions = struct {
     base: common.BaseOptions = .{},
-    config: []const u8 = "../gizclaw-go/test/gizclaw-e2e/workspace/config/doubao-realtime.json",
+    config: []const u8 = "../gizclaw-go/test/gizclaw-e2e/testdata/workspaces/doubao-realtime.json",
     workspace: ?[]const u8 = null,
     skip_run_control: bool = false,
     conversation_smoke: bool = false,

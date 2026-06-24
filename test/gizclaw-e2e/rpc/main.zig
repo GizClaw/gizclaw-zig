@@ -280,7 +280,6 @@ fn checkWorkspacePages(comptime sdk: type, client: *sdk.Client, summary: *common
 }
 
 fn checkWorkflowPages(comptime sdk: type, client: *sdk.Client, summary: *common.Summary, options: RpcOptions) !void {
-    _ = options;
     var page = client.listWorkflows(.{ .limit = 1 }) catch |err| return summary.fail("ListWorkflows", err);
     defer page.deinit();
     try summary.pass("ListWorkflows");
@@ -295,7 +294,18 @@ fn checkWorkflowPages(comptime sdk: type, client: *sdk.Client, summary: *common.
     } else {
         try summary.skip("GetWorkflow", "ListWorkflows returned no fixture rows");
     }
-    try checkWorkflowMutations(sdk, client, summary);
+    if (options.allow_mutations) {
+        try checkWorkflowMutations(sdk, client, summary);
+    } else {
+        try summary.skip("CreateWorkflow", "mutates workflow fixtures; rerun with --allow-mutations and workflow admin ACL");
+        try summary.skip("CreateWorkflow pagination fixture", "mutates workflow fixtures; rerun with --allow-mutations and workflow admin ACL");
+        try summary.skip("PutWorkflow", "mutates workflow fixtures; rerun with --allow-mutations and workflow admin ACL");
+        try summary.skip("GetWorkflow created fixture", "requires workflow mutation fixture");
+        try summary.skip("ListWorkflows after create", "requires workflow mutation fixture");
+        try summary.skip("ListWorkflows pagination after create", "requires workflow mutation fixture");
+        try summary.skip("DeleteWorkflow", "requires workflow mutation fixture");
+        try summary.skip("DeleteWorkflow cleanup primary", "requires workflow mutation fixture");
+    }
 }
 
 fn checkWorkspaceMutations(comptime sdk: type, client: *sdk.Client, summary: *common.Summary) !void {
@@ -437,7 +447,7 @@ fn workflowCreateJson(name: []const u8, description: []const u8) ![]u8 {
     try std.json.Stringify.value(name, .{}, w);
     try w.writeAll(",\"description\":");
     try std.json.Stringify.value(description, .{}, w);
-    try w.writeAll("},\"spec\":{\"driver\":\"flowcraft\",\"flowcraft\":{\"entry_agent\":\"\"}}}");
+    try w.writeAll("},\"spec\":{\"driver\":\"flowcraft\",\"flowcraft\":{}}}");
     return try out.toOwnedSlice();
 }
 
