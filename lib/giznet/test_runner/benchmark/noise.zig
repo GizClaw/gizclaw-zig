@@ -19,12 +19,13 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
         }
 
         pub fn deinit(self: *@This(), allocator: grt.std.mem.Allocator) void {
+            _ = self;
             _ = allocator;
-            grt.std.testing.allocator.destroy(self);
         }
     };
 
-    const value = grt.std.testing.allocator.create(Runner) catch @panic("OOM");
-    value.* = .{};
-    return testing_api.TestRunner.make(Runner).new(value);
+    const Holder = struct {
+        var runner: Runner = .{};
+    };
+    return testing_api.TestRunner.make(Runner).new(&Holder.runner);
 }

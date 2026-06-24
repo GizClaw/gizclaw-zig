@@ -11,7 +11,7 @@ const ServiceBenchmark = giznet.test_runner.benchmark.service;
 const KcpStreamBenchmark = giznet.test_runner.benchmark.kcp_stream;
 const KcpStreamRealUdpBenchmark = giznet.test_runner.benchmark.kcp_stream_real_udp;
 
-const BenchmarkSuite = enum {
+const TestRunnerSuite = enum {
     service,
     kcp_stream,
     kcp_stream_real_udp,
@@ -21,8 +21,8 @@ const BenchmarkSuite = enum {
     all,
 };
 
-const benchmark_suite = parseBenchmarkSuite(build_config.giznet_benchmark_suite);
-const benchmark_requires_wifi = benchmark_suite == .kcp_stream_real_udp or benchmark_suite == .kcp_stream_relay_udp;
+const selected_suite = parseTestRunnerSuite(build_config.giznet_testrunner_suite);
+const suite_requires_wifi = selected_suite == .kcp_stream_real_udp or selected_suite == .kcp_stream_relay_udp;
 const wifi_connect_timeout: glib.time.duration.Duration = 30 * glib.time.duration.Second;
 const wifi_connect_retry_interval: glib.time.duration.Duration = 5 * glib.time.duration.Second;
 const wifi_connect_poll_interval: glib.time.duration.Duration = 100 * glib.time.duration.MilliSecond;
@@ -78,7 +78,7 @@ fn MinimalZuxApp(comptime platform_grt: type) type {
             .switch_output = EmptyRegistry(EmptyPeriph){},
             .pwm = EmptyRegistry(EmptyPeriph){},
             .touch = EmptyRegistry(EmptyPeriph){},
-            .wifi_sta = if (benchmark_requires_wifi)
+            .wifi_sta = if (suite_requires_wifi)
                 SingleRegistry(EmptyPeriph, .{ .label = .wifi }){}
             else
                 EmptyRegistry(EmptyPeriph){},
@@ -116,12 +116,12 @@ pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
         const Self = @This();
 
         pub const ZuxApp = MinimalZuxApp(platform_grt);
-        pub const title = "giznet-benchmark";
-        pub const description = "Runs giznet TestRunner benchmarks on the selected platform.";
+        pub const title = "giznet-testrunner";
+        pub const description = "Runs giznet TestRunner suites on the selected platform.";
 
         allocator: glib.std.mem.Allocator,
         zux_app: ZuxApp,
-        benchmark_ran: bool = false,
+        testrunner_ran: bool = false,
 
         pub fn init(allocator: glib.std.mem.Allocator, base_config: ZuxApp.InitConfig) !*Self {
             const self = try allocator.create(Self);
@@ -139,12 +139,12 @@ pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
         }
 
         pub fn start(self: *Self) !void {
-            if (self.benchmark_ran) return;
-            self.benchmark_ran = true;
-            if (comptime benchmark_requires_wifi) {
-                try connectWifiBeforeBenchmark(platform_grt, self.zux_app.wifi orelse return error.WifiUnavailable);
+            if (self.testrunner_ran) return;
+            self.testrunner_ran = true;
+            if (comptime suite_requires_wifi) {
+                try connectWifiBeforeTestRunner(platform_grt, self.zux_app.wifi orelse return error.WifiUnavailable);
             }
-            try runBenchmark(platform_ctx, platform_grt);
+            try runTestRunner(platform_ctx, platform_grt);
         }
 
         pub fn stop(self: *Self) void {
@@ -159,12 +159,12 @@ pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
         }
 
         pub fn createTestRunner() glib.testing.TestRunner {
-            return benchmarkRunner(platform_ctx, platform_grt);
+            return testRunner(platform_ctx, platform_grt);
         }
     });
 }
 
-pub fn benchmarkRunner(comptime platform_ctx: type, comptime platform_grt: type) glib.testing.TestRunner {
+pub fn testRunner(comptime platform_ctx: type, comptime platform_grt: type) glib.testing.TestRunner {
     const Runner = struct {
         pub fn init(self: *@This(), allocator: platform_grt.std.mem.Allocator) !void {
             _ = self;
@@ -192,10 +192,10 @@ pub fn benchmarkRunner(comptime platform_ctx: type, comptime platform_grt: type)
 }
 
 pub fn run(comptime platform_ctx: type, comptime platform_grt: type) !void {
-    try runBenchmark(platform_ctx, platform_grt);
+    try runTestRunner(platform_ctx, platform_grt);
 }
 
-fn runBenchmark(comptime platform_ctx: type, comptime platform_grt: type) !void {
+fn runTestRunner(comptime platform_ctx: type, comptime platform_grt: type) !void {
     if (comptime @hasDecl(platform_ctx, "setup")) {
         try platform_ctx.setup();
     }
@@ -205,20 +205,20 @@ fn runBenchmark(comptime platform_ctx: type, comptime platform_grt: type) !void 
         }
     }
 
-    const log = platform_grt.std.log.scoped(.giznet_benchmark_app);
-    log.info("giznet benchmark start suite={s}", .{@tagName(benchmark_suite)});
+    const log = platform_grt.std.log.scoped(.giznet_testrunner_app);
+    log.info("giznet testrunner start suite={s}", .{@tagName(selected_suite)});
 
     var t = glib.testing.T.new(platform_grt.std, platform_grt.time, .benchmark);
     defer t.deinit();
 
-    t.run("giznet/benchmark", benchmarkRunner(platform_ctx, platform_grt));
+    t.run("giznet/testrunner", testRunner(platform_ctx, platform_grt));
     if (!t.wait()) return error.TestFailed;
 
-    log.info("giznet benchmark passed suite={s}", .{@tagName(benchmark_suite)});
+    log.info("giznet testrunner passed suite={s}", .{@tagName(selected_suite)});
 }
 
-fn connectWifiBeforeBenchmark(comptime platform_grt: type, wifi: embed.drivers.wifi.Sta) !void {
-    const log = platform_grt.std.log.scoped(.giznet_benchmark_app);
+fn connectWifiBeforeTestRunner(comptime platform_grt: type, wifi: embed.drivers.wifi.Sta) !void {
+    const log = platform_grt.std.log.scoped(.giznet_testrunner_app);
     var state = WifiConnectState(platform_grt){};
     wifi.addEventHook(&state, WifiConnectState(platform_grt).onEvent);
     defer wifi.removeEventHook(&state, WifiConnectState(platform_grt).onEvent);
@@ -229,11 +229,11 @@ fn connectWifiBeforeBenchmark(comptime platform_grt: type, wifi: embed.drivers.w
 
     const deadline = glib.time.instant.add(platform_grt.time.instant.now(), wifi_connect_timeout);
     var next_connect: glib.time.instant.Time = 0;
-    log.info("wifi connect before benchmark ssid={s} timeout_ns={d}", .{ build_config.wifi_ssid, wifi_connect_timeout });
+    log.info("wifi connect before testrunner ssid={s} timeout_ns={d}", .{ build_config.wifi_ssid, wifi_connect_timeout });
 
     while (platform_grt.time.instant.now() < deadline) {
-        if (wifi.getIpInfo() != null or state.got_ip.load(.acquire)) {
-            log.info("wifi ready before benchmark", .{});
+        if (wifi.getIpInfo() != null or state.got_ip) {
+            log.info("wifi ready before testrunner", .{});
             return;
         }
 
@@ -259,21 +259,21 @@ fn connectWifiBeforeBenchmark(comptime platform_grt: type, wifi: embed.drivers.w
 
 fn WifiConnectState(comptime platform_grt: type) type {
     return struct {
-        got_ip: platform_grt.std.atomic.Value(bool) = platform_grt.std.atomic.Value(bool).init(false),
+        got_ip: bool = false,
 
         pub fn onEvent(ctx: ?*anyopaque, event: embed.drivers.wifi.Sta.Event) void {
             const self: *@This() = @ptrCast(@alignCast(ctx orelse return));
-            const log = platform_grt.std.log.scoped(.giznet_benchmark_app);
+            const log = platform_grt.std.log.scoped(.giznet_testrunner_app);
             switch (event) {
                 .got_ip => {
-                    self.got_ip.store(true, .release);
-                    log.info("wifi got ip before benchmark", .{});
+                    self.got_ip = true;
+                    log.info("wifi got ip before testrunner", .{});
                 },
                 .disconnected => |info| {
-                    self.got_ip.store(false, .release);
-                    log.warn("wifi disconnected before benchmark reason={d}", .{info.reason});
+                    self.got_ip = false;
+                    log.warn("wifi disconnected before testrunner reason={d}", .{info.reason});
                 },
-                else => log.info("wifi event before benchmark event={s}", .{@tagName(event)}),
+                else => log.info("wifi event before testrunner event={s}", .{@tagName(event)}),
             }
         }
     };
@@ -281,14 +281,14 @@ fn WifiConnectState(comptime platform_grt: type) type {
 
 fn runSelectedSuite(comptime platform_ctx: type, comptime platform_grt: type, t: *glib.testing.T) void {
     _ = platform_ctx;
-    switch (benchmark_suite) {
+    switch (selected_suite) {
         .service => t.run("service", ServiceBenchmark.make(platform_grt)),
         .kcp_stream => t.run("service/kcp_stream", KcpStreamBenchmark.make(platform_grt)),
         .kcp_stream_real_udp => t.run("service/kcp_stream_real_udp", KcpStreamRealUdpBenchmark.make(platform_grt)),
         .kcp_stream_relay_udp => t.run("service/kcp_stream_relay_udp", KcpStreamRealUdpBenchmark.makeRelay(
             platform_grt,
-            build_config.giznet_benchmark_relay_host,
-            build_config.giznet_benchmark_relay_base_port,
+            build_config.giznet_testrunner_relay_host,
+            build_config.giznet_testrunner_relay_base_port,
         )),
         .noise => t.run("noise", NoiseBenchmark.make(platform_grt)),
         .giz_net => t.run("giz_net", GizNetBenchmark.make(platform_grt)),
@@ -296,7 +296,7 @@ fn runSelectedSuite(comptime platform_ctx: type, comptime platform_grt: type, t:
     }
 }
 
-fn parseBenchmarkSuite(comptime value: []const u8) BenchmarkSuite {
+fn parseTestRunnerSuite(comptime value: []const u8) TestRunnerSuite {
     if (glib.std.mem.eql(u8, value, "service")) return .service;
     if (glib.std.mem.eql(u8, value, "kcp_stream")) return .kcp_stream;
     if (glib.std.mem.eql(u8, value, "kcp_stream_real_udp")) return .kcp_stream_real_udp;
@@ -304,5 +304,5 @@ fn parseBenchmarkSuite(comptime value: []const u8) BenchmarkSuite {
     if (glib.std.mem.eql(u8, value, "noise")) return .noise;
     if (glib.std.mem.eql(u8, value, "giz_net")) return .giz_net;
     if (glib.std.mem.eql(u8, value, "all")) return .all;
-    @compileError("unknown giznet benchmark suite: " ++ value);
+    @compileError("unknown giznet testrunner suite: " ++ value);
 }

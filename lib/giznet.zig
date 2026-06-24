@@ -33,6 +33,12 @@ pub const test_runner = struct {
         }
     };
     pub const benchmark = struct {
+        pub const service = @import("giznet/test_runner/benchmark/service.zig");
+        pub const kcp_stream = @import("giznet/test_runner/benchmark/service/kcp_stream.zig");
+        pub const kcp_stream_real_udp = @import("giznet/test_runner/benchmark/service/kcp_stream_real_udp.zig");
+        pub const noise = @import("giznet/test_runner/benchmark/noise.zig");
+        pub const giz_net = @import("giznet/test_runner/benchmark/giz_net.zig");
+
         pub fn make(comptime grt: type) glib.testing.TestRunner {
             return @import("giznet/test_runner/benchmark.zig").make(grt);
         }
