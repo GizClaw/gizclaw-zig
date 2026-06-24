@@ -1,5 +1,6 @@
 const glib = @import("glib");
 const giznet = @import("giznet");
+const std = @import("std");
 
 const Client = @import("Client.zig");
 const key_mod = @import("key.zig");
@@ -103,15 +104,21 @@ pub fn make(comptime grt: type) type {
         }
 
         pub fn fromHostDir(allocator: grt.std.mem.Allocator, options: HostOptions) !OwnedConfig {
-            const config_path = try grt.std.fs.path.join(allocator, &.{ options.context_dir, "config.yaml" });
+            const config_path = try std.fs.path.join(allocator, &.{ options.context_dir, "config.yaml" });
             defer allocator.free(config_path);
-            const config_data = try grt.std.fs.cwd().readFileAlloc(allocator, config_path, 64 * 1024);
+            const config_data = try std.fs.cwd().readFileAlloc(allocator, config_path, 64 * 1024);
             defer allocator.free(config_data);
 
-            const identity_path = try grt.std.fs.path.join(allocator, &.{ options.context_dir, "identity.key" });
-            defer allocator.free(identity_path);
-            const identity_data = try grt.std.fs.cwd().readFileAlloc(allocator, identity_path, 64);
-            defer allocator.free(identity_data);
+            var identity_data_alloc: ?[]u8 = null;
+            defer if (identity_data_alloc) |identity_data| allocator.free(identity_data);
+            const identity_data = if (options.client_key != null)
+                ""
+            else blk: {
+                const identity_path = try std.fs.path.join(allocator, &.{ options.context_dir, "identity.key" });
+                defer allocator.free(identity_path);
+                identity_data_alloc = try std.fs.cwd().readFileAlloc(allocator, identity_path, 64);
+                break :blk identity_data_alloc.?;
+            };
 
             return try fromHostData(allocator, config_data, identity_data, options);
         }

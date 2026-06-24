@@ -149,91 +149,66 @@ pub const Summary = struct {
 };
 
 fn loadExplicitContext(allocator: std.mem.Allocator, options: BaseOptions) !Context {
-    const server_addr = options.server_addr orelse default_server_addr;
     const server_key_text = options.server_key orelse default_server_key;
     const client_key_text = options.client_key orelse return error.MissingClientPrivateKey;
-    const private = key.parse(client_key_text) catch return error.InvalidClientPrivateKey;
-    const server_key = key.parse(server_key_text) catch return error.InvalidServerPublicKey;
-    return .{
-        .allocator = allocator,
-        .server_addr = try allocator.dupe(u8, server_addr),
-        .server_key = server_key,
-        .cipher_mode = options.cipher_mode orelse .chacha_poly,
-        .key_pair = try key.fromPrivate(private),
+    _ = key.parse(server_key_text) catch return error.InvalidServerPublicKey;
+    _ = key.parse(client_key_text) catch return error.InvalidClientPrivateKey;
+
+    const config = try chacha_sdk.Context.fromExplicit(.{
+        .server_addr = options.server_addr orelse default_server_addr,
+        .server_key = server_key_text,
+        .client_key = client_key_text,
+        .cipher_kind = if (options.cipher_mode) |mode| toCipherKind(mode) else .chacha_poly,
+        .runtime_options = runtime_options,
         .connect_timeout = connectTimeout(options),
-    };
+    });
+    return try contextFromSdkConfig(allocator, config);
 }
 
 fn loadContextDir(allocator: std.mem.Allocator, dir: []const u8, options: BaseOptions) !Context {
-    const config_path = try std.fs.path.join(allocator, &.{ dir, "config.yaml" });
-    defer allocator.free(config_path);
-    const data = try std.fs.cwd().readFileAlloc(allocator, config_path, 64 * 1024);
-    defer allocator.free(data);
-
-    var server_addr: ?[]u8 = null;
-    errdefer if (server_addr) |value| allocator.free(value);
-    var server_key: ?giznet.Key = null;
-    var cipher_mode: CipherMode = .chacha_poly;
-
-    var lines = std.mem.splitScalar(u8, data, '\n');
-    while (lines.next()) |line| {
-        const trimmed = std.mem.trim(u8, line, " \t\r");
-        if (std.mem.startsWith(u8, trimmed, "address:")) {
-            const raw = yamlScalar(trimmed["address:".len..]);
-            server_addr = try allocator.dupe(u8, raw);
-        } else if (std.mem.startsWith(u8, trimmed, "public-key:")) {
-            const raw = yamlScalar(trimmed["public-key:".len..]);
-            server_key = key.parse(raw) catch return error.InvalidServerPublicKey;
-        } else if (std.mem.startsWith(u8, trimmed, "cipher-mode:")) {
-            const raw = yamlScalar(trimmed["cipher-mode:".len..]);
-            cipher_mode = try parseCipherMode(raw);
-        }
-    }
-
-    const identity_path = try std.fs.path.join(allocator, &.{ dir, "identity.key" });
-    defer allocator.free(identity_path);
-    const private = try readPrivateKeyBytes(identity_path, error.InvalidIdentityKey);
-
-    if (options.server_addr) |override| {
-        if (server_addr) |value| allocator.free(value);
-        server_addr = try allocator.dupe(u8, override);
-    }
-    if (options.server_key) |override| {
-        server_key = key.parse(override) catch return error.InvalidServerPublicKey;
-    }
-    if (options.cipher_mode) |override| {
-        cipher_mode = override;
-    }
-
-    return .{
-        .allocator = allocator,
-        .server_addr = server_addr orelse return error.MissingServerAddress,
-        .server_key = server_key orelse return error.MissingServerPublicKey,
-        .cipher_mode = cipher_mode,
-        .key_pair = try key.fromPrivate(private),
+    var config = try chacha_sdk.Context.fromHostDir(allocator, .{
+        .context_dir = dir,
+        .server_addr = options.server_addr,
+        .server_key = options.server_key,
+        .client_key = options.client_key,
+        .cipher_kind = if (options.cipher_mode) |mode| toCipherKind(mode) else null,
+        .runtime_options = runtime_options,
         .connect_timeout = connectTimeout(options),
-    };
-}
-
-fn yamlScalar(raw: []const u8) []const u8 {
-    return std.mem.trim(u8, raw, " \t\"'");
-}
-
-fn readPrivateKeyBytes(path: []const u8, invalid_error: anyerror) !giznet.Key {
-    const data = std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 32) catch |err| switch (err) {
-        error.FileNotFound => return invalid_error,
-        else => return err,
-    };
-    defer std.heap.page_allocator.free(data);
-    if (data.len != 32) return invalid_error;
-    var private: giznet.Key = .{};
-    @memcpy(&private.bytes, data);
-    return private;
+    });
+    defer config.deinit();
+    return try contextFromSdkConfig(allocator, config.config);
 }
 
 fn connectTimeout(options: BaseOptions) ?grt.time.duration.Duration {
     const timeout_ms = options.connect_timeout_ms orelse return null;
     return @as(grt.time.duration.Duration, @intCast(@max(timeout_ms, 1))) * grt.time.duration.MilliSecond;
+}
+
+fn contextFromSdkConfig(allocator: std.mem.Allocator, config: chacha_sdk.Context.Config) !Context {
+    return .{
+        .allocator = allocator,
+        .server_addr = try allocator.dupe(u8, config.server_addr),
+        .server_key = config.server_key,
+        .cipher_mode = try cipherModeFromKind(config.cipher_kind),
+        .key_pair = config.key_pair,
+        .connect_timeout = config.connect_timeout,
+    };
+}
+
+fn toCipherKind(mode: CipherMode) giznet.noise.Cipher.Kind {
+    return switch (mode) {
+        .chacha_poly => .chacha_poly,
+        .aes_256_gcm => .aes_256_gcm,
+        .plaintext => .plaintext,
+    };
+}
+
+fn cipherModeFromKind(kind: giznet.noise.Cipher.Kind) !CipherMode {
+    return switch (kind) {
+        .chacha_poly => .chacha_poly,
+        .aes_256_gcm => .aes_256_gcm,
+        .plaintext => .plaintext,
+    };
 }
 
 pub fn parseCipherMode(raw: []const u8) !CipherMode {
