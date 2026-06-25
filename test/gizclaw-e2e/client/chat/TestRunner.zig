@@ -104,8 +104,8 @@ pub fn runWithContext(comptime sdk: type, allocator: mem.Allocator, ctx: common.
     try peerStreamSmoke(sdk, client, &summary, reporter, config.stream_smoke_timeout_ms);
 
     switch (config.mode) {
-        .push_to_talk => try runPushToTalk(sdk, allocator, client, &summary, reporter, config, workspace_ready),
-        .realtime => try recordFail(&summary, reporter, "RealtimeRoundtrip", error.RealtimeRoundtripNotImplemented),
+        .push_to_talk => try runAudioRoundtrip(sdk, allocator, client, &summary, reporter, config, workspace_ready, .push_to_talk),
+        .realtime => try runAudioRoundtrip(sdk, allocator, client, &summary, reporter, config, workspace_ready, .realtime),
     }
 
     return summary;
@@ -141,7 +141,7 @@ fn ensureWorkspace(comptime sdk: type, allocator: mem.Allocator, client: *sdk.Cl
         .body = workflow,
     }));
 
-    const workspace = buildWorkspaceDocument(sdk.models, cfg, workspace_name, workflow_name);
+    const workspace = buildWorkspaceDocument(sdk.models, cfg, config.mode, workspace_name, workflow_name);
     try parsed(summary, reporter, "EnsureWorkspace", client.putWorkspace(.{
         .name = workspace_name,
         .body = workspace,
@@ -289,14 +289,14 @@ fn buildWorkflowDocument(comptime models: type, config: WorkspaceConfig, name: [
     };
 }
 
-fn buildWorkspaceDocument(comptime models: type, config: WorkspaceConfig, name: []const u8, workflow_name: []const u8) models.WorkspaceCreateRequest {
+fn buildWorkspaceDocument(comptime models: type, config: WorkspaceConfig, mode: Mode, name: []const u8, workflow_name: []const u8) models.WorkspaceCreateRequest {
     return .{
         .name = name,
         .workflow_name = workflow_name,
         .parameters = .{
             .agent_type = "doubao-realtime",
             .realtime_model = config.workflow.realtime_model,
-            .input = config.workflow.parameters.input orelse "push-to-talk",
+            .input = workspaceInputMode(config, mode),
             .voice = .{
                 .realtime_speaker_id = config.workflow.parameters.voice.realtime_speaker_id,
                 .speaker_id = config.workflow.parameters.voice.speaker_id,
@@ -312,6 +312,13 @@ fn buildWorkspaceDocument(comptime models: type, config: WorkspaceConfig, name: 
             },
             .e2e = true,
         },
+    };
+}
+
+fn workspaceInputMode(config: WorkspaceConfig, mode: Mode) []const u8 {
+    return switch (mode) {
+        .push_to_talk => config.workflow.parameters.input orelse "push-to-talk",
+        .realtime => "realtime",
     };
 }
 
@@ -396,33 +403,34 @@ fn workspaceStateMatches(status: anytype, workspace: []const u8) bool {
     return false;
 }
 
-fn runPushToTalk(comptime sdk: type, allocator: mem.Allocator, client: *sdk.Client, summary: *Summary, reporter: anytype, config: Config, workspace_ready: bool) !void {
+fn runAudioRoundtrip(comptime sdk: type, allocator: mem.Allocator, client: *sdk.Client, summary: *Summary, reporter: anytype, config: Config, workspace_ready: bool, mode: Mode) !void {
+    const names = audioRoundtripNames(mode);
     if (config.workspace_name == null) {
-        try recordFail(summary, reporter, "PushToTalkRoundtrip", error.MissingWorkspaceName);
+        try recordFail(summary, reporter, names.roundtrip, error.MissingWorkspaceName);
         return;
     }
     if (!workspace_ready) {
-        try recordFail(summary, reporter, "PushToTalkRoundtrip", error.WorkspaceNotRunning);
+        try recordFail(summary, reporter, names.roundtrip, error.WorkspaceNotRunning);
         return;
     }
     if (config.embedded_audio) |assets| {
         if (assets.len < config.min_rounds) {
-            try recordFail(summary, reporter, "PushToTalkRoundtrip", error.NotEnoughAudioFixtures);
+            try recordFail(summary, reporter, names.roundtrip, error.NotEnoughAudioFixtures);
             return;
         }
         const round_count = @min(assets.len, @as(usize, config.rounds));
         var stream = client.openPeerStream(.{
             .read_timeout = stream_poll_timeout,
         }) catch |err| {
-            try recordFail(summary, reporter, "OpenPushToTalkStream", err);
+            try recordFail(summary, reporter, names.open_stream, err);
             return;
         };
         defer stream.deinit();
-        try recordPass(summary, reporter, "OpenPushToTalkStream");
+        try recordPass(summary, reporter, names.open_stream);
 
         for (assets[0..round_count], 1..) |asset, round_index| {
-            const round = runPushToTalkRound(allocator, client, &stream, asset, @intCast(round_index), config.conversation_timeout_ms) catch |err| {
-                try recordFail(summary, reporter, "PushToTalkRoundtrip", err);
+            const round = runAudioRound(allocator, client, &stream, asset, @intCast(round_index), config.conversation_timeout_ms, mode) catch |err| {
+                try recordFail(summary, reporter, names.roundtrip, err);
                 return;
             };
             summary.rounds += 1;
@@ -435,15 +443,15 @@ fn runPushToTalk(comptime sdk: type, allocator: mem.Allocator, client: *sdk.Clie
             summary.worst_response_ns = @max(summary.worst_response_ns, round.response_ns);
             try reportRound(reporter, round);
         }
-        try reporter.metric("ptt_rounds", @intCast(summary.rounds), "");
-        try reporter.metric("ptt_input_packets", @intCast(summary.input_packets), "");
-        try reporter.metric("ptt_output_packets", @intCast(summary.output_packets), "");
-        try reporter.metric("ptt_events", @intCast(summary.events), "");
+        try reporter.metric(names.rounds_metric, @intCast(summary.rounds), "");
+        try reporter.metric(names.input_packets_metric, @intCast(summary.input_packets), "");
+        try reporter.metric(names.output_packets_metric, @intCast(summary.output_packets), "");
+        try reporter.metric(names.events_metric, @intCast(summary.events), "");
         if (summary.rounds > 0) {
-            try reporter.metric("ptt_avg_response_ms", @divTrunc(nsToMs(summary.total_response_ns), @as(u64, @intCast(summary.rounds))), "ms");
-            try reporter.metric("ptt_worst_response_ms", nsToMs(summary.worst_response_ns), "ms");
+            try reporter.metric(names.avg_response_metric, @divTrunc(nsToMs(summary.total_response_ns), @as(u64, @intCast(summary.rounds))), "ms");
+            try reporter.metric(names.worst_response_metric, nsToMs(summary.worst_response_ns), "ms");
         }
-        try recordPass(summary, reporter, "PushToTalkRoundtrip");
+        try recordPass(summary, reporter, names.roundtrip);
         return;
     }
 
@@ -459,11 +467,47 @@ fn runPushToTalk(comptime sdk: type, allocator: mem.Allocator, client: *sdk.Clie
         summary.rounds = @min(manifest_info.rounds, config.rounds);
         try reporter.metric("audio_manifest_rounds", @intCast(manifest_info.rounds), "");
         try recordPass(summary, reporter, "LoadAudioManifest");
-        try recordFail(summary, reporter, "PushToTalkRoundtrip", error.MissingEmbeddedAudioFixtures);
+        try recordFail(summary, reporter, names.roundtrip, error.MissingEmbeddedAudioFixtures);
         return;
     }
 
-    try recordFail(summary, reporter, "PushToTalkRoundtrip", error.MissingAudioFixtures);
+    try recordFail(summary, reporter, names.roundtrip, error.MissingAudioFixtures);
+}
+
+const AudioRoundtripNames = struct {
+    open_stream: []const u8,
+    roundtrip: []const u8,
+    rounds_metric: []const u8,
+    input_packets_metric: []const u8,
+    output_packets_metric: []const u8,
+    events_metric: []const u8,
+    avg_response_metric: []const u8,
+    worst_response_metric: []const u8,
+};
+
+fn audioRoundtripNames(mode: Mode) AudioRoundtripNames {
+    return switch (mode) {
+        .push_to_talk => .{
+            .open_stream = "OpenPushToTalkStream",
+            .roundtrip = "PushToTalkRoundtrip",
+            .rounds_metric = "ptt_rounds",
+            .input_packets_metric = "ptt_input_packets",
+            .output_packets_metric = "ptt_output_packets",
+            .events_metric = "ptt_events",
+            .avg_response_metric = "ptt_avg_response_ms",
+            .worst_response_metric = "ptt_worst_response_ms",
+        },
+        .realtime => .{
+            .open_stream = "OpenRealtimeStream",
+            .roundtrip = "RealtimeRoundtrip",
+            .rounds_metric = "realtime_rounds",
+            .input_packets_metric = "realtime_input_packets",
+            .output_packets_metric = "realtime_output_packets",
+            .events_metric = "realtime_events",
+            .avg_response_metric = "realtime_avg_response_ms",
+            .worst_response_metric = "realtime_worst_response_ms",
+        },
+    };
 }
 
 const RoundSummary = struct {
@@ -482,13 +526,14 @@ const RoundSummary = struct {
     first_audio_ns: u64 = 0,
 };
 
-fn runPushToTalkRound(
+fn runAudioRound(
     allocator: mem.Allocator,
     client: anytype,
     stream: anytype,
     asset: ChatAudioAsset,
     round_index: u32,
     timeout_ms: u32,
+    mode: Mode,
 ) !RoundSummary {
     var packets = try parseOggOpusPackets(allocator, asset.ogg_opus);
     defer packets.deinit(allocator);
@@ -508,12 +553,15 @@ fn runPushToTalkRound(
         .label = audio_label,
         .timestamp = @intCast(timestamp),
     });
-    for (packets.items) |packet| {
+    for (packets.items, 0..) |packet, packet_index| {
         try client.writePeerAudio(stream, .{
             .timestamp = timestamp,
             .frame = packet,
         });
         timestamp += audio_frame_ms;
+        if (mode == .realtime and packet_index + 1 < packets.items.len) {
+            grt.time.sleepMillis(audio_frame_ms);
+        }
     }
     try client.endPeerAudio(stream, .{
         .stream_id = stream_id,
@@ -528,6 +576,7 @@ fn runPushToTalkRound(
     var transcript_done = false;
     var assistant_text_seen = false;
     var assistant_text_done = false;
+    var assistant_audio_eos_seen = false;
     var assistant_audio_done = false;
     var settle_deadline: ?grt.time.instant.Time = null;
     var buf: [8192]u8 = undefined;
@@ -542,7 +591,7 @@ fn runPushToTalkRound(
                 return round;
             }
         }
-        if (now >= deadline) return error.PushToTalkResponseTimeout;
+        if (now >= deadline) return error.AudioRoundResponseTimeout;
 
         try stream.event_stream.stream.setReadDeadline(grt.time.instant.add(now, stream_poll_timeout));
         var read = client.readPeerStreamChunk(stream, &buf) catch |err| switch (err) {
@@ -585,6 +634,7 @@ fn runPushToTalkRound(
                 if (!acceptRoundEventStream(event.stream_id, stream_id, &assistant_stream_id)) continue;
                 round.events += 1;
                 if (event.type == .eos) {
+                    assistant_audio_eos_seen = true;
                     if (assistant_text_done) {
                         assistant_audio_done = true;
                         settle_deadline = grt.time.instant.add(grt.time.instant.now(), response_settle_timeout);
@@ -600,6 +650,10 @@ fn runPushToTalkRound(
                 if (event.type == .text_done and !assistant_text_done) {
                     assistant_text_done = true;
                     round.assistant_text_done_ns = @intCast(grt.time.instant.since(response_started));
+                    if (assistant_audio_eos_seen) {
+                        assistant_audio_done = true;
+                        settle_deadline = grt.time.instant.add(grt.time.instant.now(), response_settle_timeout);
+                    }
                 }
             } else {
                 if (event.stream_id) |actual| {

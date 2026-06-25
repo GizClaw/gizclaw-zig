@@ -93,7 +93,9 @@ the shared connection path and carries the new chat configuration surface:
 - rounds
 - run/conversation timeouts
 
-The final push-to-talk fixture plan uses fixed Ogg/Opus files:
+The chat roundtrip suites use fixed Ogg/Opus files for both push-to-talk and
+realtime modes. Realtime mode sends the same packets with microphone-like frame
+cadence.
 
 ```text
 test/gizclaw-e2e/testdata/chat/roundtrip/
