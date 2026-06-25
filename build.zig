@@ -79,7 +79,7 @@ pub fn build(b: *std.Build) void {
 
     build_test.createTestModule(b, target, optimize, Libraries);
     build_test.createGizClawE2E(b, target, optimize);
-    build_test.createZuxSmokeTest(b, target, optimize, embed_dep, glib, gstd, embed);
+    build_test.createZuxSpeedTest(b, target, optimize, embed_dep, glib, gstd, embed);
 }
 
 fn readBuildFile(b: *std.Build, path: []const u8) []const u8 {

@@ -1,0 +1,89 @@
+{
+  "kind": "Doc",
+  "spec": [
+    {
+      "kind": "Store",
+      "spec": {
+        "label": "app_state",
+        "state": {
+          "state": {
+            "enum": {
+              "type": "u8",
+              "values": [
+                "off",
+                "on"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "Store",
+      "spec": {
+        "label": "wifi_state",
+        "state": {
+          "state": {
+            "enum": {
+              "type": "u8",
+              "values": [
+                "off",
+                "on"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "Store",
+      "spec": {
+        "label": "gizclaw_state",
+        "state": {
+          "state": {
+            "enum": {
+              "type": "u8",
+              "values": [
+                "disconnected",
+                "connecting",
+                "connected"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "Store",
+      "spec": {
+        "label": "smoke_status",
+        "state": {
+          "round": "u64",
+          "ping_rtt_ms": "u32",
+          "up_bytes": "u64",
+          "down_bytes": "u64",
+          "up_total": "u64",
+          "down_total": "u64",
+          "up_mbps_milli": "u32",
+          "down_mbps_milli": "u32",
+          "duplex_up_mbps_milli": "u32",
+          "duplex_down_mbps_milli": "u32",
+          "cpu0_percent": "u32",
+          "cpu1_percent": "u32",
+          "mem_internal_free_kib": "u32",
+          "mem_psram_free_kib": "u32"
+        }
+      }
+    },
+    {
+      "kind": "StatePath",
+      "spec": {
+        "path": "app/wifi_intent",
+        "labels": [
+          "app_state",
+          "wifi_state"
+        ]
+      }
+    }
+  ]
+}

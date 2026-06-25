@@ -1,5 +1,6 @@
 const esp = @import("esp");
 const launcher_options = @import("launcher_options");
+const lvgl_osal = @import("lvgl_osal");
 const selected_app = @import("selected_app");
 
 const sleep_interval: esp.grt.time.duration.Duration = 1 * esp.grt.time.duration.Second;
@@ -35,12 +36,47 @@ const PlatformCtx = struct {
     pub fn gizclawSpiramAllocator(_: anytype) esp.grt.std.mem.Allocator {
         return esp.heap.Allocator(.{ .caps = .spiram_8bit, .alignment = .align_u32 });
     }
+
+    pub fn preferencesProvider(allocator: esp.grt.std.mem.Allocator) !esp.embed.system.preferences.Provider {
+        return esp.embed.system.preferences.Provider.init(.{
+            .allocator = allocator,
+        });
+    }
 };
 
 const Board = @field(esp.embed.boards, launcher_options.board_name).Board;
 const ZuxAppType = selected_app.make(PlatformCtx, esp.grt);
 const App = esp.Launcher.make(ZuxAppType, Board);
 const app_allocator = esp.heap.Allocator(.{ .caps = .spiram_8bit, .alignment = .align_u32 });
+const lvgl_exports = lvgl_osal.makeWithAllocators(
+    esp.grt,
+    esp.heap.Allocator(.{ .caps = .internal_8bit }),
+    esp.heap.Allocator(.{ .caps = .spiram_8bit, .alignment = .align_u32 }),
+);
+
+comptime {
+    _ = lvgl_exports.lv_mutex_init;
+    _ = lvgl_exports.lv_mutex_lock;
+    _ = lvgl_exports.lv_mutex_lock_isr;
+    _ = lvgl_exports.lv_mutex_unlock;
+    _ = lvgl_exports.lv_mutex_delete;
+    _ = lvgl_exports.lv_thread_sync_init;
+    _ = lvgl_exports.lv_thread_sync_wait;
+    _ = lvgl_exports.lv_thread_sync_signal;
+    _ = lvgl_exports.lv_thread_sync_signal_isr;
+    _ = lvgl_exports.lv_thread_sync_delete;
+    _ = lvgl_exports.lv_thread_init;
+    _ = lvgl_exports.lv_thread_delete;
+    _ = lvgl_exports.lv_mem_init;
+    _ = lvgl_exports.lv_mem_deinit;
+    _ = lvgl_exports.lv_mem_add_pool;
+    _ = lvgl_exports.lv_mem_remove_pool;
+    _ = lvgl_exports.lv_malloc_core;
+    _ = lvgl_exports.lv_realloc_core;
+    _ = lvgl_exports.lv_free_core;
+    _ = lvgl_exports.lv_mem_monitor_core;
+    _ = lvgl_exports.lv_mem_test_core;
+}
 
 pub export fn zig_esp_main() void {
     run() catch @panic("esp launcher failed");

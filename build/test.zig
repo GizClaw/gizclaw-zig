@@ -92,7 +92,7 @@ pub fn createTestModule(
     kcp_unit_step.dependOn(&kcp_unit_run.step);
 }
 
-pub fn createZuxSmokeTest(
+pub fn createZuxSpeedTest(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
@@ -101,7 +101,7 @@ pub fn createZuxSmokeTest(
     gstd: *std.Build.Module,
     embed: *std.Build.Module,
 ) void {
-    const smoke_config = zuxSmokeBuildConfigOptions(b);
+    const speedtest_config = zuxSpeedTestBuildConfigOptions(b);
     const launcher = b.createModule(.{
         .root_source_file = embed_dep.path("apps/src/Launcher.zig"),
         .target = target,
@@ -111,19 +111,20 @@ pub fn createZuxSmokeTest(
         },
     });
     const selected_app = b.createModule(.{
-        .root_source_file = b.path("examples/zux/smoke/src/app.zig"),
+        .root_source_file = b.path("examples/zux/speedtest/src/app.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "embed", .module = embed },
             .{ .name = "glib", .module = glib },
+            .{ .name = "lvgl", .module = embed_dep.module("thirdparty/lvgl") },
             .{ .name = "launcher", .module = launcher },
         },
     });
-    selected_app.addOptions("build_config", smoke_config);
+    selected_app.addOptions("build_config", speedtest_config);
 
     const test_mod = b.createModule(.{
-        .root_source_file = createZuxSmokeTestSource(b),
+        .root_source_file = createZuxSpeedTestSource(b),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -136,9 +137,9 @@ pub fn createZuxSmokeTest(
         .root_module = test_mod,
     });
     const run_test = b.addRunArtifact(compile_test);
-    run_test.setName("zux-smoke:stories");
+    run_test.setName("zux-speedtest:stories");
 
-    const test_step = b.step("test-zux-smoke", "Run zux smoke user stories");
+    const test_step = b.step("test-zux-speedtest", "Run zux speedtest user stories");
     test_step.dependOn(&run_test.step);
 }
 
@@ -210,7 +211,7 @@ pub fn createGizClawE2E(
     }
 }
 
-fn zuxSmokeBuildConfigOptions(b: *std.Build) *std.Build.Step.Options {
+fn zuxSpeedTestBuildConfigOptions(b: *std.Build) *std.Build.Step.Options {
     const options = b.addOptions();
     options.addOption([]const u8, "wifi_ssid", "");
     options.addOption([]const u8, "wifi_password", "");
@@ -220,18 +221,18 @@ fn zuxSmokeBuildConfigOptions(b: *std.Build) *std.Build.Step.Options {
     return options;
 }
 
-fn createZuxSmokeTestSource(b: *std.Build) std.Build.LazyPath {
+fn createZuxSpeedTestSource(b: *std.Build) std.Build.LazyPath {
     const write_files = b.addWriteFiles();
-    return write_files.add("zux_smoke_test.zig",
+    return write_files.add("zux_speedtest_test.zig",
         \\const glib = @import("glib");
         \\const gstd = @import("gstd");
         \\const selected_app = @import("selected_app");
         \\
-        \\test "zux smoke user stories" {
+        \\test "zux speedtest user stories" {
         \\    var t = glib.testing.T.new(gstd.runtime.std, gstd.runtime.time, .zux_app);
         \\    defer t.deinit();
         \\
-        \\    t.run("app", selected_app.smokeTestRunner(gstd.runtime));
+        \\    t.run("app", selected_app.speedtestTestRunner(gstd.runtime));
         \\    if (!t.wait()) return error.TestFailed;
         \\}
         \\

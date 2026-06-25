@@ -1,6 +1,10 @@
 openteam/
+.*
+!/.gitignore
+!/.github/
+!/.github/**
 .*zig-*/
 zig-out/
-.logs/
+**/.build/
 AGENTS.md
 !/AGENTS.md

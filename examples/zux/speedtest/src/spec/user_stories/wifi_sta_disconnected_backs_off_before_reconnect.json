@@ -1,0 +1,97 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "wifi sta disconnected backs off before reconnect",
+    "description": "When WiFi intent is on, a disconnected STA waits 5s before requesting reconnect.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "display": {
+        "enabled": true,
+        "brightness": 255
+      },
+      "smoke_status": {
+        "round": 0,
+        "ping_rtt_ms": 0,
+        "up_bytes": 0,
+        "down_bytes": 0,
+        "up_total": 0,
+        "down_total": 0,
+        "up_mbps_milli": 0,
+        "down_mbps_milli": 0,
+        "duplex_up_mbps_milli": 0,
+        "duplex_down_mbps_milli": 0,
+        "cpu0_percent": 0,
+        "cpu1_percent": 0,
+        "mem_internal_free_kib": 0,
+        "mem_psram_free_kib": 0
+      },
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "on"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "wifi_sta_disconnected": {
+              "source_id": 2,
+              "reason": 4
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi",
+            "state": {
+              "status": "disconnected",
+              "connected": false,
+              "has_ip": false,
+              "reconnect_at": 5000000000
+            }
+          }
+        ]
+      },
+      {
+        "tick": {
+          "interval": 4999999999,
+          "n": 1
+        },
+        "outputs": [
+          {
+            "label": "wifi",
+            "state": {
+              "status": "disconnected",
+              "connected": false,
+              "has_ip": false,
+              "reconnect_at": 5000000000
+            }
+          }
+        ]
+      },
+      {
+        "tick": {
+          "interval": 1,
+          "n": 1
+        },
+        "outputs": [
+          {
+            "label": "wifi",
+            "state": {
+              "status": "connecting",
+              "connected": false,
+              "has_ip": false,
+              "reconnect_at": 0
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

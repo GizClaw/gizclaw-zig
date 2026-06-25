@@ -1,0 +1,77 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "on click connect request keeps wifi disconnected until event",
+    "description": "A WiFi connect request does not mark WiFi connected before the driver reports a connected event.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "display": {
+        "enabled": true,
+        "brightness": 255
+      },
+      "smoke_status": {
+        "round": 0,
+        "ping_rtt_ms": 0,
+        "up_bytes": 0,
+        "down_bytes": 0,
+        "up_total": 0,
+        "down_total": 0,
+        "up_mbps_milli": 0,
+        "down_mbps_milli": 0,
+        "duplex_up_mbps_milli": 0,
+        "duplex_down_mbps_milli": 0,
+        "cpu0_percent": 0,
+        "cpu1_percent": 0,
+        "mem_internal_free_kib": 0,
+        "mem_psram_free_kib": 0
+      },
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "click": 1
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      },
+      {
+        "tick": {
+          "interval": 1,
+          "n": 1
+        },
+        "outputs": [
+          {
+            "label": "wifi",
+            "state": {
+              "connected": false,
+              "has_ip": false
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

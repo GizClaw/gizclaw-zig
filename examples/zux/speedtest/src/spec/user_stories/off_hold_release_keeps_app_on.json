@@ -1,0 +1,102 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "off hold release keeps app on",
+    "description": "Repeating the final long-hold duration on release does not undo power-on.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {},
+      "display": {
+        "enabled": true,
+        "brightness": 255
+      },
+      "smoke_status": {
+        "round": 0,
+        "ping_rtt_ms": 0,
+        "up_bytes": 0,
+        "down_bytes": 0,
+        "up_total": 0,
+        "down_total": 0,
+        "up_mbps_milli": 0,
+        "down_mbps_milli": 0,
+        "duplex_up_mbps_milli": 0,
+        "duplex_down_mbps_milli": 0,
+        "cpu0_percent": 0,
+        "cpu1_percent": 0,
+        "mem_internal_free_kib": 0,
+        "mem_psram_free_kib": 0
+      },
+      "app_state": {
+        "state": "off"
+      },
+      "wifi_state": {
+        "state": "off"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 3000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      },
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 4000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      },
+      {
+        "inputs": [
+          {
+            "button_gesture": {
+              "source_id": 1,
+              "gesture": {
+                "long_press": 4000000000
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "app_state",
+            "state": {
+              "state": "on"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

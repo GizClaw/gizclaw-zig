@@ -1,0 +1,28 @@
+{
+  "kind": "Doc",
+  "spec": [
+    {
+      "kind": "Component/button/single",
+      "spec": {
+        "label": "boot",
+        "id": 1
+      }
+    },
+    {
+      "kind": "Component/wifi/sta",
+      "spec": {
+        "label": "wifi",
+        "id": 2
+      }
+    },
+    {
+      "kind": "Component/display",
+      "spec": {
+        "label": "display",
+        "id": 3,
+        "width": 240,
+        "height": 240
+      }
+    }
+  ]
+}

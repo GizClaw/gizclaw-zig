@@ -1,0 +1,90 @@
+{
+  "kind": "UserStory",
+  "spec": {
+    "name": "wifi sta got ip clears connect timeout",
+    "description": "A WiFi STA got-ip event marks the connection online and clears connect_timeout.",
+    "initial_state": {
+      "boot": {},
+      "wifi": {
+        "connected": true,
+        "has_ip": false,
+        "connected_at": 1,
+        "connect_timeout": true
+      },
+      "display": {
+        "enabled": true,
+        "brightness": 255
+      },
+      "smoke_status": {
+        "round": 0,
+        "ping_rtt_ms": 0,
+        "up_bytes": 0,
+        "down_bytes": 0,
+        "up_total": 0,
+        "down_total": 0,
+        "up_mbps_milli": 0,
+        "down_mbps_milli": 0,
+        "duplex_up_mbps_milli": 0,
+        "duplex_down_mbps_milli": 0,
+        "cpu0_percent": 0,
+        "cpu1_percent": 0,
+        "mem_internal_free_kib": 0,
+        "mem_psram_free_kib": 0
+      },
+      "app_state": {
+        "state": "on"
+      },
+      "wifi_state": {
+        "state": "on"
+      },
+      "gizclaw_state": {
+        "state": "disconnected"
+      }
+    },
+    "steps": [
+      {
+        "inputs": [
+          {
+            "wifi_sta_got_ip": {
+              "source_id": 2,
+              "address": {
+                "bytes": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  192,
+                  168,
+                  4,
+                  115
+                ],
+                "zone": "",
+                "zone_len": 0,
+                "kind": "v4"
+              }
+            }
+          }
+        ],
+        "outputs": [
+          {
+            "label": "wifi",
+            "state": {
+              "connected": true,
+              "has_ip": true,
+              "connected_at": 1,
+              "connect_timeout": false
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
