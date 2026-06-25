@@ -1,6 +1,7 @@
 openteam/
 .*
 !/.gitignore
+!/.gitattributes
 !/.github/
 !/.github/**
 .*zig-*/

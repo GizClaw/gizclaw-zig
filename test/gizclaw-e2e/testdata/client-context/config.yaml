@@ -1,4 +1,0 @@
-server:
-  address: 115.190.62.76:9820
-  public-key: FZvSffUDZbtJWDyqbuDv8nqjYs5jjSuHwZmxDLANVcx7
-  cipher-mode: chacha_poly

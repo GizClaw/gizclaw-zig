@@ -1,6 +1,9 @@
 *
 !.gitignore
-!client-context/
-client-context/*
-!client-context/config.yaml
-!client-context/identity.key
+!chat/
+chat/*
+!chat/roundtrip/
+chat/roundtrip/*
+!chat/roundtrip/README.md
+!chat/roundtrip/manifest.json
+!chat/roundtrip/*.ogg

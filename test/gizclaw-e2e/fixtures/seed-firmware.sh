@@ -230,5 +230,5 @@ Seeded firmware fixture:
   acl_subject=$subject_kind:$subject_id
 
 Run the Zig RPC e2e with:
-  zig build run-gizclaw-e2e-rpc -- --firmware-id $firmware_id --firmware-channel $channel --firmware-artifact $artifact
+  zig build run-gizclaw-e2e-rpc-resources -- --firmware-id $firmware_id
 EOF

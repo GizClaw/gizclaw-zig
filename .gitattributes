@@ -1,0 +1,1 @@
+test/gizclaw-e2e/testdata/chat/roundtrip/*.ogg filter=lfs diff=lfs merge=lfs -text

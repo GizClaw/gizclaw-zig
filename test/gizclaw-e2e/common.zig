@@ -2,6 +2,7 @@ const std = @import("std");
 const giznet = @import("giznet");
 const gizclaw = @import("gizclaw");
 const gstd = @import("gstd");
+const build_config = @import("e2e_build_config");
 
 pub const grt = gstd.runtime;
 pub const key = gizclaw.make(grt, .{}).key;
@@ -9,9 +10,11 @@ pub const chacha_sdk = gizclaw.make(grt, .{ .cipher_kind = .chacha_poly });
 pub const aes_256_gcm_sdk = gizclaw.make(grt, .{ .cipher_kind = .aes_256_gcm });
 pub const plaintext_sdk = gizclaw.make(grt, .{ .cipher_kind = .plaintext });
 
-pub const default_context_dir = "test/gizclaw-e2e/testdata/client-context";
-pub const default_server_addr = "";
-pub const default_server_key = "";
+pub const host_default_context_dir = "../gizclaw-go/test/gizclaw-e2e/testdata/gizclaw-config-home/gizclaw/e2e-client";
+pub const default_server_addr = build_config.server_addr;
+pub const default_server_pub_key = build_config.server_pub_key;
+pub const default_client_pri_key = build_config.client_pri_key;
+pub const default_cipher_mode = build_config.cipher_mode;
 
 pub const CipherMode = enum {
     chacha_poly,
@@ -34,7 +37,7 @@ pub const runtime_options = gizclaw.RuntimeOptions{
 pub const Context = struct {
     allocator: std.mem.Allocator,
     server_addr: []u8,
-    server_key: giznet.Key,
+    server_pub_key: giznet.Key,
     cipher_mode: CipherMode,
     key_pair: giznet.KeyPair,
     connect_timeout: ?grt.time.duration.Duration = null,
@@ -46,37 +49,27 @@ pub const Context = struct {
 };
 
 pub const BaseOptions = struct {
-    context_dir: ?[]const u8 = default_context_dir,
     server_addr: ?[]const u8 = null,
-    server_key: ?[]const u8 = null,
-    client_key: ?[]const u8 = null,
+    server_pub_key: ?[]const u8 = null,
+    client_pri_key: ?[]const u8 = null,
     cipher_mode: ?CipherMode = null,
     connect_timeout_ms: ?i64 = null,
 
     pub fn applyArg(self: *BaseOptions, args: []const []const u8, index: *usize) !bool {
         const arg = args[index.*];
-        if (std.mem.eql(u8, arg, "--context")) {
-            index.* += 1;
-            self.context_dir = try needValue(args, index.*, arg);
-            return true;
-        }
-        if (std.mem.eql(u8, arg, "--no-context")) {
-            self.context_dir = null;
-            return true;
-        }
         if (std.mem.eql(u8, arg, "--server-addr")) {
             index.* += 1;
             self.server_addr = try needValue(args, index.*, arg);
             return true;
         }
-        if (std.mem.eql(u8, arg, "--server-key")) {
+        if (std.mem.eql(u8, arg, "--server-pub-key")) {
             index.* += 1;
-            self.server_key = try needValue(args, index.*, arg);
+            self.server_pub_key = try needValue(args, index.*, arg);
             return true;
         }
-        if (std.mem.eql(u8, arg, "--client-key")) {
+        if (std.mem.eql(u8, arg, "--client-pri-key")) {
             index.* += 1;
-            self.client_key = try needValue(args, index.*, arg);
+            self.client_pri_key = try needValue(args, index.*, arg);
             return true;
         }
         if (std.mem.eql(u8, arg, "--cipher-mode")) {
@@ -93,14 +86,41 @@ pub const BaseOptions = struct {
     }
 };
 
+pub const HostOptions = struct {
+    context_dir: ?[]const u8 = host_default_context_dir,
+
+    pub fn applyArg(self: *HostOptions, args: []const []const u8, index: *usize) !bool {
+        const arg = args[index.*];
+        if (std.mem.eql(u8, arg, "--context")) {
+            index.* += 1;
+            self.context_dir = try needValue(args, index.*, arg);
+            return true;
+        }
+        if (std.mem.eql(u8, arg, "--no-context")) {
+            self.context_dir = null;
+            return true;
+        }
+        return false;
+    }
+};
+
 pub fn loadContext(allocator: std.mem.Allocator, options: BaseOptions) !Context {
-    if (options.context_dir) |dir| {
-        return loadContextDir(allocator, dir, options) catch |err| switch (err) {
-            error.FileNotFound => try loadExplicitContext(allocator, options),
+    var resolved = options;
+    applyBuildDefaults(&resolved);
+    return try loadExplicitContext(allocator, resolved);
+}
+
+pub fn loadHostContext(allocator: std.mem.Allocator, options: BaseOptions, host_options: HostOptions) !Context {
+    var resolved = options;
+    applyBuildDefaults(&resolved);
+    if (hasExplicitConnection(resolved)) return try loadExplicitContext(allocator, resolved);
+    if (host_options.context_dir) |dir| {
+        return loadContextDir(allocator, dir, resolved) catch |err| switch (err) {
+            error.FileNotFound => try loadExplicitContext(allocator, resolved),
             else => return err,
         };
     }
-    return try loadExplicitContext(allocator, options);
+    return try loadExplicitContext(allocator, resolved);
 }
 
 pub fn connectClient(comptime sdk: type, allocator: std.mem.Allocator, ctx: *const Context) !sdk.Client {
@@ -110,7 +130,7 @@ pub fn connectClient(comptime sdk: type, allocator: std.mem.Allocator, ctx: *con
     });
     errdefer client.deinit();
     try client.connect(.{
-        .server_key = ctx.server_key,
+        .server_key = ctx.server_pub_key,
         .server_addr = ctx.server_addr,
         .connect_timeout = ctx.connect_timeout,
     });
@@ -132,11 +152,6 @@ pub const Summary = struct {
         try self.out.print("PASS {s}\n", .{name});
     }
 
-    pub fn skip(self: *Summary, name: []const u8, reason: []const u8) !void {
-        self.skipped += 1;
-        try self.out.print("SKIP {s}: {s}\n", .{ name, reason });
-    }
-
     pub fn fail(self: *Summary, name: []const u8, err: anyerror) !void {
         self.failed += 1;
         try self.out.print("FAIL {s}: {s}\n", .{ name, @errorName(err) });
@@ -149,15 +164,17 @@ pub const Summary = struct {
 };
 
 fn loadExplicitContext(allocator: std.mem.Allocator, options: BaseOptions) !Context {
-    const server_key_text = options.server_key orelse default_server_key;
-    const client_key_text = options.client_key orelse return error.MissingClientPrivateKey;
-    _ = key.parse(server_key_text) catch return error.InvalidServerPublicKey;
-    _ = key.parse(client_key_text) catch return error.InvalidClientPrivateKey;
+    const server_pub_key_text = options.server_pub_key orelse default_server_pub_key;
+    const client_pri_key_text = options.client_pri_key orelse default_client_pri_key;
+    if (server_pub_key_text.len == 0) return error.MissingServerPublicKey;
+    if (client_pri_key_text.len == 0) return error.MissingClientPrivateKey;
+    _ = key.parse(server_pub_key_text) catch return error.InvalidServerPublicKey;
+    _ = key.parse(client_pri_key_text) catch return error.InvalidClientPrivateKey;
 
     const config = try chacha_sdk.Context.fromExplicit(.{
         .server_addr = options.server_addr orelse default_server_addr,
-        .server_key = server_key_text,
-        .client_key = client_key_text,
+        .server_key = server_pub_key_text,
+        .client_key = client_pri_key_text,
         .cipher_kind = if (options.cipher_mode) |mode| toCipherKind(mode) else .chacha_poly,
         .runtime_options = runtime_options,
         .connect_timeout = connectTimeout(options),
@@ -169,14 +186,29 @@ fn loadContextDir(allocator: std.mem.Allocator, dir: []const u8, options: BaseOp
     var config = try chacha_sdk.Context.fromHostDir(allocator, .{
         .context_dir = dir,
         .server_addr = options.server_addr,
-        .server_key = options.server_key,
-        .client_key = options.client_key,
+        .server_key = options.server_pub_key,
+        .client_key = options.client_pri_key,
         .cipher_kind = if (options.cipher_mode) |mode| toCipherKind(mode) else null,
         .runtime_options = runtime_options,
         .connect_timeout = connectTimeout(options),
     });
     defer config.deinit();
     return try contextFromSdkConfig(allocator, config.config);
+}
+
+fn applyBuildDefaults(options: *BaseOptions) void {
+    if (options.server_addr == null and default_server_addr.len != 0) {
+        options.server_addr = default_server_addr;
+    }
+    if (options.server_pub_key == null and default_server_pub_key.len != 0) {
+        options.server_pub_key = default_server_pub_key;
+    }
+    if (options.client_pri_key == null and default_client_pri_key.len != 0) {
+        options.client_pri_key = default_client_pri_key;
+    }
+    if (options.cipher_mode == null and default_cipher_mode.len != 0) {
+        options.cipher_mode = parseCipherMode(default_cipher_mode) catch null;
+    }
 }
 
 fn connectTimeout(options: BaseOptions) ?grt.time.duration.Duration {
@@ -188,11 +220,21 @@ fn contextFromSdkConfig(allocator: std.mem.Allocator, config: chacha_sdk.Context
     return .{
         .allocator = allocator,
         .server_addr = try allocator.dupe(u8, config.server_addr),
-        .server_key = config.server_key,
+        .server_pub_key = config.server_key,
         .cipher_mode = try cipherModeFromKind(config.cipher_kind),
         .key_pair = config.key_pair,
         .connect_timeout = config.connect_timeout,
     };
+}
+
+fn hasExplicitConnection(options: BaseOptions) bool {
+    return nonEmpty(options.server_addr) and
+        nonEmpty(options.server_pub_key) and
+        nonEmpty(options.client_pri_key);
+}
+
+fn nonEmpty(value: ?[]const u8) bool {
+    return if (value) |bytes| bytes.len != 0 else false;
 }
 
 fn toCipherKind(mode: CipherMode) giznet.noise.Cipher.Kind {

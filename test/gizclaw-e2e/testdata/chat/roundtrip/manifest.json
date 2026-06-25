@@ -1,0 +1,19 @@
+{
+  "rounds": [
+    {
+      "index": 1,
+      "audio": "round-01.ogg",
+      "text": "请问你能听清楚我说话吗"
+    },
+    {
+      "index": 2,
+      "audio": "round-02.ogg",
+      "text": "请用一句话回答你现在状态好吗"
+    },
+    {
+      "index": 3,
+      "audio": "round-03.ogg",
+      "text": "好的我们继续下一轮测试"
+    }
+  ]
+}

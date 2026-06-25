@@ -148,6 +148,28 @@ pub fn createGizClawE2E(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) void {
+    const e2e_build_config = b.addOptions();
+    e2e_build_config.addOption(
+        []const u8,
+        "server_addr",
+        b.option([]const u8, "gizclaw_e2e_server_addr", "Override GizClaw e2e server address") orelse "",
+    );
+    e2e_build_config.addOption(
+        []const u8,
+        "server_pub_key",
+        b.option([]const u8, "gizclaw_e2e_server_pub_key", "Override GizClaw e2e server public key") orelse "",
+    );
+    e2e_build_config.addOption(
+        []const u8,
+        "client_pri_key",
+        b.option([]const u8, "gizclaw_e2e_client_pri_key", "Override GizClaw e2e client private key") orelse "",
+    );
+    e2e_build_config.addOption(
+        []const u8,
+        "cipher_mode",
+        b.option([]const u8, "gizclaw_e2e_cipher_mode", "Override GizClaw e2e cipher mode") orelse "",
+    );
+
     const common_mod = b.createModule(.{
         .root_source_file = b.path("test/gizclaw-e2e/common.zig"),
         .target = target,
@@ -156,6 +178,7 @@ pub fn createGizClawE2E(
             .{ .name = "gizclaw", .module = b.modules.get("gizclaw") orelse @panic("missing module: gizclaw") },
             .{ .name = "giznet", .module = b.modules.get("giznet") orelse @panic("missing module: giznet") },
             .{ .name = "gstd", .module = b.modules.get("gstd") orelse @panic("missing module: gstd") },
+            .{ .name = "e2e_build_config", .module = e2e_build_config.createModule() },
         },
     });
 
@@ -168,19 +191,31 @@ pub fn createGizClawE2E(
     const entries = [_]Entry{
         .{
             .name = "gizclaw-e2e-rpc",
-            .root = "test/gizclaw-e2e/rpc/main.zig",
+            .root = "test/gizclaw-e2e/client/rpc/main.zig",
             .step = "run-gizclaw-e2e-rpc",
             .description = "Run GizClaw RPC e2e checks against a remote server",
         },
         .{
-            .name = "gizclaw-e2e-workspace",
-            .root = "test/gizclaw-e2e/workspace/main.zig",
-            .step = "run-gizclaw-e2e-workspace",
-            .description = "Run GizClaw workspace e2e checks against a remote server",
+            .name = "gizclaw-e2e-rpc-server-run",
+            .root = "test/gizclaw-e2e/client/rpc/server_run_main.zig",
+            .step = "run-gizclaw-e2e-rpc-server-run",
+            .description = "Run GizClaw server-run RPC e2e checks against a remote server",
+        },
+        .{
+            .name = "gizclaw-e2e-rpc-resources",
+            .root = "test/gizclaw-e2e/client/rpc/resources_main.zig",
+            .step = "run-gizclaw-e2e-rpc-resources",
+            .description = "Run GizClaw resource RPC e2e checks against a remote server",
+        },
+        .{
+            .name = "gizclaw-e2e-chat",
+            .root = "test/gizclaw-e2e/client/chat/main.zig",
+            .step = "run-gizclaw-e2e-chat",
+            .description = "Run GizClaw chat e2e checks against a remote server",
         },
         .{
             .name = "gizclaw-e2e-speed",
-            .root = "test/gizclaw-e2e/speed/main.zig",
+            .root = "test/gizclaw-e2e/client/speed/main.zig",
             .step = "run-gizclaw-e2e-speed",
             .description = "Run GizClaw speed-test RPC e2e checks against a remote server",
         },
