@@ -11,7 +11,6 @@ pub const Direction = PerfServer.Direction;
 pub const Config = PerfServer.Config;
 pub const Counters = PerfServer.Counters;
 pub const Result = PerfServer.Result;
-pub const KcpParams = PerfServer.KcpParams;
 pub const default_control_protocol = PerfServer.default_control_protocol;
 pub const default_packet_protocol = PerfServer.default_packet_protocol;
 pub const default_stream_service = PerfServer.default_stream_service;

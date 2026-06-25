@@ -49,15 +49,6 @@ const FrameKind = enum(u8) {
     result = 2,
 };
 
-pub const KcpParams = struct {
-    send_window: u32 = 0,
-    recv_window: u32 = 0,
-    nodelay: u8 = 0,
-    interval_ms: u32 = 0,
-    resend: u32 = 0,
-    nc: u8 = 0,
-};
-
 pub const Config = struct {
     mode: Mode = .peer_packet,
     direction: Direction = .up,
@@ -69,7 +60,6 @@ pub const Config = struct {
     stream_bytes: u64 = 1024 * 1024,
     stream_chunk_size: u32 = 8192,
     timeout: glib.time.duration.Duration = default_timeout,
-    kcp: KcpParams = .{},
 };
 
 pub const Counters = struct {
@@ -422,13 +412,6 @@ pub fn encodeRequest(buf: []u8, config: Config) !usize {
     c.putU64(config.stream_bytes);
     c.putU32(config.stream_chunk_size);
     c.putU32(@intCast(@divTrunc(config.timeout, glib.time.duration.MilliSecond)));
-    c.putU32(config.kcp.send_window);
-    c.putU32(config.kcp.recv_window);
-    c.putU8(config.kcp.nodelay);
-    c.putU8(config.kcp.nc);
-    c.putU16(0);
-    c.putU32(config.kcp.interval_ms);
-    c.putU32(config.kcp.resend);
     c.zeroTo(request_wire_size);
     return request_wire_size;
 }
@@ -455,17 +438,6 @@ pub fn decodeRequest(buf: []const u8) !Config {
         .stream_bytes = c.getU64(),
         .stream_chunk_size = c.getU32(),
         .timeout = @as(glib.time.duration.Duration, c.getU32()) * glib.time.duration.MilliSecond,
-        .kcp = .{
-            .send_window = c.getU32(),
-            .recv_window = c.getU32(),
-            .nodelay = c.getU8(),
-            .nc = c.getU8(),
-            .interval_ms = blk: {
-                _ = c.getU16();
-                break :blk c.getU32();
-            },
-            .resend = c.getU32(),
-        },
     };
 }
 
