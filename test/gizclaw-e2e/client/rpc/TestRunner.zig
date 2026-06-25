@@ -14,10 +14,11 @@ pub const Config = struct {
 };
 
 pub const Fixtures = struct {
-    workspace: ?[]const u8 = "e2e-rpc-history-workspace",
-    run_workspace: ?[]const u8 = "e2e-rpc-run-workspace",
-    voice_id: ?[]const u8 = "e2e-rpc-voice",
-    firmware_id: ?[]const u8 = "e2e-rpc-firmware",
+    workspace: ?[]const u8 = "workspace-history-demo",
+    run_workspace: ?[]const u8 = "workspace-direct-chat-demo",
+    credential_name: ?[]const u8 = "openai-catalog-credential",
+    voice_id: ?[]const u8 = "minimax-catalog-voice",
+    firmware_id: ?[]const u8 = "devkit-firmware-main",
 };
 
 pub const Summary = struct {
@@ -47,15 +48,15 @@ pub fn run(comptime sdk: type, allocator: mem.Allocator, config: Config, reporte
 pub fn runWithContext(comptime sdk: type, allocator: mem.Allocator, ctx: common.Context, config: Config, reporter: anytype) !Summary {
     _ = allocator;
     var summary = Summary{};
-    var client = common.connectClient(sdk, ctx.allocator, &ctx) catch |err| {
+    const client = common.connectClient(sdk, ctx.allocator, &ctx) catch |err| {
         try recordFail(&summary, reporter, "Connect", err);
         return summary;
     };
-    defer client.deinit();
+    defer common.disconnectClient(sdk, ctx.allocator, client);
 
     try recordPass(&summary, reporter, "Connect");
-    try client_case.run(sdk, &client, &summary, reporter);
-    try server_info.run(sdk, &client, &summary, reporter);
+    try client_case.run(sdk, client, &summary, reporter);
+    try server_info.run(sdk, client, &summary, reporter);
     _ = config;
     return summary;
 }

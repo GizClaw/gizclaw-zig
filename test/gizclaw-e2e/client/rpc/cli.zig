@@ -37,6 +37,9 @@ fn Options(comptime Runner: type) type {
                 } else if (std.mem.eql(u8, arg, "--run-workspace")) {
                     i += 1;
                     out.config.fixtures.run_workspace = try common.needValue(args, i, arg);
+                } else if (std.mem.eql(u8, arg, "--credential-name")) {
+                    i += 1;
+                    out.config.fixtures.credential_name = try common.needValue(args, i, arg);
                 } else if (std.mem.eql(u8, arg, "--voice-id")) {
                     i += 1;
                     out.config.fixtures.voice_id = try common.needValue(args, i, arg);
@@ -88,14 +91,15 @@ fn printUsage() !void {
         \\RPC fixtures:
         \\  --workspace NAME
         \\  --run-workspace NAME
+        \\  --credential-name NAME
         \\  --voice-id ID
         \\  --firmware-id ID
         \\  --allow-mutations
         \\
         \\Build defaults:
-        \\  -Dgizclaw_e2e_server_addr=ADDR
-        \\  -Dgizclaw_e2e_server_pub_key=KEY
-        \\  -Dgizclaw_e2e_client_pri_key=KEY
+        \\  -Dserver_addr=ADDR
+        \\  -Dserver_pub_key=KEY
+        \\  -Dclient_pri_key=KEY
         \\
     );
 }

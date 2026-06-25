@@ -1,10 +1,10 @@
-const common = @import("common");
+const common = @import("e2e_common");
 
 const grt = common.grt;
 const mem = grt.std.mem;
 const duration = grt.time.duration;
 
-pub const default_bytes: i64 = 10 * 1024 * 1024;
+pub const default_bytes: i64 = 5 * 1024 * 1024;
 pub const default_timeout_ms: i64 = 180_000;
 
 pub const Config = struct {
@@ -22,8 +22,8 @@ pub const Summary = struct {
     up_bytes: i64 = 0,
     down_bytes: i64 = 0,
     duration_ns: u64 = 0,
-    up_mbps: f64 = 0,
-    down_mbps: f64 = 0,
+    up_mbps_milli: u64 = 0,
+    down_mbps_milli: u64 = 0,
 
     pub fn pass(self: *Summary) void {
         self.passed += 1;
@@ -33,16 +33,6 @@ pub const Summary = struct {
         self.failed += 1;
     }
 };
-
-pub fn run(comptime sdk: type, allocator: mem.Allocator, config: Config, reporter: anytype) !Summary {
-    var ctx = common.loadContext(allocator, config.base) catch |err| {
-        var summary = Summary{};
-        try recordFail(&summary, reporter, "Connect", err);
-        return summary;
-    };
-    defer ctx.deinit();
-    return runWithContext(sdk, allocator, ctx, config, reporter);
-}
 
 pub fn runWithContext(comptime sdk: type, allocator: mem.Allocator, ctx: common.Context, config: Config, reporter: anytype) !Summary {
     var summary = Summary{};
@@ -75,8 +65,8 @@ pub fn runWithContext(comptime sdk: type, allocator: mem.Allocator, ctx: common.
     summary.up_bytes = result.up_bytes;
     summary.down_bytes = result.down_bytes;
     summary.duration_ns = @intCast(result.duration_ns);
-    summary.up_mbps = result.upMbps();
-    summary.down_mbps = result.downMbps();
+    summary.up_mbps_milli = mbpsMilli(result.up_bytes, result.duration_ns);
+    summary.down_mbps_milli = mbpsMilli(result.down_bytes, result.duration_ns);
     try reporter.speed(summary);
     try recordPass(&summary, reporter, "SpeedTest");
     return summary;
@@ -90,4 +80,9 @@ fn recordPass(summary: *Summary, reporter: anytype, name: []const u8) !void {
 fn recordFail(summary: *Summary, reporter: anytype, name: []const u8, err: anyerror) !void {
     summary.fail();
     try reporter.fail(name, err);
+}
+
+fn mbpsMilli(bytes: i64, duration_ns: i128) u64 {
+    if (bytes <= 0 or duration_ns <= 0) return 0;
+    return @intCast(@divTrunc(@as(i128, bytes) * 8_000_000, duration_ns));
 }

@@ -63,6 +63,17 @@ zig build run-gizclaw-e2e-rpc-server-run -- --connect-timeout-ms 5000
 zig build run-gizclaw-e2e-rpc-resources -- --connect-timeout-ms 5000
 ```
 
+The RPC fixture defaults match the shared `gizclaw-go` catalog:
+
+- workspace: `workspace-history-demo`
+- run workspace: `workspace-direct-chat-demo`
+- credential: `openai-catalog-credential`
+- voice: `minimax-catalog-voice`
+- firmware: `devkit-firmware-main`
+
+Override them with `--workspace`, `--run-workspace`, `--credential-name`,
+`--voice-id`, and `--firmware-id` when testing a different catalog.
+
 ## Chat Runner
 
 ```sh

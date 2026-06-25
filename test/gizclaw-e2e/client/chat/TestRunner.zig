@@ -77,11 +77,11 @@ pub fn runWithContext(comptime sdk: type, allocator: mem.Allocator, ctx: common.
         return summary;
     }
 
-    var client = common.connectClient(sdk, ctx.allocator, &ctx) catch |err| {
+    const client = common.connectClient(sdk, ctx.allocator, &ctx) catch |err| {
         try recordFail(&summary, reporter, "Connect", err);
         return summary;
     };
-    defer client.deinit();
+    defer common.disconnectClient(sdk, ctx.allocator, client);
 
     try recordPass(&summary, reporter, "Connect");
     const ping_started = grt.time.instant.now();
@@ -93,18 +93,18 @@ pub fn runWithContext(comptime sdk: type, allocator: mem.Allocator, ctx: common.
         try recordFail(&summary, reporter, "Ping", err);
     }
 
-    try ensureWorkspace(sdk, allocator, &client, &summary, reporter, config);
+    try ensureWorkspace(sdk, allocator, client, &summary, reporter, config);
 
     var workspace_ready = false;
     if (config.workspace_name) |workspace| {
-        workspace_ready = try selectWorkspace(sdk, &client, &summary, reporter, workspace, config.run_timeout_ms);
+        workspace_ready = try selectWorkspace(sdk, client, &summary, reporter, workspace, config.run_timeout_ms);
     } else {
         try recordFail(&summary, reporter, "WorkspaceRun", error.MissingWorkspaceName);
     }
-    try peerStreamSmoke(sdk, &client, &summary, reporter, config.stream_smoke_timeout_ms);
+    try peerStreamSmoke(sdk, client, &summary, reporter, config.stream_smoke_timeout_ms);
 
     switch (config.mode) {
-        .push_to_talk => try runPushToTalk(sdk, allocator, &client, &summary, reporter, config, workspace_ready),
+        .push_to_talk => try runPushToTalk(sdk, allocator, client, &summary, reporter, config, workspace_ready),
         .realtime => try recordFail(&summary, reporter, "RealtimeRoundtrip", error.RealtimeRoundtripNotImplemented),
     }
 
@@ -316,8 +316,27 @@ fn buildWorkspaceDocument(comptime models: type, config: WorkspaceConfig, name: 
 }
 
 fn selectWorkspace(comptime sdk: type, client: *sdk.Client, summary: *Summary, reporter: anytype, workspace: []const u8, timeout_ms: u32) !bool {
-    try parsed(summary, reporter, "SetServerRunWorkspace", client.setServerRunWorkspace(.{ .workspace_name = workspace }));
-    try parsed(summary, reporter, "ReloadServerRunWorkspace", client.reloadServerRunWorkspace());
+    const log = grt.std.log.scoped(.gizclaw_e2e_chat);
+    log.info("select workspace target={s}", .{workspace});
+
+    if (client.setServerRunWorkspace(.{ .workspace_name = workspace })) |set_result| {
+        var set_state = set_result;
+        defer set_state.deinit();
+        logWorkspaceState("after_set_workspace", set_state.value);
+        try recordPass(summary, reporter, "SetServerRunWorkspace");
+    } else |err| {
+        try recordFail(summary, reporter, "SetServerRunWorkspace", err);
+    }
+
+    if (client.reloadServerRunWorkspace()) |reload_result| {
+        var reload_state = reload_result;
+        defer reload_state.deinit();
+        logWorkspaceState("after_reload_workspace", reload_state.value);
+        try recordPass(summary, reporter, "ReloadServerRunWorkspace");
+    } else |err| {
+        log.err("reload workspace failed target={s} err={s}", .{ workspace, @errorName(err) });
+        try recordFail(summary, reporter, "ReloadServerRunWorkspace", err);
+    }
 
     const started = grt.time.instant.now();
     const timeout: duration.Duration = @as(duration.Duration, @intCast(@max(timeout_ms, 1))) * duration.MilliSecond;
@@ -342,6 +361,17 @@ fn selectWorkspace(comptime sdk: type, client: *sdk.Client, summary: *Summary, r
     }
     try recordFail(summary, reporter, "WaitServerRunWorkspace", error.WorkspaceRunTimeout);
     return false;
+}
+
+fn logWorkspaceState(stage: []const u8, state: anytype) void {
+    const log = grt.std.log.scoped(.gizclaw_e2e_chat);
+    log.info("{s} runtime_state={s} workspace={s} active={s} selected={s}", .{
+        stage,
+        state.runtime_state,
+        state.workspace_name,
+        state.active_workspace_name orelse "",
+        state.selected_workspace_name orelse "",
+    });
 }
 
 fn peerStreamSmoke(comptime sdk: type, client: *sdk.Client, summary: *Summary, reporter: anytype, timeout_ms: u32) !void {
@@ -410,8 +440,8 @@ fn runPushToTalk(comptime sdk: type, allocator: mem.Allocator, client: *sdk.Clie
         try reporter.metric("ptt_output_packets", @intCast(summary.output_packets), "");
         try reporter.metric("ptt_events", @intCast(summary.events), "");
         if (summary.rounds > 0) {
-            try reporter.metric("ptt_avg_response_ms", @intCast(@divTrunc(summary.total_response_ns, summary.rounds * duration.MilliSecond)), "ms");
-            try reporter.metric("ptt_worst_response_ms", @intCast(@divTrunc(summary.worst_response_ns, duration.MilliSecond)), "ms");
+            try reporter.metric("ptt_avg_response_ms", @divTrunc(nsToMs(summary.total_response_ns), @as(u64, @intCast(summary.rounds))), "ms");
+            try reporter.metric("ptt_worst_response_ms", nsToMs(summary.worst_response_ns), "ms");
         }
         try recordPass(summary, reporter, "PushToTalkRoundtrip");
         return;
@@ -594,13 +624,17 @@ fn reportRound(reporter: anytype, round: RoundSummary) !void {
     try reporter.metric("round_output_packets", @intCast(round.output_packets), "");
     try reporter.metric("round_output_bytes", @intCast(round.output_bytes), "B");
     try reporter.metric("round_events", @intCast(round.events), "");
-    try reporter.metric("round_uplink_ms", @intCast(@divTrunc(round.uplink_ns, duration.MilliSecond)), "ms");
-    try reporter.metric("round_response_ms", @intCast(@divTrunc(round.response_ns, duration.MilliSecond)), "ms");
-    try reporter.metric("round_first_transcript_ms", @intCast(@divTrunc(round.first_transcript_ns, duration.MilliSecond)), "ms");
-    try reporter.metric("round_transcript_done_ms", @intCast(@divTrunc(round.transcript_done_ns, duration.MilliSecond)), "ms");
-    try reporter.metric("round_first_assistant_text_ms", @intCast(@divTrunc(round.first_assistant_text_ns, duration.MilliSecond)), "ms");
-    try reporter.metric("round_assistant_text_done_ms", @intCast(@divTrunc(round.assistant_text_done_ns, duration.MilliSecond)), "ms");
-    try reporter.metric("round_first_audio_ms", @intCast(@divTrunc(round.first_audio_ns, duration.MilliSecond)), "ms");
+    try reporter.metric("round_uplink_ms", nsToMs(round.uplink_ns), "ms");
+    try reporter.metric("round_response_ms", nsToMs(round.response_ns), "ms");
+    try reporter.metric("round_first_transcript_ms", nsToMs(round.first_transcript_ns), "ms");
+    try reporter.metric("round_transcript_done_ms", nsToMs(round.transcript_done_ns), "ms");
+    try reporter.metric("round_first_assistant_text_ms", nsToMs(round.first_assistant_text_ns), "ms");
+    try reporter.metric("round_assistant_text_done_ms", nsToMs(round.assistant_text_done_ns), "ms");
+    try reporter.metric("round_first_audio_ms", nsToMs(round.first_audio_ns), "ms");
+}
+
+fn nsToMs(ns: u64) u64 {
+    return @divTrunc(ns, @as(u64, @intCast(duration.MilliSecond)));
 }
 
 const OpusPackets = struct {

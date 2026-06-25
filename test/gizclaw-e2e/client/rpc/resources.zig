@@ -4,7 +4,7 @@ pub fn run(comptime sdk: type, client: *sdk.Client, summary: *TestRunner.Summary
     try workspaceChecks(sdk, client, summary, reporter, config);
     try workflowChecks(sdk, client, summary, reporter);
     try modelChecks(sdk, client, summary, reporter);
-    try credentialChecks(sdk, client, summary, reporter);
+    try credentialChecks(sdk, client, summary, reporter, config);
     try voiceChecks(sdk, client, summary, reporter, config);
     try firmwareChecks(sdk, client, summary, reporter, config);
 
@@ -49,11 +49,13 @@ fn modelChecks(comptime sdk: type, client: *sdk.Client, summary: *TestRunner.Sum
     }
 }
 
-fn credentialChecks(comptime sdk: type, client: *sdk.Client, summary: *TestRunner.Summary, reporter: anytype) !void {
+fn credentialChecks(comptime sdk: type, client: *sdk.Client, summary: *TestRunner.Summary, reporter: anytype, config: TestRunner.Config) !void {
     var page = client.listCredentials(.{ .limit = 1 }) catch |err| return TestRunner.recordFail(summary, reporter, "ListCredentials", err);
     defer page.deinit();
     try TestRunner.recordPass(summary, reporter, "ListCredentials");
-    if (page.value.items.len != 0) {
+    if (config.fixtures.credential_name) |credential_name| {
+        try TestRunner.parsed(summary, reporter, "GetCredential", client.getCredential(.{ .name = credential_name }));
+    } else if (page.value.items.len != 0) {
         try TestRunner.parsed(summary, reporter, "GetCredential", client.getCredential(.{ .name = page.value.items[0].name }));
     } else {
         try TestRunner.recordFail(summary, reporter, "GetCredential", error.MissingCredentialFixture);

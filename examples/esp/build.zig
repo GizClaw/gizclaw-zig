@@ -12,6 +12,14 @@ const default_chat_mode = "push_to_talk";
 const default_giznet_suite = "service";
 const default_giznet_relay_host = "192.168.1.6";
 const default_giznet_relay_base_port: u16 = 39001;
+const default_e2e_suite = "speed";
+const default_e2e_cipher_mode = "chacha_poly";
+const default_e2e_connect_timeout_ms: i64 = 30_000;
+const default_e2e_speed_bytes: u64 = 5 * 1024 * 1024;
+const default_e2e_speed_timeout_ms: i64 = 180_000;
+const default_e2e_chat_rounds: u32 = 3;
+const default_e2e_chat_run_timeout_ms: u32 = 30_000;
+const default_e2e_chat_conversation_timeout_ms: u32 = 10_000;
 
 const SmokeBuildConfig = struct {
     wifi_ssid: []const u8,
@@ -19,18 +27,30 @@ const SmokeBuildConfig = struct {
     gizclaw_server_addr: []const u8,
     gizclaw_server_key: []const u8,
     gizclaw_client_key: []const u8,
+    server_addr: []const u8,
+    server_pub_key: []const u8,
+    client_pri_key: []const u8,
     chat_workspace: []const u8,
     chat_workflow: []const u8,
     chat_default_mode: []const u8,
     giznet_suite: []const u8,
     giznet_relay_host: []const u8,
     giznet_relay_base_port: u16,
+    e2e_suite: []const u8,
+    e2e_cipher_mode: []const u8,
+    e2e_connect_timeout_ms: i64,
+    e2e_allow_mutations: bool,
+    e2e_speed_bytes: u64,
+    e2e_speed_timeout_ms: i64,
+    e2e_chat_rounds: u32,
+    e2e_chat_run_timeout_ms: u32,
+    e2e_chat_conversation_timeout_ms: u32,
 };
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const board_name = b.option([]const u8, "board", "Board under esp.embed.boards") orelse "devkit";
-    const app_name = b.option([]const u8, "app", "Selected Zux app: speedtest, giznet, or chat_smoke") orelse "speedtest";
+    const app_name = b.option([]const u8, "app", "Selected Zux app: speedtest, giznet, e2e, or chat_smoke") orelse "speedtest";
     const smoke_config = smokeBuildConfigFromOptions(b);
 
     const embed_build_dep = b.dependency("embed", .{});
@@ -122,10 +142,14 @@ fn createSelectedApp(
         b.path("../zux/speedtest/src/app.zig")
     else if (std.mem.eql(u8, app_name, "giznet"))
         b.path("../zux/giznet/src/app.zig")
+    else if (std.mem.eql(u8, app_name, "e2e"))
+        b.path("../zux/e2e/src/app.zig")
     else if (std.mem.eql(u8, app_name, "chat_smoke"))
         b.path("../zux/chat_smoke/src/app.zig")
     else
-        std.debug.panic("unknown zux app: {s}; expected speedtest, giznet, or chat_smoke", .{app_name});
+        std.debug.panic("unknown zux app: {s}; expected speedtest, giznet, e2e, or chat_smoke", .{app_name});
+
+    const e2e_modules = createE2EModules(b, target, optimize, gizclaw_dep, embed_dep.module("esp"), smoke_config);
 
     const module = b.createModule(.{
         .root_source_file = root_source_file,
@@ -139,6 +163,9 @@ fn createSelectedApp(
             .{ .name = "kcp", .module = gizclaw_dep.module("kcp") },
             .{ .name = "launcher", .module = embed_dep.module("apps/launcher") },
             .{ .name = "lvgl", .module = embed_dep.module("thirdparty/lvgl") },
+            .{ .name = "e2e_assets", .module = e2e_modules.assets },
+            .{ .name = "e2e_common", .module = e2e_modules.common },
+            .{ .name = "e2e_runners", .module = e2e_modules.runners },
         },
     });
     module.addOptions("build_config", smokeBuildConfigOptions(b, smoke_config));
@@ -146,18 +173,33 @@ fn createSelectedApp(
 }
 
 fn smokeBuildConfigFromOptions(b: *std.Build) SmokeBuildConfig {
+    const gizclaw_server_addr = b.option([]const u8, "gizclaw_server_addr", "GizClaw server host:port") orelse default_gizclaw_server_addr;
+    const gizclaw_server_key = b.option([]const u8, "gizclaw_server_key", "GizClaw server public key") orelse default_gizclaw_server_key;
+    const gizclaw_client_key = b.option([]const u8, "gizclaw_client_key", "GizClaw client private key") orelse default_gizclaw_client_key;
     return .{
         .wifi_ssid = b.option([]const u8, "wifi_ssid", "WiFi SSID for the zux speedtest app") orelse default_wifi_ssid,
         .wifi_password = b.option([]const u8, "wifi_password", "WiFi password for the zux speedtest app") orelse default_wifi_password,
-        .gizclaw_server_addr = b.option([]const u8, "gizclaw_server_addr", "GizClaw server host:port") orelse default_gizclaw_server_addr,
-        .gizclaw_server_key = b.option([]const u8, "gizclaw_server_key", "GizClaw server public key") orelse default_gizclaw_server_key,
-        .gizclaw_client_key = b.option([]const u8, "gizclaw_client_key", "GizClaw client private key") orelse default_gizclaw_client_key,
+        .gizclaw_server_addr = gizclaw_server_addr,
+        .gizclaw_server_key = gizclaw_server_key,
+        .gizclaw_client_key = gizclaw_client_key,
+        .server_addr = b.option([]const u8, "server_addr", "GizClaw e2e server host:port") orelse gizclaw_server_addr,
+        .server_pub_key = b.option([]const u8, "server_pub_key", "GizClaw e2e server public key") orelse gizclaw_server_key,
+        .client_pri_key = b.option([]const u8, "client_pri_key", "GizClaw e2e client private key") orelse gizclaw_client_key,
         .chat_workspace = b.option([]const u8, "chat_workspace", "GizClaw chat smoke workspace name") orelse default_chat_workspace,
         .chat_workflow = b.option([]const u8, "chat_workflow", "GizClaw chat smoke workflow name") orelse default_chat_workflow,
         .chat_default_mode = b.option([]const u8, "chat_default_mode", "GizClaw chat smoke mode: push_to_talk or realtime") orelse default_chat_mode,
         .giznet_suite = b.option([]const u8, "giznet_suite", "GizNet suite: service, kcp_stream, kcp_stream_real_udp, kcp_stream_relay_udp, noise, giz_net, or all") orelse default_giznet_suite,
         .giznet_relay_host = b.option([]const u8, "giznet_relay_host", "Host IP for the kcp_stream_relay_udp suite") orelse default_giznet_relay_host,
         .giznet_relay_base_port = b.option(u16, "giznet_relay_base_port", "Base UDP port for the kcp_stream_relay_udp suite") orelse default_giznet_relay_base_port,
+        .e2e_suite = b.option([]const u8, "e2e_suite", "GizClaw e2e suite: rpc, rpc_server_run, rpc_resources, speed, chat, or all") orelse default_e2e_suite,
+        .e2e_cipher_mode = b.option([]const u8, "e2e_cipher_mode", "GizClaw e2e cipher mode: chacha_poly, aes_256_gcm, or plaintext") orelse default_e2e_cipher_mode,
+        .e2e_connect_timeout_ms = b.option(i64, "e2e_connect_timeout_ms", "GizClaw e2e connect timeout in milliseconds") orelse default_e2e_connect_timeout_ms,
+        .e2e_allow_mutations = b.option(bool, "e2e_allow_mutations", "Allow GizClaw e2e mutation RPC checks") orelse false,
+        .e2e_speed_bytes = b.option(u64, "e2e_speed_bytes", "GizClaw e2e speed-test bytes per direction") orelse default_e2e_speed_bytes,
+        .e2e_speed_timeout_ms = b.option(i64, "e2e_speed_timeout_ms", "GizClaw e2e speed-test timeout in milliseconds") orelse default_e2e_speed_timeout_ms,
+        .e2e_chat_rounds = b.option(u32, "e2e_chat_rounds", "GizClaw e2e chat rounds") orelse default_e2e_chat_rounds,
+        .e2e_chat_run_timeout_ms = b.option(u32, "e2e_chat_run_timeout_ms", "GizClaw e2e chat run timeout in milliseconds") orelse default_e2e_chat_run_timeout_ms,
+        .e2e_chat_conversation_timeout_ms = b.option(u32, "e2e_chat_conversation_timeout_ms", "GizClaw e2e chat conversation timeout in milliseconds") orelse default_e2e_chat_conversation_timeout_ms,
     };
 }
 
@@ -168,13 +210,108 @@ fn smokeBuildConfigOptions(b: *std.Build, config: SmokeBuildConfig) *std.Build.S
     options.addOption([]const u8, "gizclaw_server_addr", config.gizclaw_server_addr);
     options.addOption([]const u8, "gizclaw_server_key", config.gizclaw_server_key);
     options.addOption([]const u8, "gizclaw_client_key", config.gizclaw_client_key);
+    options.addOption([]const u8, "server_addr", config.server_addr);
+    options.addOption([]const u8, "server_pub_key", config.server_pub_key);
+    options.addOption([]const u8, "client_pri_key", config.client_pri_key);
     options.addOption([]const u8, "chat_workspace", config.chat_workspace);
     options.addOption([]const u8, "chat_workflow", config.chat_workflow);
     options.addOption([]const u8, "chat_default_mode", config.chat_default_mode);
     options.addOption([]const u8, "giznet_suite", config.giznet_suite);
     options.addOption([]const u8, "giznet_relay_host", config.giznet_relay_host);
     options.addOption(u16, "giznet_relay_base_port", config.giznet_relay_base_port);
+    options.addOption([]const u8, "e2e_suite", config.e2e_suite);
+    options.addOption([]const u8, "e2e_cipher_mode", config.e2e_cipher_mode);
+    options.addOption(i64, "e2e_connect_timeout_ms", config.e2e_connect_timeout_ms);
+    options.addOption(bool, "e2e_allow_mutations", config.e2e_allow_mutations);
+    options.addOption(u64, "e2e_speed_bytes", config.e2e_speed_bytes);
+    options.addOption(i64, "e2e_speed_timeout_ms", config.e2e_speed_timeout_ms);
+    options.addOption(u32, "e2e_chat_rounds", config.e2e_chat_rounds);
+    options.addOption(u32, "e2e_chat_run_timeout_ms", config.e2e_chat_run_timeout_ms);
+    options.addOption(u32, "e2e_chat_conversation_timeout_ms", config.e2e_chat_conversation_timeout_ms);
     return options;
+}
+
+const E2EModules = struct {
+    assets: *std.Build.Module,
+    common: *std.Build.Module,
+    runners: *std.Build.Module,
+};
+
+fn createE2EModules(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    gizclaw_dep: *std.Build.Dependency,
+    esp: *std.Build.Module,
+    config: SmokeBuildConfig,
+) E2EModules {
+    const e2e_build_config = b.addOptions();
+    e2e_build_config.addOption([]const u8, "server_addr", config.server_addr);
+    e2e_build_config.addOption([]const u8, "server_pub_key", config.server_pub_key);
+    e2e_build_config.addOption([]const u8, "client_pri_key", config.client_pri_key);
+    e2e_build_config.addOption([]const u8, "cipher_mode", config.e2e_cipher_mode);
+
+    const runtime_source = b.addWriteFiles().add("e2e_runtime.zig",
+        \\pub const runtime = @import("esp").grt;
+        \\
+    );
+    const runtime_mod = b.createModule(.{
+        .root_source_file = runtime_source,
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "esp", .module = esp },
+        },
+    });
+    const common = b.createModule(.{
+        .root_source_file = b.path("../zux/e2e/src/common.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "gizclaw", .module = gizclaw_dep.module("gizclaw") },
+            .{ .name = "giznet", .module = gizclaw_dep.module("giznet") },
+            .{ .name = "e2e_runtime", .module = runtime_mod },
+            .{ .name = "e2e_build_config", .module = e2e_build_config.createModule() },
+        },
+    });
+
+    return .{
+        .assets = createE2EAssetsModule(b, target, optimize, "../../test/gizclaw-e2e/Assets.zig"),
+        .common = common,
+        .runners = createE2ERunnerModule(b, target, optimize, runtime_mod, common, "../../test/gizclaw-e2e/client/Runners.zig"),
+    };
+}
+
+fn createE2EAssetsModule(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    root: []const u8,
+) *std.Build.Module {
+    return b.createModule(.{
+        .root_source_file = b.path(root),
+        .target = target,
+        .optimize = optimize,
+    });
+}
+
+fn createE2ERunnerModule(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    runtime_mod: *std.Build.Module,
+    common: *std.Build.Module,
+    root: []const u8,
+) *std.Build.Module {
+    return b.createModule(.{
+        .root_source_file = b.path(root),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "gstd", .module = runtime_mod },
+            .{ .name = "common", .module = common },
+        },
+    });
 }
 
 fn addGizclawSysrootIncludes(gizclaw_dep: *std.Build.Dependency, sysroot: embed_pkg.esp.idf.ToolchainSysroot) void {

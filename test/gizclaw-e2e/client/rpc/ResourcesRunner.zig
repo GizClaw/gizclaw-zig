@@ -25,14 +25,14 @@ pub fn run(comptime sdk: type, allocator: mem.Allocator, config: Config, reporte
 pub fn runWithContext(comptime sdk: type, allocator: mem.Allocator, ctx: common.Context, config: Config, reporter: anytype) !Summary {
     _ = allocator;
     var summary = Summary{};
-    var client = common.connectClient(sdk, ctx.allocator, &ctx) catch |err| {
+    const client = common.connectClient(sdk, ctx.allocator, &ctx) catch |err| {
         try smoke.recordFail(&summary, reporter, "Connect", err);
         return summary;
     };
-    defer client.deinit();
+    defer common.disconnectClient(sdk, ctx.allocator, client);
 
     try smoke.recordPass(&summary, reporter, "Connect");
-    try client_case.run(sdk, &client, &summary, reporter);
-    try resources.run(sdk, &client, &summary, reporter, config);
+    try client_case.run(sdk, client, &summary, reporter);
+    try resources.run(sdk, client, &summary, reporter, config);
     return summary;
 }

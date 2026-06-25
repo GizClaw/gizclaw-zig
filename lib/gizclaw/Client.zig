@@ -22,6 +22,10 @@ pub const RuntimeOptions = struct {
     channel_capacity: ?usize = null,
     accept_channel_capacity: ?usize = null,
     serve_rpc: bool = true,
+    drive_task_options: glib.task.Options = .{},
+    read_task_options: glib.task.Options = .{},
+    timer_task_options: glib.task.Options = .{},
+    rpc_task_options: glib.task.Options = .{},
     kcp_stream: KcpStreamOptions = .{},
 };
 
@@ -165,7 +169,11 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             var impl_owned = true;
             errdefer if (impl_owned) impl.deinit();
 
-            const root = try impl.up(.{});
+            const root = try impl.up(.{
+                .drive_task_options = self.runtime_options.drive_task_options,
+                .read_task_options = self.runtime_options.read_task_options,
+                .timer_task_options = self.runtime_options.timer_task_options,
+            });
 
             const endpoint = try parseAddrPort(options.server_addr);
             const connect_timeout = options.connect_timeout orelse default_connect_timeout;
@@ -191,7 +199,7 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             conn_owned = false;
             errdefer self.disconnect();
 
-            if (self.runtime_options.serve_rpc) try self.startServe(.{});
+            if (self.runtime_options.serve_rpc) try self.startServe(self.runtime_options.rpc_task_options);
         }
 
         fn allowServerPeer(ctx: ?*anyopaque, peer_key: giznet.Key) bool {
@@ -952,7 +960,15 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             defer parsed.deinit();
             _ = parsed.value.v;
             _ = parsed.value.id;
-            if (parsed.value.@"error") |rpc_error| return rpcResponseError(rpc_error);
+            if (parsed.value.@"error") |rpc_error| {
+                const log = grt.std.log.scoped(.gizclaw_client);
+                log.err("rpc response error id={s} code={d} message={s}", .{
+                    parsed.value.id,
+                    rpc_error.code,
+                    rpc_error.message,
+                });
+                return rpcResponseError(rpc_error);
+            }
             const result = parsed.value.result orelse return error.MissingRpcResult;
 
             var out = grt.std.Io.Writer.Allocating.init(self.allocator);
@@ -1200,7 +1216,15 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             defer parsed.deinit();
             _ = parsed.value.v;
             _ = parsed.value.id;
-            if (parsed.value.@"error") |rpc_error| return rpcResponseError(rpc_error);
+            if (parsed.value.@"error") |rpc_error| {
+                const log = grt.std.log.scoped(.gizclaw_client);
+                log.err("rpc response error id={s} code={d} message={s}", .{
+                    parsed.value.id,
+                    rpc_error.code,
+                    rpc_error.message,
+                });
+                return rpcResponseError(rpc_error);
+            }
             return try self.dupeRuntime(parsed.value.result orelse return error.MissingRpcResult);
         }
 
@@ -1215,7 +1239,15 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             defer parsed.deinit();
             _ = parsed.value.v;
             _ = parsed.value.id;
-            if (parsed.value.@"error") |rpc_error| return rpcResponseError(rpc_error);
+            if (parsed.value.@"error") |rpc_error| {
+                const log = grt.std.log.scoped(.gizclaw_client);
+                log.err("rpc response error id={s} code={d} message={s}", .{
+                    parsed.value.id,
+                    rpc_error.code,
+                    rpc_error.message,
+                });
+                return rpcResponseError(rpc_error);
+            }
             return try self.dupeServerInfo(parsed.value.result orelse return error.MissingRpcResult);
         }
 

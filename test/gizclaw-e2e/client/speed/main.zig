@@ -94,9 +94,9 @@ fn printUsage() !void {
         \\  --timeout-ms N
         \\
         \\Build defaults:
-        \\  -Dgizclaw_e2e_server_addr=ADDR
-        \\  -Dgizclaw_e2e_server_pub_key=KEY
-        \\  -Dgizclaw_e2e_client_pri_key=KEY
+        \\  -Dserver_addr=ADDR
+        \\  -Dserver_pub_key=KEY
+        \\  -Dclient_pri_key=KEY
         \\
     );
 }

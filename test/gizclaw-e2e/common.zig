@@ -25,6 +25,10 @@ pub const CipherMode = enum {
 pub const runtime_options = gizclaw.RuntimeOptions{
     .channel_capacity = 64,
     .serve_rpc = false,
+    .drive_task_options = .{ .min_stack_size = 64 * 1024 },
+    .read_task_options = .{ .min_stack_size = 24 * 1024 },
+    .timer_task_options = .{ .min_stack_size = 16 * 1024 },
+    .rpc_task_options = .{ .min_stack_size = 24 * 1024 },
     .kcp_stream = .{
         .channel_capacity = 256,
         .kcp_nodelay = 1,
@@ -123,18 +127,27 @@ pub fn loadHostContext(allocator: std.mem.Allocator, options: BaseOptions, host_
     return try loadExplicitContext(allocator, resolved);
 }
 
-pub fn connectClient(comptime sdk: type, allocator: std.mem.Allocator, ctx: *const Context) !sdk.Client {
-    var client = try sdk.Client.init(allocator, .{
+pub fn connectClient(comptime sdk: type, allocator: std.mem.Allocator, ctx: *const Context) !*sdk.Client {
+    const client = try allocator.create(sdk.Client);
+    errdefer allocator.destroy(client);
+
+    client.* = try sdk.Client.init(allocator, .{
         .key_pair = ctx.key_pair,
         .runtime_options = runtime_options,
     });
     errdefer client.deinit();
+
     try client.connect(.{
         .server_key = ctx.server_pub_key,
         .server_addr = ctx.server_addr,
         .connect_timeout = ctx.connect_timeout,
     });
     return client;
+}
+
+pub fn disconnectClient(comptime sdk: type, allocator: std.mem.Allocator, client: *sdk.Client) void {
+    client.deinit();
+    allocator.destroy(client);
 }
 
 pub const Summary = struct {
