@@ -9,9 +9,9 @@ const default_gizclaw_client_key = "";
 const default_chat_workspace = "doubao-realtime";
 const default_chat_workflow = "doubao-realtime";
 const default_chat_mode = "push_to_talk";
-const default_giznet_testrunner_suite = "service";
-const default_giznet_testrunner_relay_host = "192.168.1.6";
-const default_giznet_testrunner_relay_base_port: u16 = 39001;
+const default_giznet_suite = "service";
+const default_giznet_relay_host = "192.168.1.6";
+const default_giznet_relay_base_port: u16 = 39001;
 
 const SmokeBuildConfig = struct {
     wifi_ssid: []const u8,
@@ -22,15 +22,15 @@ const SmokeBuildConfig = struct {
     chat_workspace: []const u8,
     chat_workflow: []const u8,
     chat_default_mode: []const u8,
-    giznet_testrunner_suite: []const u8,
-    giznet_testrunner_relay_host: []const u8,
-    giznet_testrunner_relay_base_port: u16,
+    giznet_suite: []const u8,
+    giznet_relay_host: []const u8,
+    giznet_relay_base_port: u16,
 };
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const board_name = b.option([]const u8, "board", "Board under esp.embed.boards") orelse "devkit";
-    const app_name = b.option([]const u8, "app", "Selected Zux app: speedtest, testrunner, or chat_smoke") orelse "speedtest";
+    const app_name = b.option([]const u8, "app", "Selected Zux app: speedtest, giznet, or chat_smoke") orelse "speedtest";
     const smoke_config = smokeBuildConfigFromOptions(b);
 
     const embed_build_dep = b.dependency("embed", .{});
@@ -120,12 +120,12 @@ fn createSelectedApp(
 ) *std.Build.Module {
     const root_source_file = if (std.mem.eql(u8, app_name, "speedtest"))
         b.path("../zux/speedtest/src/app.zig")
-    else if (std.mem.eql(u8, app_name, "testrunner"))
-        b.path("../zux/testrunner/src/app.zig")
+    else if (std.mem.eql(u8, app_name, "giznet"))
+        b.path("../zux/giznet/src/app.zig")
     else if (std.mem.eql(u8, app_name, "chat_smoke"))
         b.path("../zux/chat_smoke/src/app.zig")
     else
-        std.debug.panic("unknown zux app: {s}; expected speedtest, testrunner, or chat_smoke", .{app_name});
+        std.debug.panic("unknown zux app: {s}; expected speedtest, giznet, or chat_smoke", .{app_name});
 
     const module = b.createModule(.{
         .root_source_file = root_source_file,
@@ -155,9 +155,9 @@ fn smokeBuildConfigFromOptions(b: *std.Build) SmokeBuildConfig {
         .chat_workspace = b.option([]const u8, "chat_workspace", "GizClaw chat smoke workspace name") orelse default_chat_workspace,
         .chat_workflow = b.option([]const u8, "chat_workflow", "GizClaw chat smoke workflow name") orelse default_chat_workflow,
         .chat_default_mode = b.option([]const u8, "chat_default_mode", "GizClaw chat smoke mode: push_to_talk or realtime") orelse default_chat_mode,
-        .giznet_testrunner_suite = b.option([]const u8, "testrunner_suite", "GizNet TestRunner suite: service, kcp_stream, kcp_stream_real_udp, kcp_stream_relay_udp, noise, giz_net, or all") orelse default_giznet_testrunner_suite,
-        .giznet_testrunner_relay_host = b.option([]const u8, "testrunner_relay_host", "Host IP for the kcp_stream_relay_udp TestRunner suite") orelse default_giznet_testrunner_relay_host,
-        .giznet_testrunner_relay_base_port = b.option(u16, "testrunner_relay_base_port", "Base UDP port for the kcp_stream_relay_udp TestRunner suite") orelse default_giznet_testrunner_relay_base_port,
+        .giznet_suite = b.option([]const u8, "giznet_suite", "GizNet suite: service, kcp_stream, kcp_stream_real_udp, kcp_stream_relay_udp, noise, giz_net, or all") orelse default_giznet_suite,
+        .giznet_relay_host = b.option([]const u8, "giznet_relay_host", "Host IP for the kcp_stream_relay_udp suite") orelse default_giznet_relay_host,
+        .giznet_relay_base_port = b.option(u16, "giznet_relay_base_port", "Base UDP port for the kcp_stream_relay_udp suite") orelse default_giznet_relay_base_port,
     };
 }
 
@@ -171,9 +171,9 @@ fn smokeBuildConfigOptions(b: *std.Build, config: SmokeBuildConfig) *std.Build.S
     options.addOption([]const u8, "chat_workspace", config.chat_workspace);
     options.addOption([]const u8, "chat_workflow", config.chat_workflow);
     options.addOption([]const u8, "chat_default_mode", config.chat_default_mode);
-    options.addOption([]const u8, "giznet_testrunner_suite", config.giznet_testrunner_suite);
-    options.addOption([]const u8, "giznet_testrunner_relay_host", config.giznet_testrunner_relay_host);
-    options.addOption(u16, "giznet_testrunner_relay_base_port", config.giznet_testrunner_relay_base_port);
+    options.addOption([]const u8, "giznet_suite", config.giznet_suite);
+    options.addOption([]const u8, "giznet_relay_host", config.giznet_relay_host);
+    options.addOption(u16, "giznet_relay_base_port", config.giznet_relay_base_port);
     return options;
 }
 

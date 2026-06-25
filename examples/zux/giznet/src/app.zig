@@ -21,7 +21,7 @@ const TestRunnerSuite = enum {
     all,
 };
 
-const selected_suite = parseTestRunnerSuite(build_config.giznet_testrunner_suite);
+const selected_suite = parseGizNetSuite(build_config.giznet_suite);
 const suite_requires_wifi = selected_suite == .kcp_stream_real_udp or selected_suite == .kcp_stream_relay_udp;
 const wifi_connect_timeout: glib.time.duration.Duration = 30 * glib.time.duration.Second;
 const wifi_connect_retry_interval: glib.time.duration.Duration = 5 * glib.time.duration.Second;
@@ -116,12 +116,12 @@ pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
         const Self = @This();
 
         pub const ZuxApp = MinimalZuxApp(platform_grt);
-        pub const title = "giznet-testrunner";
+        pub const title = "giznet";
         pub const description = "Runs giznet TestRunner suites on the selected platform.";
 
         allocator: glib.std.mem.Allocator,
         zux_app: ZuxApp,
-        testrunner_ran: bool = false,
+        giznet_ran: bool = false,
 
         pub fn init(allocator: glib.std.mem.Allocator, base_config: ZuxApp.InitConfig) !*Self {
             const self = try allocator.create(Self);
@@ -139,8 +139,8 @@ pub fn make(comptime platform_ctx: type, comptime platform_grt: type) type {
         }
 
         pub fn start(self: *Self) !void {
-            if (self.testrunner_ran) return;
-            self.testrunner_ran = true;
+            if (self.giznet_ran) return;
+            self.giznet_ran = true;
             if (comptime suite_requires_wifi) {
                 try connectWifiBeforeTestRunner(platform_grt, self.zux_app.wifi orelse return error.WifiUnavailable);
             }
@@ -205,20 +205,20 @@ fn runTestRunner(comptime platform_ctx: type, comptime platform_grt: type) !void
         }
     }
 
-    const log = platform_grt.std.log.scoped(.giznet_testrunner_app);
-    log.info("giznet testrunner start suite={s}", .{@tagName(selected_suite)});
+    const log = platform_grt.std.log.scoped(.giznet_app);
+    log.info("giznet start suite={s}", .{@tagName(selected_suite)});
 
     var t = glib.testing.T.new(platform_grt.std, platform_grt.time, .benchmark);
     defer t.deinit();
 
-    t.run("giznet/testrunner", testRunner(platform_ctx, platform_grt));
+    t.run("giznet", testRunner(platform_ctx, platform_grt));
     if (!t.wait()) return error.TestFailed;
 
-    log.info("giznet testrunner passed suite={s}", .{@tagName(selected_suite)});
+    log.info("giznet passed suite={s}", .{@tagName(selected_suite)});
 }
 
 fn connectWifiBeforeTestRunner(comptime platform_grt: type, wifi: embed.drivers.wifi.Sta) !void {
-    const log = platform_grt.std.log.scoped(.giznet_testrunner_app);
+    const log = platform_grt.std.log.scoped(.giznet_app);
     var state = WifiConnectState(platform_grt){};
     wifi.addEventHook(&state, WifiConnectState(platform_grt).onEvent);
     defer wifi.removeEventHook(&state, WifiConnectState(platform_grt).onEvent);
@@ -229,11 +229,11 @@ fn connectWifiBeforeTestRunner(comptime platform_grt: type, wifi: embed.drivers.
 
     const deadline = glib.time.instant.add(platform_grt.time.instant.now(), wifi_connect_timeout);
     var next_connect: glib.time.instant.Time = 0;
-    log.info("wifi connect before testrunner ssid={s} timeout_ns={d}", .{ build_config.wifi_ssid, wifi_connect_timeout });
+    log.info("wifi connect before giznet suite ssid={s} timeout_ns={d}", .{ build_config.wifi_ssid, wifi_connect_timeout });
 
     while (platform_grt.time.instant.now() < deadline) {
         if (wifi.getIpInfo() != null or state.got_ip) {
-            log.info("wifi ready before testrunner", .{});
+            log.info("wifi ready before giznet suite", .{});
             return;
         }
 
@@ -263,17 +263,17 @@ fn WifiConnectState(comptime platform_grt: type) type {
 
         pub fn onEvent(ctx: ?*anyopaque, event: embed.drivers.wifi.Sta.Event) void {
             const self: *@This() = @ptrCast(@alignCast(ctx orelse return));
-            const log = platform_grt.std.log.scoped(.giznet_testrunner_app);
+            const log = platform_grt.std.log.scoped(.giznet_app);
             switch (event) {
                 .got_ip => {
                     self.got_ip = true;
-                    log.info("wifi got ip before testrunner", .{});
+                    log.info("wifi got ip before giznet suite", .{});
                 },
                 .disconnected => |info| {
                     self.got_ip = false;
-                    log.warn("wifi disconnected before testrunner reason={d}", .{info.reason});
+                    log.warn("wifi disconnected before giznet suite reason={d}", .{info.reason});
                 },
-                else => log.info("wifi event before testrunner event={s}", .{@tagName(event)}),
+                else => log.info("wifi event before giznet suite event={s}", .{@tagName(event)}),
             }
         }
     };
@@ -287,8 +287,8 @@ fn runSelectedSuite(comptime platform_ctx: type, comptime platform_grt: type, t:
         .kcp_stream_real_udp => t.run("service/kcp_stream_real_udp", KcpStreamRealUdpBenchmark.make(platform_grt)),
         .kcp_stream_relay_udp => t.run("service/kcp_stream_relay_udp", KcpStreamRealUdpBenchmark.makeRelay(
             platform_grt,
-            build_config.giznet_testrunner_relay_host,
-            build_config.giznet_testrunner_relay_base_port,
+            build_config.giznet_relay_host,
+            build_config.giznet_relay_base_port,
         )),
         .noise => t.run("noise", NoiseBenchmark.make(platform_grt)),
         .giz_net => t.run("giz_net", GizNetBenchmark.make(platform_grt)),
@@ -296,7 +296,7 @@ fn runSelectedSuite(comptime platform_ctx: type, comptime platform_grt: type, t:
     }
 }
 
-fn parseTestRunnerSuite(comptime value: []const u8) TestRunnerSuite {
+fn parseGizNetSuite(comptime value: []const u8) TestRunnerSuite {
     if (glib.std.mem.eql(u8, value, "service")) return .service;
     if (glib.std.mem.eql(u8, value, "kcp_stream")) return .kcp_stream;
     if (glib.std.mem.eql(u8, value, "kcp_stream_real_udp")) return .kcp_stream_real_udp;
@@ -304,5 +304,5 @@ fn parseTestRunnerSuite(comptime value: []const u8) TestRunnerSuite {
     if (glib.std.mem.eql(u8, value, "noise")) return .noise;
     if (glib.std.mem.eql(u8, value, "giz_net")) return .giz_net;
     if (glib.std.mem.eql(u8, value, "all")) return .all;
-    @compileError("unknown giznet testrunner suite: " ++ value);
+    @compileError("unknown giznet suite: " ++ value);
 }
