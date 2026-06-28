@@ -1,5 +1,5 @@
 const glib = @import("glib");
-const giznet = @import("giznet");
+const giznoise = @import("giznoise");
 const gizclaw = @import("../../../gizclaw.zig");
 
 pub fn make(comptime grt: type) glib.testing.TestRunner {
@@ -52,7 +52,7 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             defer host.deinit();
             try testing.expectEqualStrings("192.0.2.1:9820", host.config.server_addr);
             try testing.expect(host.config.server_key.eql(try lib.key.parse(server_text)));
-            try testing.expectEqual(giznet.noise.Cipher.Kind.plaintext, host.config.cipher_kind);
+            try testing.expectEqual(giznoise.noise.Cipher.Kind.plaintext, host.config.cipher_kind);
             try testing.expect(host.config.key_pair.private.eql((try lib.key.fromPrivate(.{ .bytes = identity_bytes })).private));
         }
     }.run);

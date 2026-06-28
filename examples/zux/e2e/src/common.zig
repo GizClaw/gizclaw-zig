@@ -1,4 +1,5 @@
 const giznet = @import("giznet");
+const giznoise = @import("giznoise");
 const gizclaw = @import("gizclaw");
 const runtime_mod = @import("e2e_runtime");
 const build_config = @import("e2e_build_config");
@@ -83,10 +84,21 @@ pub fn connectClient(comptime sdk: type, allocator: grt.std.mem.Allocator, ctx: 
     const client = try allocator.create(sdk.Client);
     errdefer allocator.destroy(client);
 
-    client.* = try sdk.Client.init(allocator, .{
+    const net = try sdk.Config.initNoiseGizNet(.{
+        .allocator = allocator,
         .key_pair = ctx.key_pair,
+        .server_key = ctx.server_pub_key,
         .runtime_options = runtime_options,
     });
+    var net_owned = true;
+    errdefer if (net_owned) net.deinit();
+
+    client.* = try sdk.Client.init(allocator, .{
+        .key_pair = ctx.key_pair,
+        .giznet = net,
+        .runtime_options = runtime_options,
+    });
+    net_owned = false;
     errdefer client.deinit();
 
     try client.connect(.{
@@ -133,7 +145,7 @@ fn contextFromSdkConfig(allocator: grt.std.mem.Allocator, config: chacha_sdk.Con
     };
 }
 
-fn toCipherKind(mode: CipherMode) giznet.noise.Cipher.Kind {
+fn toCipherKind(mode: CipherMode) giznoise.noise.Cipher.Kind {
     return switch (mode) {
         .chacha_poly => .chacha_poly,
         .aes_256_gcm => .aes_256_gcm,
@@ -141,7 +153,7 @@ fn toCipherKind(mode: CipherMode) giznet.noise.Cipher.Kind {
     };
 }
 
-fn cipherModeFromKind(kind: giznet.noise.Cipher.Kind) !CipherMode {
+fn cipherModeFromKind(kind: giznoise.noise.Cipher.Kind) !CipherMode {
     return switch (kind) {
         .chacha_poly => .chacha_poly,
         .aes_256_gcm => .aes_256_gcm,

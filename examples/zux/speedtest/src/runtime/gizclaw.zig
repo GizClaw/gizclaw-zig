@@ -47,22 +47,12 @@ pub const Context = struct {
     Reducers: type,
 };
 
-const PeerPolicyState = struct {
-    server_key: giznet.Key,
-
-    fn allow(ctx: ?*anyopaque, peer_key: giznet.Key) bool {
-        const self: *@This() = @ptrCast(@alignCast(ctx orelse return false));
-        return peer_key.eql(self.server_key);
-    }
-};
-
 pub fn make(comptime context: Context) type {
     const platform_ctx = context.platform_ctx;
     const grt = context.grt;
     const Reducers = context.Reducers;
     const sdk = gizclaw_pkg.make(grt, .{});
     const Client = sdk.Client;
-    const GizNetImpl = Client.GizNetImpl;
     const Allocator = grt.std.mem.Allocator;
     const AtomicBool = grt.std.atomic.Value(bool);
     const SpeedTestProgressSnapshot = Client.SpeedTestProgressSnapshot;
@@ -141,38 +131,30 @@ pub fn make(comptime context: Context) type {
             };
             grt.std.log.info("smoke gizclaw config parsed server={s}", .{consts.gizclaw_server_addr});
 
-            var peer_policy_state: PeerPolicyState = .{ .server_key = gizclaw_config.server_key };
             const runtime_allocator = runtimeAllocator(self.allocator);
-            grt.std.log.info("smoke gizclaw listen packet start", .{});
-            var packet_conn = try grt.net.listenPacket(.{
-                .allocator = runtime_allocator,
-                .address = giznet.AddrPort.from4(.{ 0, 0, 0, 0 }, 0),
-            });
-            defer packet_conn.deinit();
-            grt.std.log.info("smoke gizclaw listen packet ok", .{});
-
-            var runtime_config = Client.runtimeConfig(gizclaw_config.key_pair, .{
-                .ctx = &peer_policy_state,
-                .allow = PeerPolicyState.allow,
-            });
-            runtime_config.on_error = .{ .call = runtimeOnError };
-            runtime_config.channel_capacity = 64;
-            runtime_config.service.kcp_stream.stream.channel_capacity = 4096;
-            runtime_config.service.kcp_stream.stream.kcp_nodelay = 1;
-            runtime_config.service.kcp_stream.stream.kcp_interval = 10;
-            runtime_config.service.kcp_stream.stream.kcp_resend = 2;
-            runtime_config.service.kcp_stream.stream.kcp_no_congestion_control = 0;
-
-            grt.std.log.info("smoke gizclaw runtime init start", .{});
-            const impl = try GizNetImpl.init(runtime_allocator, packet_conn, runtime_config);
-            grt.std.log.info("smoke gizclaw runtime init ok", .{});
-            grt.std.log.info("smoke gizclaw runtime up start", .{});
-            const root = try impl.up(.{
+            const backend_options = gizclaw_pkg.RuntimeOptions{
+                .channel_capacity = 64,
                 .drive_task_options = self.config.drive_task_options,
                 .read_task_options = self.config.read_task_options,
                 .timer_task_options = self.config.timer_task_options,
+                .kcp_stream = .{
+                    .channel_capacity = 4096,
+                    .kcp_nodelay = 1,
+                    .kcp_interval = 10,
+                    .kcp_resend = 2,
+                    .kcp_no_congestion_control = 0,
+                },
+            };
+            grt.std.log.info("smoke gizclaw runtime init start", .{});
+            const root = try sdk.Config.initNoiseGizNet(.{
+                .allocator = runtime_allocator,
+                .key_pair = gizclaw_config.key_pair,
+                .server_key = gizclaw_config.server_key,
+                .runtime_options = backend_options,
+                .on_error = .{ .call = runtimeOnError },
             });
             defer root.deinit();
+            grt.std.log.info("smoke gizclaw runtime init ok", .{});
 
             grt.std.log.info("smoke gizclaw runtime started server={s}", .{consts.gizclaw_server_addr});
             var attempt: u64 = 0;

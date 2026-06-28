@@ -1,5 +1,5 @@
 const glib = @import("glib");
-const Key = @import("noise/Key.zig");
+const Key = @import("Key.zig");
 
 const AddrPort = glib.net.netip.AddrPort;
 const DialOptions = @This();

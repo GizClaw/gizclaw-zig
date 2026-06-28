@@ -270,6 +270,7 @@ fn createE2EModules(
         .imports = &.{
             .{ .name = "gizclaw", .module = gizclaw_dep.module("gizclaw") },
             .{ .name = "giznet", .module = gizclaw_dep.module("giznet") },
+            .{ .name = "giznoise", .module = gizclaw_dep.module("giznoise") },
             .{ .name = "e2e_runtime", .module = runtime_mod },
             .{ .name = "e2e_build_config", .module = e2e_build_config.createModule() },
         },

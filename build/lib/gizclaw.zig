@@ -17,6 +17,7 @@ pub fn link(b: *std.Build) void {
     const glib = b.modules.get("glib") orelse @panic("missing module: glib");
     const gstd = b.modules.get("gstd") orelse @panic("missing module: gstd");
     const giznet = b.modules.get("giznet") orelse @panic("missing module: giznet");
+    const giznoise = b.modules.get("giznoise") orelse @panic("missing module: giznoise");
     const openapi = b.modules.get("openapi") orelse @panic("missing module: openapi");
     const codegen = b.modules.get("codegen") orelse @panic("missing module: codegen");
     const models_options = b.modules.get("gizclaw_models_options") orelse @panic("missing module: gizclaw_models_options");
@@ -25,6 +26,7 @@ pub fn link(b: *std.Build) void {
     gizclaw.addImport("glib", glib);
     gizclaw.addImport("gstd", gstd);
     gizclaw.addImport("giznet", giznet);
+    gizclaw.addImport("giznoise", giznoise);
     gizclaw.addImport("openapi", openapi);
     gizclaw.addImport("codegen", codegen);
     gizclaw.addImport("gizclaw_models_options", models_options);

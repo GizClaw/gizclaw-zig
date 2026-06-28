@@ -1,48 +1,27 @@
-//! Package root for the `giznet` rewrite.
+//! Transport-independent giznet VTable/API root.
 
 const glib = @import("glib");
-const noise_ns = @import("giznet/noise.zig");
-const packet_ns = @import("giznet/packet.zig");
-const runtime_ns = @import("giznet/runtime.zig");
-const service_ns = @import("giznet/service.zig");
 
-pub const noise = noise_ns;
-pub const packet = packet_ns;
-pub const runtime = runtime_ns;
-pub const service = service_ns;
 pub const GizNet = @import("giznet/GizNet.zig");
 pub const Conn = @import("giznet/Conn.zig");
 pub const HttpTransport = @import("giznet/HttpTransport.zig");
 pub const Listener = @import("giznet/Listener.zig");
-pub const PerfClient = @import("giznet/PerfClient.zig");
-pub const PerfServer = @import("giznet/PerfServer.zig");
 pub const Stream = @import("giznet/Stream.zig");
 pub const StreamConn = @import("giznet/StreamConn.zig");
 pub const DialOptions = @import("giznet/DialOptions.zig");
-pub const Key = noise_ns.Key;
-pub const KeyPair = noise_ns.KeyPair;
+pub const Key = @import("giznet/Key.zig");
+pub const KeyPair = @import("giznet/KeyPair.zig");
+pub const Stats = @import("giznet/Stats.zig");
 pub const AddrPort = glib.net.netip.AddrPort;
+
 pub fn eqlAddrPort(lhs: AddrPort, rhs: AddrPort) bool {
     return glib.std.meta.eql(lhs, rhs);
 }
+
 pub const test_runner = struct {
     pub const unit = @import("giznet/test_runner/unit.zig");
-    pub const integration = struct {
-        pub fn make(comptime grt: type) glib.testing.TestRunner {
-            return @import("giznet/test_runner/integration.zig").make(grt);
-        }
-    };
-    pub const benchmark = struct {
-        pub const service = @import("giznet/test_runner/benchmark/service.zig");
-        pub const kcp_stream = @import("giznet/test_runner/benchmark/service/kcp_stream.zig");
-        pub const kcp_stream_real_udp = @import("giznet/test_runner/benchmark/service/kcp_stream_real_udp.zig");
-        pub const noise = @import("giznet/test_runner/benchmark/noise.zig");
-        pub const giz_net = @import("giznet/test_runner/benchmark/giz_net.zig");
-
-        pub fn make(comptime grt: type) glib.testing.TestRunner {
-            return @import("giznet/test_runner/benchmark.zig").make(grt);
-        }
-    };
+    pub const integration = @import("giznet/test_runner/integration.zig");
+    pub const benchmark = @import("giznet/test_runner/benchmark.zig");
     pub const cork = @import("giznet/test_runner/cork.zig");
 };
 
@@ -52,16 +31,12 @@ pub fn make(comptime grt: type) type {
         pub const Conn = @import("giznet/Conn.zig");
         pub const HttpTransport = @import("giznet/HttpTransport.zig").make(grt);
         pub const Listener = @import("giznet/Listener.zig").make(grt);
-        pub const PerfClient = @import("giznet/PerfClient.zig").make(grt);
-        pub const PerfServer = @import("giznet/PerfServer.zig").make(grt);
         pub const Stream = @import("giznet/Stream.zig");
         pub const StreamConn = @import("giznet/StreamConn.zig").make(grt);
         pub const DialOptions = @import("giznet/DialOptions.zig");
-        pub const Key = noise_ns.Key;
-        pub const KeyPair = noise_ns.KeyPair;
-        pub const noise = noise_ns.make(grt, noise_ns.default_cipher_kind);
-        pub const packet = packet_ns;
-        pub const runtime = runtime_ns;
-        pub const service = service_ns.make(grt);
+        pub const Key = @import("giznet/Key.zig");
+        pub const KeyPair = @import("giznet/KeyPair.zig");
+        pub const Stats = @import("giznet/Stats.zig");
+        pub const AddrPort = glib.net.netip.AddrPort;
     };
 }

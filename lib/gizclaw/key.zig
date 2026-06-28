@@ -12,11 +12,11 @@ pub const DecodeError = error{
 pub fn make(comptime grt: type) type {
     return struct {
         pub fn fromPrivate(private: giznet.Key) !giznet.KeyPair {
-            return giznet.noise.KeyPair.fromPrivate(grt, private);
+            return giznet.KeyPair.fromPrivate(grt, private);
         }
 
         pub fn randomKeyPair() giznet.KeyPair {
-            return giznet.noise.KeyPair.rand(grt);
+            return giznet.KeyPair.rand(grt);
         }
 
         pub fn parse(text: []const u8) DecodeError!giznet.Key {
