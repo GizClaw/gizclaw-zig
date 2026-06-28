@@ -75,7 +75,6 @@ pub fn createTestModule(
     });
     const kcp_integration_run = b.addRunArtifact(kcp_integration_compile);
     kcp_integration_run.setName("kcp:integration");
-    integration_step.dependOn(&kcp_integration_run.step);
     kcp_integration_step.dependOn(&kcp_integration_run.step);
 
     const kcp_unit_step = b.step(
@@ -88,7 +87,6 @@ pub fn createTestModule(
     });
     const kcp_unit_run = b.addRunArtifact(kcp_unit_compile);
     kcp_unit_run.setName("kcp:unit");
-    unit_step.dependOn(&kcp_unit_run.step);
     kcp_unit_step.dependOn(&kcp_unit_run.step);
 }
 
