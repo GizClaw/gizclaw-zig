@@ -95,6 +95,12 @@ pub fn make(comptime grt: type, comptime config: Config) type {
         pub const VoiceGetRequest = struct {
             id: []const u8,
         };
+        pub const SpeechRequest = struct {
+            input: []const u8,
+            model: []const u8,
+            voice: []const u8,
+            response_format: []const u8 = "opus",
+        };
         pub const FirmwareDownloadResult = struct {
             metadata: grt.std.json.Parsed(models.FirmwareDownloadResponse),
             bytes: i64,
@@ -524,6 +530,12 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             }
         }
 
+        pub fn createSpeech(self: *Self, request: SpeechRequest) ![]u8 {
+            const body = try models.toJson(self.allocator, request);
+            defer self.allocator.free(body);
+            return try self.peerHttpPostJsonAlloc("http://gizclaw.local/v1/audio/speech", body);
+        }
+
         pub fn listFirmwares(self: *Self, request: models.FirmwareListRequest) !grt.std.json.Parsed(models.FirmwareListResponse) {
             return try self.callRpcParsed(models.FirmwareListResponse, "firmware-list", Rpc.method_server_firmware_list, request);
         }
@@ -693,7 +705,6 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             const conn = self.conn orelse return error.ClientNotConnected;
             var stream = try PeerStreamRuntime.openPeerStream(self.allocator, conn, options);
             errdefer stream.deinit();
-            try setStreamDeadline(stream.event_stream.stream);
             return stream;
         }
 
@@ -981,7 +992,7 @@ pub fn make(comptime grt: type, comptime config: Config) type {
 
         fn peerHttpGetParsed(self: *Self, comptime Response: type, url: []const u8) !grt.std.json.Parsed(Response) {
             const conn = self.conn orelse return error.NotConnected;
-            var transport = giznet.HttpTransport.make(grt).init(self.allocator, conn, service.peer_public);
+            var transport = giznet.HttpTransport.make(grt).init(self.allocator, conn, service.openai);
             defer transport.deinit();
             var http_client = try Http.Client.init(self.allocator, .{ .round_tripper = transport.roundTripper() });
             defer http_client.deinit();
@@ -993,6 +1004,34 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             if (response.status_code == 404) return error.GearNotFound;
             if (response.status_code < 200 or response.status_code >= 300) return error.HttpStatus;
             return try models.fromJson(Response, self.allocator, body);
+        }
+
+        fn peerHttpPostJsonAlloc(self: *Self, url: []const u8, json_body: []const u8) ![]u8 {
+            const conn = self.conn orelse return error.NotConnected;
+            var transport = giznet.HttpTransport.make(grt).init(self.allocator, conn, service.openai);
+            defer transport.deinit();
+            var http_client = try Http.Client.init(self.allocator, .{ .round_tripper = transport.roundTripper() });
+            defer http_client.deinit();
+
+            var body = SliceReadCloser{ .data = json_body };
+            var request = try Http.Request.init(self.allocator, "POST", url);
+            defer request.deinit();
+            request = request.withBody(Http.ReadCloser.init(&body));
+            request.content_length = @intCast(json_body.len);
+            try request.addHeader(Http.Header.content_type, "application/json");
+            try request.addHeader(Http.Header.authorization, "Bearer gizclaw-peer");
+
+            var response = try http_client.do(&request);
+            defer response.deinit();
+            const response_body = try self.readHttpBodyAlloc(response.body());
+            errdefer self.allocator.free(response_body);
+            if (response.status_code == 404) return error.GearNotFound;
+            if (response.status_code < 200 or response.status_code >= 300) {
+                const log = grt.std.log.scoped(.gizclaw_client);
+                log.err("peer http post failed status={d} body={s}", .{ response.status_code, response_body });
+                return error.HttpStatus;
+            }
+            return response_body;
         }
 
         fn readHttpBodyAlloc(self: *Self, body: ?Http.ReadCloser) ![]u8 {
@@ -1008,6 +1047,25 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             }
             return try out.toOwnedSlice(self.allocator);
         }
+
+        const SliceReadCloser = struct {
+            data: []const u8,
+            offset: usize = 0,
+            closed: bool = false,
+
+            pub fn read(self: *@This(), buf: []u8) !usize {
+                if (self.closed) return 0;
+                const remaining = self.data[self.offset..];
+                const n = @min(buf.len, remaining.len);
+                @memcpy(buf[0..n], remaining[0..n]);
+                self.offset += n;
+                return n;
+            }
+
+            pub fn close(self: *@This()) void {
+                self.closed = true;
+            }
+        };
 
         fn copyBinaryFramesToWriter(rpc: *RpcRuntime.Rpc, writer: anytype) !i64 {
             var written: i64 = 0;

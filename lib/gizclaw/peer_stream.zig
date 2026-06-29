@@ -383,6 +383,7 @@ pub fn writePeerAudioBegin(comptime grt: type, allocator: grt.std.mem.Allocator,
         .kind = .audio,
         .stream_id = options.stream_id,
         .label = options.label,
+        .mime_type = "audio/opus",
         .timestamp = options.timestamp,
     });
 }
@@ -393,6 +394,7 @@ pub fn writePeerAudioEnd(comptime grt: type, allocator: grt.std.mem.Allocator, s
         .kind = .audio,
         .stream_id = options.stream_id,
         .label = options.label,
+        .mime_type = "audio/opus",
         .timestamp = options.timestamp,
         .@"error" = options.@"error",
     });

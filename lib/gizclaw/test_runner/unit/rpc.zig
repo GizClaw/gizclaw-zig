@@ -702,7 +702,7 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
                     .label = "workspacetest",
                     .timestamp = 456,
                 });
-                const want_audio_begin = "{\"v\":1,\"type\":\"bos\",\"kind\":\"audio\",\"stream_id\":\"audio\",\"label\":\"workspacetest\",\"timestamp\":456}";
+                const want_audio_begin = "{\"v\":1,\"type\":\"bos\",\"kind\":\"audio\",\"stream_id\":\"audio\",\"label\":\"workspacetest\",\"mime_type\":\"audio/opus\",\"timestamp\":456}";
                 var want_audio_frame: [256]u8 = undefined;
                 any_grt.std.mem.writeInt(u16, want_audio_frame[0..2], @intCast(want_audio_begin.len), .little);
                 any_grt.std.mem.writeInt(u16, want_audio_frame[2..4], @intFromEnum(gizclaw.Rpc.FrameType.json), .little);
@@ -720,7 +720,7 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
                     .timestamp = 789,
                     .@"error" = "done",
                 });
-                const want_audio_end = "{\"v\":1,\"type\":\"eos\",\"kind\":\"audio\",\"stream_id\":\"audio\",\"label\":\"workspacetest\",\"timestamp\":789,\"error\":\"done\"}";
+                const want_audio_end = "{\"v\":1,\"type\":\"eos\",\"kind\":\"audio\",\"stream_id\":\"audio\",\"label\":\"workspacetest\",\"mime_type\":\"audio/opus\",\"timestamp\":789,\"error\":\"done\"}";
                 var want_audio_frame: [256]u8 = undefined;
                 any_grt.std.mem.writeInt(u16, want_audio_frame[0..2], @intCast(want_audio_end.len), .little);
                 any_grt.std.mem.writeInt(u16, want_audio_frame[2..4], @intFromEnum(gizclaw.Rpc.FrameType.json), .little);

@@ -1,5 +1,8 @@
 pub const rpc: u64 = 0x00;
-pub const peer_public: u64 = 0x02;
+pub const server_public: u64 = 0x01;
+pub const openai: u64 = 0x02;
+pub const peer_public: u64 = openai;
+pub const admin: u64 = 0x10;
 pub const gear: u64 = 0x11;
 pub const event: u64 = 0x20;
 

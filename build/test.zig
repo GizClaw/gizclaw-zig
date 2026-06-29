@@ -230,6 +230,9 @@ pub fn createGizClawE2E(
                 .{ .name = "gizclaw", .module = b.modules.get("gizclaw") orelse @panic("missing module: gizclaw") },
                 .{ .name = "giznet", .module = b.modules.get("giznet") orelse @panic("missing module: giznet") },
                 .{ .name = "gstd", .module = b.modules.get("gstd") orelse @panic("missing module: gstd") },
+                .{ .name = "embed", .module = b.modules.get("embed") orelse @panic("missing module: embed") },
+                .{ .name = "opus", .module = b.modules.get("opus") orelse @panic("missing module: opus") },
+                .{ .name = "opus_osal", .module = b.modules.get("opus_osal") orelse @panic("missing module: opus_osal") },
                 .{ .name = "common", .module = common_mod },
             },
         });

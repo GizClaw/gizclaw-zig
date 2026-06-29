@@ -1,6 +1,11 @@
 const std = @import("std");
 const common = @import("common");
+const opus_osal = @import("opus_osal");
 const TestRunner = @import("TestRunner.zig");
+
+comptime {
+    _ = opus_osal.make(common.grt, std.heap.page_allocator).opus_alloc_scratch;
+}
 
 const Options = struct {
     config: TestRunner.Config = .{},
@@ -27,9 +32,18 @@ const Options = struct {
             } else if (std.mem.eql(u8, arg, "--mode")) {
                 i += 1;
                 out.config.mode = try parseMode(try common.needValue(args, i, arg));
+            } else if (std.mem.eql(u8, arg, "--input-audio")) {
+                i += 1;
+                out.config.input_audio = try parseInputAudio(try common.needValue(args, i, arg));
             } else if (std.mem.eql(u8, arg, "--audio-manifest")) {
                 i += 1;
                 out.audio_manifest_file = try common.needValue(args, i, arg);
+            } else if (std.mem.eql(u8, arg, "--tts-model")) {
+                i += 1;
+                out.config.tts_model = try common.needValue(args, i, arg);
+            } else if (std.mem.eql(u8, arg, "--tts-voice")) {
+                i += 1;
+                out.config.tts_voice = try common.needValue(args, i, arg);
             } else if (std.mem.eql(u8, arg, "--rounds")) {
                 i += 1;
                 out.config.rounds = try std.fmt.parseInt(u32, try common.needValue(args, i, arg), 10);
@@ -89,7 +103,10 @@ fn printUsage() !void {
         \\  --workspace-config FILE
         \\  --workspace NAME
         \\  --mode push_to_talk|realtime
+        \\  --input-audio synthesize|embedded
         \\  --audio-manifest FILE
+        \\  --tts-model MODEL
+        \\  --tts-voice VOICE
         \\  --rounds N
         \\  --run-timeout-ms N
         \\  --conversation-timeout-ms N
@@ -106,6 +123,12 @@ fn parseMode(raw: []const u8) !TestRunner.Mode {
     if (std.mem.eql(u8, raw, "push_to_talk")) return .push_to_talk;
     if (std.mem.eql(u8, raw, "realtime")) return .realtime;
     return error.InvalidChatMode;
+}
+
+fn parseInputAudio(raw: []const u8) !TestRunner.InputAudio {
+    if (std.mem.eql(u8, raw, "synthesize")) return .synthesize;
+    if (std.mem.eql(u8, raw, "embedded")) return .embedded;
+    return error.InvalidInputAudio;
 }
 
 pub fn main() !void {
@@ -148,11 +171,17 @@ const Manifest = struct {
 const WorkspaceConfig = struct {
     workspace: ?[]const u8 = null,
     workflow: ?Workflow = null,
+    models: Models = .{},
+    voice: ?[]const u8 = null,
     rounds: ?u32 = null,
     conversation_timeout_ms: ?u32 = null,
 
     const Workflow = struct {
         name: ?[]const u8 = null,
+    };
+
+    const Models = struct {
+        tts: ?[]const u8 = null,
     };
 };
 
@@ -176,6 +205,22 @@ fn loadWorkspaceConfig(allocator: std.mem.Allocator, config: *TestRunner.Config)
                 if (name.len != 0) config.workspace_name = try allocator.dupe(u8, name);
             }
         }
+    }
+    if (config.tts_model == null) {
+        if (parsed.value.models.tts) |tts| {
+            if (tts.len != 0) config.tts_model = try allocator.dupe(u8, tts);
+        }
+    }
+    if (config.tts_voice == null) {
+        if (parsed.value.voice) |voice| {
+            if (voice.len != 0) config.tts_voice = try allocator.dupe(u8, voice);
+        }
+    }
+    if (parsed.value.rounds) |rounds| {
+        if (rounds != 0 and config.rounds == 3) config.rounds = rounds;
+    }
+    if (parsed.value.conversation_timeout_ms) |timeout_ms| {
+        if (timeout_ms != 0 and config.conversation_timeout_ms == 10_000) config.conversation_timeout_ms = timeout_ms;
     }
 }
 

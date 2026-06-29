@@ -2,15 +2,16 @@
   "workspace": "doubao-realtime",
   "agent": "doubao-realtime",
   "models": {
-    "llm": "e2e-doubao-2-lite-chat",
-    "tts": "e2e-tts",
-    "asr": "e2e-asr",
-    "realtime": "e2e-realtime"
+    "llm": "doubao-lite-chat",
+    "tts": "volc-bigtts",
+    "asr": "volc-bigasr-sauc",
+    "realtime": "doubao-realtime-dialog"
   },
   "workflow": {
-    "name": "e2e-doubao-realtime",
-    "description": "Workspace e2e Doubao realtime workflow",
-    "realtime_model": "e2e-realtime",
+    "name": "doubao-realtime-conversation",
+    "description": "Doubao realtime workflow",
+    "model": "doubao-realtime-dialog",
+    "realtime_model": "doubao-realtime-dialog",
     "parameters": {
       "input": "push-to-talk",
       "e2e": true,
@@ -28,7 +29,6 @@
       }
     },
     "session": {
-      "auth_mode": "v2",
       "bot_name": "豆包",
       "model": "1.2.1.1",
       "resource_id": "volc.speech.dialog",
@@ -39,7 +39,7 @@
       "speaker": "zh_female_vv_jupiter_bigtts"
     }
   },
-  "voice": "volc-tenant:e2e-volc-tenant:zh_female_vv_mars_bigtts",
+  "voice": "volc-tenant:volc-main:zh_female_vv_mars_bigtts",
   "rounds": 3,
   "timeout": "120s",
   "conversation_timeout_ms": 10000,

@@ -1,18 +1,28 @@
 const gstd = @import("gstd");
 const common = @import("common");
+const embed = @import("embed");
+const opus = @import("opus");
 
 const grt = gstd.runtime;
 const mem = grt.std.mem;
 const json = grt.std.json;
+const ogg = embed.audio.ogg;
 const duration = grt.time.duration;
 const audio_label = "workspacetest";
 const audio_frame_ms: u64 = 20;
+const audio_sample_rate: u32 = 16_000;
+const max_decoded_samples: usize = 16_000 / 1000 * 120;
 const stream_poll_timeout = 100 * duration.MilliSecond;
 const response_settle_timeout = 700 * duration.MilliSecond;
 
 pub const Mode = enum {
     push_to_talk,
     realtime,
+};
+
+pub const InputAudio = enum {
+    synthesize,
+    embedded,
 };
 
 pub const ChatAudioAsset = struct {
@@ -23,13 +33,16 @@ pub const ChatAudioAsset = struct {
 
 pub const Config = struct {
     base: common.BaseOptions = .{},
-    workspace_config: []const u8 = "../gizclaw-go/test/gizclaw-e2e/testdata/workspaces/doubao-realtime.json",
+    workspace_config: []const u8 = "test/gizclaw-e2e/client/chat/config/doubao-realtime.example.json",
     workspace_config_json: ?[]const u8 = null,
     workspace_name: ?[]const u8 = null,
     mode: Mode = .push_to_talk,
 
     audio_manifest: ?[]const u8 = null,
     embedded_audio: ?[]const ChatAudioAsset = null,
+    input_audio: InputAudio = .synthesize,
+    tts_model: ?[]const u8 = null,
+    tts_voice: ?[]const u8 = null,
     rounds: u32 = 3,
     min_rounds: u32 = 3,
 
@@ -47,6 +60,7 @@ pub const Summary = struct {
     output_bytes: usize = 0,
     input_packets: usize = 0,
     output_packets: usize = 0,
+    output_samples: usize = 0,
     events: usize = 0,
     total_response_ns: u64 = 0,
     worst_response_ns: u64 = 0,
@@ -156,6 +170,7 @@ const WorkspaceConfig = struct {
     const Workflow = struct {
         name: ?[]const u8 = null,
         description: ?[]const u8 = null,
+        model: ?[]const u8 = null,
         realtime_model: ?[]const u8 = null,
         parameters: Parameters = .{},
         session: Session = .{},
@@ -212,6 +227,7 @@ fn loadWorkspaceConfig(allocator: mem.Allocator, raw: []const u8) !WorkspaceConf
         .workflow = .{
             .name = try dupeOptional(allocator, parsed_value.workflow.name),
             .description = try dupeOptional(allocator, parsed_value.workflow.description),
+            .model = try dupeOptional(allocator, parsed_value.workflow.model),
             .realtime_model = try dupeOptional(allocator, parsed_value.workflow.realtime_model),
             .parameters = .{
                 .input = try dupeOptional(allocator, parsed_value.workflow.parameters.input),
@@ -270,6 +286,7 @@ fn buildWorkflowDocument(comptime models: type, config: WorkspaceConfig, name: [
         .spec = .{
             .driver = "doubao-realtime",
             .doubao_realtime = .{
+                .model = config.workflow.model orelse config.workflow.realtime_model,
                 .realtime_model = config.workflow.realtime_model,
                 .realtime = .{
                     .session = .{
@@ -295,7 +312,7 @@ fn buildWorkspaceDocument(comptime models: type, config: WorkspaceConfig, mode: 
         .workflow_name = workflow_name,
         .parameters = .{
             .agent_type = "doubao-realtime",
-            .realtime_model = config.workflow.realtime_model,
+            .realtime_model = config.workflow.realtime_model orelse config.workflow.model,
             .input = workspaceInputMode(config, mode),
             .voice = .{
                 .realtime_speaker_id = config.workflow.parameters.voice.realtime_speaker_id,
@@ -372,12 +389,13 @@ fn selectWorkspace(comptime sdk: type, client: *sdk.Client, summary: *Summary, r
 
 fn logWorkspaceState(stage: []const u8, state: anytype) void {
     const log = grt.std.log.scoped(.gizclaw_e2e_chat);
-    log.info("{s} runtime_state={s} workspace={s} active={s} selected={s}", .{
+    log.info("{s} runtime_state={s} workspace={s} active={s} selected={s} message={s}", .{
         stage,
         state.runtime_state,
         state.workspace_name,
         state.active_workspace_name orelse "",
         state.selected_workspace_name orelse "",
+        state.message orelse "",
     });
 }
 
@@ -429,7 +447,7 @@ fn runAudioRoundtrip(comptime sdk: type, allocator: mem.Allocator, client: *sdk.
         try recordPass(summary, reporter, names.open_stream);
 
         for (assets[0..round_count], 1..) |asset, round_index| {
-            const round = runAudioRound(allocator, client, &stream, asset, @intCast(round_index), config.conversation_timeout_ms, mode) catch |err| {
+            const round = runAudioRound(allocator, client, &stream, asset, @intCast(round_index), config) catch |err| {
                 try recordFail(summary, reporter, names.roundtrip, err);
                 return;
             };
@@ -438,6 +456,7 @@ fn runAudioRoundtrip(comptime sdk: type, allocator: mem.Allocator, client: *sdk.
             summary.output_bytes += round.output_bytes;
             summary.input_packets += round.input_packets;
             summary.output_packets += round.output_packets;
+            summary.output_samples += round.output_samples;
             summary.events += round.events;
             summary.total_response_ns += round.response_ns;
             summary.worst_response_ns = @max(summary.worst_response_ns, round.response_ns);
@@ -446,6 +465,7 @@ fn runAudioRoundtrip(comptime sdk: type, allocator: mem.Allocator, client: *sdk.
         try reporter.metric(names.rounds_metric, @intCast(summary.rounds), "");
         try reporter.metric(names.input_packets_metric, @intCast(summary.input_packets), "");
         try reporter.metric(names.output_packets_metric, @intCast(summary.output_packets), "");
+        try reporter.metric("assistant_audio_decoded_samples", @intCast(summary.output_samples), "");
         try reporter.metric(names.events_metric, @intCast(summary.events), "");
         if (summary.rounds > 0) {
             try reporter.metric(names.avg_response_metric, @divTrunc(nsToMs(summary.total_response_ns), @as(u64, @intCast(summary.rounds))), "ms");
@@ -516,6 +536,7 @@ const RoundSummary = struct {
     input_packets: usize = 0,
     output_bytes: usize = 0,
     output_packets: usize = 0,
+    output_samples: usize = 0,
     events: usize = 0,
     uplink_ns: u64 = 0,
     response_ns: u64 = 0,
@@ -532,10 +553,28 @@ fn runAudioRound(
     stream: anytype,
     asset: ChatAudioAsset,
     round_index: u32,
-    timeout_ms: u32,
-    mode: Mode,
+    config: Config,
 ) !RoundSummary {
-    var packets = try parseOggOpusPackets(allocator, asset.ogg_opus);
+    var synthesized_audio: ?[]u8 = null;
+    defer if (synthesized_audio) |audio| allocator.free(audio);
+
+    const input_audio = switch (config.input_audio) {
+        .embedded => asset.ogg_opus,
+        .synthesize => blk: {
+            const model = config.tts_model orelse return error.MissingTTSModel;
+            const voice = config.tts_voice orelse return error.MissingTTSVoice;
+            const audio = try client.createSpeech(.{
+                .input = asset.expected_text,
+                .model = model,
+                .voice = voice,
+                .response_format = "opus",
+            });
+            synthesized_audio = audio;
+            break :blk audio;
+        },
+    };
+
+    var packets = try parseOggOpusPackets(allocator, input_audio);
     defer packets.deinit(allocator);
     if (packets.items.len == 0) return error.EmptyOpusAudio;
 
@@ -559,7 +598,7 @@ fn runAudioRound(
             .frame = packet,
         });
         timestamp += audio_frame_ms;
-        if (mode == .realtime and packet_index + 1 < packets.items.len) {
+        if (packet_index + 1 < packets.items.len) {
             grt.time.sleepMillis(audio_frame_ms);
         }
     }
@@ -571,7 +610,7 @@ fn runAudioRound(
     round.uplink_ns = @intCast(grt.time.instant.since(uplink_started));
 
     const response_started = grt.time.instant.now();
-    const deadline = grt.time.instant.add(response_started, @as(duration.Duration, @intCast(@max(timeout_ms, 1))) * duration.MilliSecond);
+    const deadline = grt.time.instant.add(response_started, @as(duration.Duration, @intCast(@max(config.conversation_timeout_ms, 1))) * duration.MilliSecond);
     var transcript_seen = false;
     var transcript_done = false;
     var assistant_text_seen = false;
@@ -580,8 +619,14 @@ fn runAudioRound(
     var assistant_audio_done = false;
     var settle_deadline: ?grt.time.instant.Time = null;
     var buf: [8192]u8 = undefined;
-    var transcript_stream_id: ?[]const u8 = null;
-    var assistant_stream_id: ?[]const u8 = null;
+    var decoder = try opus.Decoder.init(allocator, audio_sample_rate, 1);
+    defer decoder.deinit(allocator);
+    try decoder.setIgnoreExtensions(true);
+    if (!(try decoder.getIgnoreExtensions())) return error.OpusIgnoreExtensionsNotEnabled;
+    var transcript_stream_id: ?[]u8 = null;
+    defer if (transcript_stream_id) |owned| allocator.free(owned);
+    var assistant_stream_id: ?[]u8 = null;
+    defer if (assistant_stream_id) |owned| allocator.free(owned);
 
     while (true) {
         const now = grt.time.instant.now();
@@ -618,7 +663,7 @@ fn runAudioRound(
             }
             const label = eventLabel(event);
             if (mem.eql(u8, label, "transcript")) {
-                if (!acceptRoundEventStream(event.stream_id, stream_id, &transcript_stream_id)) continue;
+                if (!(try acceptRoundEventStream(allocator, event.stream_id, stream_id, &transcript_stream_id))) continue;
                 round.events += 1;
                 if (event.text) |text| {
                     if (textHasContent(text) and !transcript_seen) {
@@ -631,7 +676,7 @@ fn runAudioRound(
                     round.transcript_done_ns = @intCast(grt.time.instant.since(response_started));
                 }
             } else if (mem.eql(u8, label, "assistant")) {
-                if (!acceptRoundEventStream(event.stream_id, stream_id, &assistant_stream_id)) continue;
+                if (!(try acceptRoundEventStream(allocator, event.stream_id, stream_id, &assistant_stream_id))) continue;
                 round.events += 1;
                 if (event.type == .eos) {
                     assistant_audio_eos_seen = true;
@@ -665,8 +710,7 @@ fn runAudioRound(
             if (round.output_packets == 0) {
                 round.first_audio_ns = @intCast(grt.time.instant.since(response_started));
             }
-            round.output_packets += 1;
-            round.output_bytes += frame.frame.len;
+            try decodeAssistantAudioFrame(&decoder, frame.frame, &round);
         }
     }
 }
@@ -677,6 +721,7 @@ fn reportRound(reporter: anytype, round: RoundSummary) !void {
     try reporter.metric("round_input_bytes", @intCast(round.input_bytes), "B");
     try reporter.metric("round_output_packets", @intCast(round.output_packets), "");
     try reporter.metric("round_output_bytes", @intCast(round.output_bytes), "B");
+    try reporter.metric("round_output_decoded_samples", @intCast(round.output_samples), "");
     try reporter.metric("round_events", @intCast(round.events), "");
     try reporter.metric("round_uplink_ms", nsToMs(round.uplink_ns), "ms");
     try reporter.metric("round_response_ms", nsToMs(round.response_ns), "ms");
@@ -687,67 +732,95 @@ fn reportRound(reporter: anytype, round: RoundSummary) !void {
     try reporter.metric("round_first_audio_ms", nsToMs(round.first_audio_ns), "ms");
 }
 
+fn decodeAssistantAudioFrame(decoder: *opus.Decoder, packet: []const u8, round: *RoundSummary) !void {
+    const channels = try opus.packetGetChannels(packet);
+    const samples_per_channel = try opus.packetGetSamples(packet, audio_sample_rate);
+    const frames = try opus.packetGetFrames(packet);
+    _ = try opus.packetGetBandwidth(packet);
+    if (channels != 1) return error.UnexpectedAssistantAudioChannels;
+    if (samples_per_channel == 0 or samples_per_channel > max_decoded_samples) return error.UnexpectedAssistantAudioSamples;
+    if (frames == 0) return error.UnexpectedAssistantAudioFrames;
+
+    const decode_capacity = @as(usize, @intCast(samples_per_channel)) * @as(usize, @intCast(channels));
+    var pcm: [max_decoded_samples]i16 = undefined;
+    const decoded = try decoder.decode(packet, pcm[0..decode_capacity], false);
+    if (decoded.len == 0) return error.EmptyAssistantAudioDecode;
+    round.output_packets += 1;
+    round.output_bytes += packet.len;
+    round.output_samples += decoded.len;
+}
+
 fn nsToMs(ns: u64) u64 {
     return @divTrunc(ns, @as(u64, @intCast(duration.MilliSecond)));
 }
 
 const OpusPackets = struct {
-    items: [][]const u8,
-    payloads: []u8,
+    items: [][]u8,
 
     fn deinit(self: *OpusPackets, allocator: mem.Allocator) void {
+        for (self.items) |packet| allocator.free(packet);
         allocator.free(self.items);
-        allocator.free(self.payloads);
         self.* = undefined;
     }
 };
 
 fn parseOggOpusPackets(allocator: mem.Allocator, data: []const u8) !OpusPackets {
-    var packets = grt.std.ArrayList([]const u8){};
+    var packets = grt.std.ArrayList([]u8){};
     defer packets.deinit(allocator);
-    const payloads = try allocator.alloc(u8, data.len);
-    errdefer allocator.free(payloads);
+    errdefer freePacketList(allocator, packets.items);
 
-    var offset: usize = 0;
-    var pending_start: usize = 0;
-    var pending_len: usize = 0;
-    while (offset < data.len) {
-        if (offset + 27 > data.len) return error.InvalidOggPage;
-        if (!mem.eql(u8, data[offset .. offset + 4], "OggS")) return error.InvalidOggPage;
-        const segment_count: usize = data[offset + 26];
-        const lacing_start = offset + 27;
-        const lacing_end = lacing_start + segment_count;
-        if (lacing_end > data.len) return error.TruncatedOggPage;
-        var body_len: usize = 0;
-        for (data[lacing_start..lacing_end]) |size| body_len += size;
-        const body_start = lacing_end;
-        const body_end = body_start + body_len;
-        if (body_end > data.len) return error.TruncatedOggPage;
+    var sync = ogg.Sync.init(allocator);
+    defer sync.deinit();
 
-        var cursor = body_start;
-        for (data[lacing_start..lacing_end]) |size| {
-            if (pending_len == 0) pending_start = pending_start + pending_len;
-            if (pending_start + pending_len + size > payloads.len) return error.OggPacketTooLarge;
-            @memcpy(payloads[pending_start + pending_len .. pending_start + pending_len + size], data[cursor .. cursor + size]);
-            pending_len += size;
-            cursor += size;
-            if (size < 255) {
-                const packet = payloads[pending_start .. pending_start + pending_len];
-                if (packet.len != 0 and !mem.startsWith(u8, packet, "OpusHead") and !mem.startsWith(u8, packet, "OpusTags")) {
-                    try packets.append(allocator, packet);
+    const buffer = try sync.buffer(data.len);
+    @memcpy(buffer, data);
+    try sync.wrote(data.len);
+
+    var stream: ?ogg.Stream = null;
+    defer if (stream) |*s| s.deinit();
+
+    while (true) {
+        switch (try sync.pageOut()) {
+            .need_more => break,
+            .hole => return error.InvalidOggPage,
+            .page => |page| {
+                if (stream == null) {
+                    stream = try ogg.Stream.init(allocator, try page.serialNo());
                 }
-                pending_start += pending_len;
-                pending_len = 0;
-            }
+                try stream.?.pageIn(&page);
+
+                while (true) {
+                    switch (try stream.?.packetOut()) {
+                        .none => break,
+                        .hole => return error.InvalidOggPacket,
+                        .packet => |packet| {
+                            const payload = packet.payload();
+                            if (isOpusMetadataPacket(payload)) continue;
+                            const owned = try allocator.dupe(u8, payload);
+                            packets.append(allocator, owned) catch |err| {
+                                allocator.free(owned);
+                                return err;
+                            };
+                        },
+                    }
+                }
+            },
         }
-        offset = body_end;
     }
-    if (pending_len != 0) return error.UnterminatedOggPacket;
+
     if (packets.items.len == 0) return error.EmptyOpusAudio;
     return .{
         .items = try packets.toOwnedSlice(allocator),
-        .payloads = payloads,
     };
+}
+
+fn isOpusMetadataPacket(packet: []const u8) bool {
+    return packet.len != 0 and
+        (mem.startsWith(u8, packet, "OpusHead") or mem.startsWith(u8, packet, "OpusTags"));
+}
+
+fn freePacketList(allocator: mem.Allocator, packets: [][]u8) void {
+    for (packets) |packet| allocator.free(packet);
 }
 
 fn makeStreamID(allocator: mem.Allocator, round_index: u32) ![]u8 {
@@ -773,12 +846,13 @@ fn isTranscriptDoneEvent(event: anytype) bool {
     return event.type == .text_done or event.type == .eos;
 }
 
-fn acceptRoundEventStream(actual: ?[]const u8, expected: []const u8, bound: *?[]const u8) bool {
+fn acceptRoundEventStream(allocator: mem.Allocator, actual: ?[]const u8, expected: []const u8, bound: *?[]u8) !bool {
     const value = actual orelse return true;
-    if (mem.trim(u8, value, " \t\r\n").len == 0) return true;
-    if (streamIDMatches(value, expected)) return true;
-    if (bound.*) |existing| return streamIDMatches(value, existing);
-    bound.* = value;
+    const trimmed = mem.trim(u8, value, " \t\r\n");
+    if (trimmed.len == 0) return true;
+    if (streamIDMatches(trimmed, expected)) return true;
+    if (bound.*) |existing| return streamIDMatches(trimmed, existing);
+    bound.* = try allocator.dupe(u8, trimmed);
     return true;
 }
 

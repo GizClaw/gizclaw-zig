@@ -54,6 +54,8 @@ pub fn build(b: *std.Build) void {
     const gstd = embed_dep.module("gstd");
     const embed = embed_dep.module("embed");
     const kcp = embed_dep.module("thirdparty/kcp");
+    const opus = embed_dep.module("thirdparty/opus");
+    const opus_osal = embed_dep.module("thirdparty/opus_osal");
     const openapi = embed_dep.module("openapi");
     const codegen = embed_dep.module("codegen");
 
@@ -61,6 +63,8 @@ pub fn build(b: *std.Build) void {
     b.modules.put("gstd", gstd) catch @panic("OOM");
     b.modules.put("embed", embed) catch @panic("OOM");
     b.modules.put("kcp", kcp) catch @panic("OOM");
+    b.modules.put("opus", opus) catch @panic("OOM");
+    b.modules.put("opus_osal", opus_osal) catch @panic("OOM");
     b.modules.put("openapi", openapi) catch @panic("OOM");
     b.modules.put("codegen", codegen) catch @panic("OOM");
     const models_options = b.addOptions();

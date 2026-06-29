@@ -14,10 +14,10 @@ pub const Config = struct {
 };
 
 pub const Fixtures = struct {
-    workspace: ?[]const u8 = "workspace-history-demo",
-    run_workspace: ?[]const u8 = "workspace-direct-chat-demo",
-    credential_name: ?[]const u8 = "openai-catalog-credential",
-    voice_id: ?[]const u8 = "minimax-catalog-voice",
+    workspace: ?[]const u8 = "family-circle-chatroom-workspace",
+    run_workspace: ?[]const u8 = "direct-chatroom-workspace",
+    credential_name: ?[]const u8 = "openai-main-credential",
+    voice_id: ?[]const u8 = "minimax-narrator-clone",
     firmware_id: ?[]const u8 = "devkit-firmware-main",
 };
 

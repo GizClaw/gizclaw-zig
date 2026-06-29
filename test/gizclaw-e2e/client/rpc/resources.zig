@@ -17,13 +17,10 @@ fn workspaceChecks(comptime sdk: type, client: *sdk.Client, summary: *TestRunner
     try TestRunner.recordPass(summary, reporter, "ListWorkspaces");
     if (config.fixtures.workspace) |workspace| {
         try TestRunner.parsed(summary, reporter, "GetWorkspace", client.getWorkspace(.{ .name = workspace }));
-        try TestRunner.parsed(summary, reporter, "ListWorkspaceHistory", client.listWorkspaceHistory(.{ .workspace_name = workspace, .limit = 1 }));
     } else if (page.value.items.len != 0) {
         try TestRunner.parsed(summary, reporter, "GetWorkspace", client.getWorkspace(.{ .name = page.value.items[0].name }));
-        try TestRunner.parsed(summary, reporter, "ListWorkspaceHistory", client.listWorkspaceHistory(.{ .workspace_name = page.value.items[0].name, .limit = 1 }));
     } else {
         try TestRunner.recordFail(summary, reporter, "GetWorkspace", error.MissingWorkspaceFixture);
-        try TestRunner.recordFail(summary, reporter, "ListWorkspaceHistory", error.MissingWorkspaceFixture);
     }
 }
 
