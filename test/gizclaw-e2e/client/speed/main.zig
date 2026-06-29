@@ -109,7 +109,7 @@ pub fn main() !void {
 
     const options = try Options.parse(arena.allocator());
     var reporter = StdoutReporter{};
-    const summary = try runSelectedSdk(arena.allocator(), options.config, options.host, &reporter);
+    const summary = try runSelectedSdk(gpa.allocator(), options.config, options.host, &reporter);
     try reporter.finish(summary);
 }
 

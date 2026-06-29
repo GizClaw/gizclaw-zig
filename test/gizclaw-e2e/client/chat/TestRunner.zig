@@ -139,6 +139,7 @@ fn ensureWorkspace(comptime sdk: type, allocator: mem.Allocator, client: *sdk.Cl
         try recordFail(summary, reporter, "LoadWorkspaceConfig", err);
         return;
     };
+    defer cfg.deinit(allocator);
     if (!isDoubaoRealtimeConfig(cfg)) {
         try recordFail(summary, reporter, "EnsureWorkspace", error.UnsupportedWorkspaceConfig);
         return;
@@ -212,6 +213,26 @@ const WorkspaceConfig = struct {
     const Output = struct {
         speaker: ?[]const u8 = null,
     };
+
+    fn deinit(self: WorkspaceConfig, allocator: mem.Allocator) void {
+        freeOptional(allocator, self.workspace);
+        freeOptional(allocator, self.agent);
+        freeOptional(allocator, self.workflow.name);
+        freeOptional(allocator, self.workflow.description);
+        freeOptional(allocator, self.workflow.model);
+        freeOptional(allocator, self.workflow.realtime_model);
+        freeOptional(allocator, self.workflow.parameters.input);
+        freeOptional(allocator, self.workflow.parameters.voice.realtime_speaker_id);
+        freeOptional(allocator, self.workflow.parameters.voice.speaker_id);
+        freeOptional(allocator, self.workflow.parameters.search.type);
+        freeOptional(allocator, self.workflow.parameters.search.no_result_message);
+        freeOptional(allocator, self.workflow.session.auth_mode);
+        freeOptional(allocator, self.workflow.session.bot_name);
+        freeOptional(allocator, self.workflow.session.model);
+        freeOptional(allocator, self.workflow.session.resource_id);
+        freeOptional(allocator, self.workflow.session.system_role);
+        freeOptional(allocator, self.workflow.output.speaker);
+    }
 };
 
 fn loadWorkspaceConfig(allocator: mem.Allocator, raw: []const u8) !WorkspaceConfig {
@@ -263,6 +284,10 @@ fn loadWorkspaceConfig(allocator: mem.Allocator, raw: []const u8) !WorkspaceConf
 fn dupeOptional(allocator: mem.Allocator, value: ?[]const u8) !?[]const u8 {
     if (value) |text| return try allocator.dupe(u8, text);
     return null;
+}
+
+fn freeOptional(allocator: mem.Allocator, value: ?[]const u8) void {
+    if (value) |text| allocator.free(text);
 }
 
 fn isDoubaoRealtimeConfig(config: WorkspaceConfig) bool {

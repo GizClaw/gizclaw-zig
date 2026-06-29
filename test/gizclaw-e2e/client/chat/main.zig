@@ -144,7 +144,7 @@ pub fn main() !void {
         try loadAudioManifest(arena.allocator(), path, &config);
     }
     var reporter = StdoutReporter{};
-    const summary = try runSelectedSdk(arena.allocator(), config, options.host, &reporter);
+    const summary = try runSelectedSdk(gpa.allocator(), config, options.host, &reporter);
     try reporter.finish(summary);
 }
 
