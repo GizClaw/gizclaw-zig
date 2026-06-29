@@ -3,16 +3,16 @@ const embed_zig_build = @import("embed_zig");
 
 const default_app_name = "speedtest";
 const exe_name = "desktop_launcher_app";
-const default_bundle_name = "GizClawDesktop";
 const default_bundle_id = "dev.gizclaw.desktop.launcher";
 const location_usage = "GizClaw uses location permission to let CoreWLAN read WiFi network information.";
+const microphone_usage = "GizClaw uses microphone permission to capture chat audio.";
 const default_wifi_ssid = "";
 const default_wifi_password = "";
 const default_gizclaw_server_addr = "115.190.62.76:9820";
 const default_gizclaw_server_key = "FZvSffUDZbtJWDyqbuDv8nqjYs5jjSuHwZmxDLANVcx7";
 const default_gizclaw_client_key = "";
-const default_chat_workspace = "doubao-realtime";
-const default_chat_workflow = "doubao-realtime";
+const default_chat_workspace = "volc-ast-translate-zh-en-realtime-roundtrip";
+const default_chat_workflow = "volc-ast-translate-zh-en-realtime-roundtrip";
 const default_chat_mode = "push_to_talk";
 const default_e2e_suite = "speed";
 const default_e2e_cipher_mode = "chacha_poly";
@@ -53,11 +53,13 @@ pub fn build(b: *std.Build) void {
     const port = b.option(u16, "desktop_port", "HTTP port for the desktop launcher") orelse
         b.option(u16, "port", "Deprecated alias for desktop_port") orelse
         8080;
-    const bundle_name = b.option([]const u8, "desktop_bundle_name", "macOS app bundle name for the desktop launcher") orelse default_bundle_name;
-    const bundle_id = b.option([]const u8, "desktop_bundle_id", "macOS app bundle identifier for the desktop launcher") orelse default_bundle_id;
-    const display_name = b.option([]const u8, "desktop_display_name", "macOS display name for the desktop launcher") orelse bundle_name;
-    const systray_name = b.option([]const u8, "desktop_systray_name", "macOS menu bar name for the desktop launcher") orelse display_name;
+    const identity = desktopIdentity(selected_app_name);
+    const bundle_name = b.option([]const u8, "desktop_bundle_name", "macOS app bundle name for the desktop launcher") orelse identity.bundle_name;
+    const bundle_id = b.option([]const u8, "desktop_bundle_id", "macOS app bundle identifier for the desktop launcher") orelse identity.bundle_id;
+    const display_name = b.option([]const u8, "desktop_display_name", "macOS display name for the desktop launcher") orelse identity.display_name;
+    const systray_name = b.option([]const u8, "desktop_systray_name", "macOS menu bar name for the desktop launcher") orelse identity.systray_name;
     const storage_root = normalizeHostPath(b, b.option([]const u8, "desktop_storage_root", "Host storage root for the desktop launcher") orelse "");
+    const home_dir = normalizeHostPath(b, b.option([]const u8, "desktop_home_dir", "Host home directory used by the desktop platform for Application Support storage") orelse "");
     const output_subdir = b.option([]const u8, "desktop_output_subdir", "zig-out subdirectory for the desktop .app") orelse "app";
     const run_tray = b.option(bool, "desktop_run_tray", "Run the macOS menu bar launcher") orelse true;
     const smoke_config = smokeBuildConfigFromOptions(b);
@@ -74,6 +76,8 @@ pub fn build(b: *std.Build) void {
     const launcher_config = b.addOptions();
     launcher_config.addOption([]const u8, "app_name", launcherAppName(selected_app_name));
     launcher_config.addOption(u16, "port", port);
+    launcher_config.addOption([]const u8, "bundle_id", bundle_id);
+    launcher_config.addOption([]const u8, "home_dir", home_dir);
     launcher_config.addOption([]const u8, "storage_root", storage_root);
     launcher_config.addOption(bool, "run_tray", run_tray);
 
@@ -85,6 +89,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "desktop", .module = embed_zig_dep.module("desktop") },
             .{ .name = "gstd", .module = embed_zig_dep.module("gstd") },
             .{ .name = "lvgl_osal", .module = embed_zig_dep.module("thirdparty/lvgl_osal") },
+            .{ .name = "opus_osal", .module = embed_zig_dep.module("thirdparty/opus_osal") },
             .{ .name = "app", .module = app_mod },
         },
     });
@@ -157,6 +162,7 @@ fn createAppBundle(
         .usage_descriptions = .{
             .location = location_usage,
             .location_when_in_use = location_usage,
+            .microphone = microphone_usage,
         },
         .agent = true,
         .sign = .ad_hoc,
@@ -182,7 +188,7 @@ fn createApp(
     else
         std.debug.panic("unknown zux app: {s}; expected speedtest, e2e, or chat_smoke", .{selected_app_name});
 
-    const e2e_modules = createE2EModules(b, target, optimize, gizclaw_dep, embed_zig_dep.module("gstd"), smoke_config);
+    const e2e_modules = createE2EModules(b, target, optimize, gizclaw_dep, embed_zig_dep.module("gstd"), embed_zig_dep.module("embed"), embed_zig_dep.module("thirdparty/opus"), smoke_config);
 
     const module = b.createModule(.{
         .root_source_file = root_source_file,
@@ -191,10 +197,12 @@ fn createApp(
         .imports = &.{
             .{ .name = "embed", .module = embed_zig_dep.module("embed") },
             .{ .name = "glib", .module = embed_zig_dep.module("glib") },
+            .{ .name = "desktop", .module = embed_zig_dep.module("desktop") },
             .{ .name = "gizclaw", .module = gizclaw_dep.module("gizclaw") },
             .{ .name = "giznet", .module = gizclaw_dep.module("giznet") },
             .{ .name = "launcher", .module = embed_zig_dep.module("apps/launcher") },
             .{ .name = "lvgl", .module = embed_zig_dep.module("thirdparty/lvgl") },
+            .{ .name = "opus", .module = embed_zig_dep.module("thirdparty/opus") },
             .{ .name = "e2e_assets", .module = e2e_modules.assets },
             .{ .name = "e2e_common", .module = e2e_modules.common },
             .{ .name = "e2e_runners", .module = e2e_modules.runners },
@@ -259,6 +267,32 @@ fn launcherAppName(selected_app_name: []const u8) []const u8 {
     return "gizclaw_zux_speedtest";
 }
 
+fn desktopIdentity(selected_app_name: []const u8) struct {
+    bundle_name: []const u8,
+    bundle_id: []const u8,
+    display_name: []const u8,
+    systray_name: []const u8,
+} {
+    if (std.mem.eql(u8, selected_app_name, "chat_smoke")) return .{
+        .bundle_name = "GizClawChat",
+        .bundle_id = default_bundle_id,
+        .display_name = "GizClaw Chat",
+        .systray_name = "GizClaw Chat",
+    };
+    if (std.mem.eql(u8, selected_app_name, "e2e")) return .{
+        .bundle_name = "GizClawE2E",
+        .bundle_id = default_bundle_id,
+        .display_name = "GizClaw E2E",
+        .systray_name = "GizClaw E2E",
+    };
+    return .{
+        .bundle_name = "GizClawSpeedtest",
+        .bundle_id = default_bundle_id,
+        .display_name = "GizClaw Speedtest",
+        .systray_name = "GizClaw Speedtest",
+    };
+}
+
 const E2EModules = struct {
     assets: *std.Build.Module,
     common: *std.Build.Module,
@@ -271,6 +305,8 @@ fn createE2EModules(
     optimize: std.builtin.OptimizeMode,
     gizclaw_dep: *std.Build.Dependency,
     gstd: *std.Build.Module,
+    embed: *std.Build.Module,
+    opus: *std.Build.Module,
     config: SmokeBuildConfig,
 ) E2EModules {
     const e2e_build_config = b.addOptions();
@@ -307,7 +343,7 @@ fn createE2EModules(
     return .{
         .assets = createE2EAssetsModule(b, target, optimize, "../../test/gizclaw-e2e/Assets.zig"),
         .common = common,
-        .runners = createE2ERunnerModule(b, target, optimize, runtime_mod, common, "../../test/gizclaw-e2e/client/Runners.zig"),
+        .runners = createE2ERunnerModule(b, target, optimize, runtime_mod, common, embed, opus, "../../test/gizclaw-e2e/client/Runners.zig"),
     };
 }
 
@@ -330,6 +366,8 @@ fn createE2ERunnerModule(
     optimize: std.builtin.OptimizeMode,
     runtime_mod: *std.Build.Module,
     common: *std.Build.Module,
+    embed: *std.Build.Module,
+    opus: *std.Build.Module,
     root: []const u8,
 ) *std.Build.Module {
     return b.createModule(.{
@@ -339,6 +377,8 @@ fn createE2ERunnerModule(
         .imports = &.{
             .{ .name = "gstd", .module = runtime_mod },
             .{ .name = "common", .module = common },
+            .{ .name = "embed", .module = embed },
+            .{ .name = "opus", .module = opus },
         },
     });
 }
@@ -352,10 +392,12 @@ const run_app_script =
     \\set -eu
     \\app="$1"
     \\port="$2"
+    \\app_dir="$(cd "$(dirname "$app")" && pwd -P)"
+    \\app="$app_dir/$(basename "$app")"
     \\/usr/bin/pkill -f "$app/Contents/MacOS/desktop_launcher_app" 2>/dev/null || true
     \\open "$app"
     \\i=0
-    \\while [ "$i" -lt 100 ]; do
+    \\while [ "$i" -lt 300 ]; do
     \\  if /usr/bin/curl -fsS "http://127.0.0.1:$port/topology" >/dev/null 2>&1; then
     \\    echo "desktop server ready: http://127.0.0.1:$port/"
     \\    exit 0

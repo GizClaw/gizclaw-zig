@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const desktop = @import("desktop");
 const gstd = @import("gstd");
 const lvgl_osal = @import("lvgl_osal");
+const opus_osal = @import("opus_osal");
 const app = @import("app");
 const config = @import("desktop_launcher_config");
 
@@ -12,7 +13,28 @@ pub const std_options: std.Options = .{
 
 comptime {
     _ = lvgl_osal.make(gstd.runtime, std.heap.page_allocator);
+    _ = opus_osal.make(gstd.runtime, std.heap.page_allocator).opus_alloc_scratch;
 }
+
+const DesktopPlatformCtx = desktop.PlatformCtxWith(.{
+    .bundle_id = config.bundle_id,
+    .home_dir = config.home_dir,
+    .storage_root = config.storage_root,
+});
+
+const PlatformCtx = struct {
+    pub const AudioSystem = DesktopPlatformCtx.AudioSystem;
+    pub const Net = DesktopPlatformCtx.Net;
+    pub const fs = DesktopPlatformCtx.fs;
+
+    pub fn preferencesProvider(allocator: gstd.runtime.std.mem.Allocator) !desktop.system.Preferences.Provider {
+        return DesktopPlatformCtx.preferencesProvider(allocator);
+    }
+
+    pub fn gizclawAllocator(default_allocator: anytype) @TypeOf(default_allocator) {
+        return default_allocator;
+    }
+};
 
 pub fn main() void {
     redirectLogs();
@@ -54,7 +76,7 @@ pub export fn desktop_launcher_quit() callconv(.c) void {
 fn run() !void {
     try mountStorage();
 
-    const Launcher = app.make(app.DesktopPlatformCtx, gstd.runtime);
+    const Launcher = app.make(PlatformCtx, gstd.runtime);
     const DesktopApp = desktop.App.make(Launcher);
 
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
@@ -77,16 +99,7 @@ fn run() !void {
 }
 
 fn mountStorage() !void {
-    if (config.storage_root.len == 0) return;
-    if (std.fs.path.isAbsolute(config.storage_root)) {
-        var root = try std.fs.openDirAbsolute("/", .{});
-        defer root.close();
-        try root.makePath(config.storage_root[1..]);
-    } else {
-        try std.fs.cwd().makePath(config.storage_root);
-    }
-    gstd.fs.setHostMount("/storage", config.storage_root);
-    std.log.info("desktop storage mounted /storage -> {s}", .{config.storage_root});
+    try DesktopPlatformCtx.fs.mountStorage();
 }
 
 fn redirectLogs() void {
