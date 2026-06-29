@@ -75,7 +75,6 @@ pub fn createTestModule(
     });
     const kcp_integration_run = b.addRunArtifact(kcp_integration_compile);
     kcp_integration_run.setName("kcp:integration");
-    integration_step.dependOn(&kcp_integration_run.step);
     kcp_integration_step.dependOn(&kcp_integration_run.step);
 
     const kcp_unit_step = b.step(
@@ -88,7 +87,6 @@ pub fn createTestModule(
     });
     const kcp_unit_run = b.addRunArtifact(kcp_unit_compile);
     kcp_unit_run.setName("kcp:unit");
-    unit_step.dependOn(&kcp_unit_run.step);
     kcp_unit_step.dependOn(&kcp_unit_run.step);
 }
 
@@ -177,6 +175,7 @@ pub fn createGizClawE2E(
         .imports = &.{
             .{ .name = "gizclaw", .module = b.modules.get("gizclaw") orelse @panic("missing module: gizclaw") },
             .{ .name = "giznet", .module = b.modules.get("giznet") orelse @panic("missing module: giznet") },
+            .{ .name = "giznoise", .module = b.modules.get("giznoise") orelse @panic("missing module: giznoise") },
             .{ .name = "gstd", .module = b.modules.get("gstd") orelse @panic("missing module: gstd") },
             .{ .name = "e2e_build_config", .module = e2e_build_config.createModule() },
         },
@@ -229,6 +228,7 @@ pub fn createGizClawE2E(
             .imports = &.{
                 .{ .name = "gizclaw", .module = b.modules.get("gizclaw") orelse @panic("missing module: gizclaw") },
                 .{ .name = "giznet", .module = b.modules.get("giznet") orelse @panic("missing module: giznet") },
+                .{ .name = "giznoise", .module = b.modules.get("giznoise") orelse @panic("missing module: giznoise") },
                 .{ .name = "gstd", .module = b.modules.get("gstd") orelse @panic("missing module: gstd") },
                 .{ .name = "embed", .module = b.modules.get("embed") orelse @panic("missing module: embed") },
                 .{ .name = "opus", .module = b.modules.get("opus") orelse @panic("missing module: opus") },

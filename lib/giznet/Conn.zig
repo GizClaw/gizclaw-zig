@@ -2,7 +2,7 @@
 
 const glib = @import("glib");
 
-const Key = @import("noise/Key.zig");
+const Key = @import("Key.zig");
 const Stream = @import("Stream.zig");
 
 const Conn = @This();

@@ -9,7 +9,7 @@ pub fn main(comptime Runner: type) !void {
 
     const options = try Options(Runner).parse(arena.allocator());
     var reporter = StdoutReporter(Runner){};
-    const summary = try runSelectedSdk(Runner, arena.allocator(), options.config, options.host, &reporter);
+    const summary = try runSelectedSdk(Runner, gpa.allocator(), options.config, options.host, &reporter);
     try reporter.finish(summary);
 }
 

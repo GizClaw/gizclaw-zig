@@ -14,6 +14,7 @@ pub const ConnectOptions = struct {
 
 pub const InitConfig = struct {
     key_pair: giznet.KeyPair,
+    giznet: ?giznet.GizNet = null,
     device_info: models.DeviceInfo = .{},
     runtime_options: RuntimeOptions = .{},
 };
@@ -39,20 +40,9 @@ pub const KcpStreamOptions = struct {
     kcp_recv_window: ?u32 = null,
 };
 
-pub const default_packet_mtu: usize = 1400;
-pub const default_kcp_mtu: usize = default_packet_mtu;
-const max_kcp_mux_data_header: usize = 1 + 10 + 1;
-pub const default_packet_size_capacity: usize = giznet.noise.min_packet_size_capacity + max_kcp_mux_data_header + default_packet_mtu;
-
-pub const Config = struct {
-    packet_size_capacity: usize = default_packet_size_capacity,
-    cipher_kind: giznet.noise.Cipher.Kind = giznet.noise.default_cipher_kind,
-};
-
-pub fn make(comptime grt: type, comptime config: Config) type {
+pub fn make(comptime grt: type, comptime config: anytype) type {
+    _ = config;
     const Allocator = grt.std.mem.Allocator;
-    const RuntimePackage = giznet.runtime.make(grt, config.packet_size_capacity, config.cipher_kind);
-    const RuntimeGizNet = RuntimePackage.GizNet;
     const RpcRuntime = Rpc.make(grt);
     const PeerStreamRuntime = peer_stream.make(grt);
     const Http = grt.net.http;
@@ -68,8 +58,6 @@ pub fn make(comptime grt: type, comptime config: Config) type {
     const default_speed_test_timeout = 30 * glib.time.duration.Second;
 
     return struct {
-        pub const Runtime = RuntimePackage;
-        pub const GizNetImpl = RuntimeGizNet;
         pub const SpeedTestResult = RpcRuntime.SpeedTestResult;
         pub const SpeedTestProgress = RpcRuntime.SpeedTestProgress;
         pub const SpeedTestProgressSnapshot = RpcRuntime.SpeedTestProgressSnapshot;
@@ -125,8 +113,6 @@ pub fn make(comptime grt: type, comptime config: Config) type {
         runtime_options: RuntimeOptions = .{},
         local_device_info: DeviceInfo = .{},
         server_key: giznet.Key = .{},
-        packet_conn: ?grt.net.PacketConn = null,
-        impl: ?*GizNetImpl = null,
         root: ?giznet.GizNet = null,
         conn: ?giznet.Conn = null,
         stream_thread: ?grt.task.Handle = null,
@@ -139,47 +125,18 @@ pub fn make(comptime grt: type, comptime config: Config) type {
                 .allocator = allocator,
                 .key_pair = init_config.key_pair,
                 .runtime_options = init_config.runtime_options,
+                .root = init_config.giznet,
             };
             errdefer deinitDeviceInfo(allocator, &self.local_device_info);
             self.local_device_info = try self.dupeDeviceInfo(init_config.device_info);
             return self;
         }
 
-        pub fn runtimeConfig(key_pair: giznet.KeyPair, peer_policy: giznet.noise.Engine.PeerPolicy) giznet.runtime.Engine.Config {
-            return .{
-                .local_static = key_pair,
-                .noise = .{
-                    .peer_policy = peer_policy,
-                },
-            };
-        }
-
         pub fn connect(self: *Self, options: ConnectOptions) !void {
-            if (self.conn != null or self.impl != null) return error.ClientAlreadyConnected;
+            if (self.conn != null) return error.ClientAlreadyConnected;
+            const root = self.root orelse return error.ClientMissingGizNet;
             self.server_key = options.server_key;
             errdefer self.server_key = .{};
-
-            var packet_conn = try grt.net.listenPacket(.{
-                .allocator = self.allocator,
-                .address = giznet.AddrPort.from4(.{ 0, 0, 0, 0 }, 0),
-            });
-            var packet_conn_owned = true;
-            errdefer if (packet_conn_owned) packet_conn.deinit();
-
-            var runtime_config = runtimeConfig(self.key_pair, .{
-                .ctx = self,
-                .allow = allowServerPeer,
-            });
-            applyRuntimeOptions(&runtime_config, self.runtime_options);
-            const impl = try RuntimeGizNet.init(self.allocator, packet_conn, runtime_config);
-            var impl_owned = true;
-            errdefer if (impl_owned) impl.deinit();
-
-            const root = try impl.up(.{
-                .drive_task_options = self.runtime_options.drive_task_options,
-                .read_task_options = self.runtime_options.read_task_options,
-                .timer_task_options = self.runtime_options.timer_task_options,
-            });
 
             const endpoint = try parseAddrPort(options.server_addr);
             const connect_timeout = options.connect_timeout orelse default_connect_timeout;
@@ -190,27 +147,17 @@ pub fn make(comptime grt: type, comptime config: Config) type {
                 .keepalive_ms = 15_000,
             });
 
-            const conn = try impl.acceptTimeout(connect_timeout);
+            const conn = try root.acceptTimeout(connect_timeout);
             var conn_owned = true;
             errdefer if (conn_owned) {
                 conn.close() catch {};
                 conn.deinit();
             };
-            self.packet_conn = packet_conn;
-            self.impl = impl;
-            self.root = root;
             self.conn = conn;
-            packet_conn_owned = false;
-            impl_owned = false;
             conn_owned = false;
             errdefer self.disconnect();
 
             if (self.runtime_options.serve_rpc) try self.startServe(self.runtime_options.rpc_task_options);
-        }
-
-        fn allowServerPeer(ctx: ?*anyopaque, peer_key: giznet.Key) bool {
-            const self: *Self = @ptrCast(@alignCast(ctx orelse return false));
-            return peer_key.eql(self.server_key);
         }
 
         fn durationMillis(duration: glib.time.duration.Duration) u32 {
@@ -219,20 +166,6 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             return @intCast(@min(rounded, grt.std.math.maxInt(u32)));
         }
 
-        fn applyRuntimeOptions(runtime_config: *giznet.runtime.Engine.Config, options: RuntimeOptions) void {
-            if (options.channel_capacity) |value| runtime_config.channel_capacity = value;
-            if (options.accept_channel_capacity) |value| runtime_config.accept_channel_capacity = value;
-
-            const stream_options = options.kcp_stream;
-            const stream = &runtime_config.service.kcp_stream.stream;
-            if (stream_options.channel_capacity) |value| stream.channel_capacity = value;
-            if (stream_options.kcp_nodelay) |value| stream.kcp_nodelay = value;
-            if (stream_options.kcp_interval) |value| stream.kcp_interval = value;
-            if (stream_options.kcp_resend) |value| stream.kcp_resend = value;
-            if (stream_options.kcp_no_congestion_control) |value| stream.kcp_no_congestion_control = value;
-            if (stream_options.kcp_send_window) |value| stream.kcp_send_window = value;
-            if (stream_options.kcp_recv_window) |value| stream.kcp_recv_window = value;
-        }
 
         pub fn attach(
             self: *Self,
@@ -272,12 +205,6 @@ pub fn make(comptime grt: type, comptime config: Config) type {
             if (self.root) |root| {
                 root.deinit();
                 self.root = null;
-                self.impl = null;
-            }
-            if (self.packet_conn) |packet_conn| {
-                packet_conn.close();
-                packet_conn.deinit();
-                self.packet_conn = null;
             }
         }
 

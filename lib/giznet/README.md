@@ -1,119 +1,65 @@
 # giznet
 
-`giznet` is the current transport foundation of `giztoy-zig`. It provides a
-Zig/embed-zig implementation of the encrypted peer connectivity layer that the
-broader GizClaw platform can build on.
+`giznet` is the transport-independent VTable/API boundary for GizClaw
+connectivity.
 
-The package is intentionally split into small layers. Each layer owns a specific
-part of the data flow so the transport can be tested in isolation and later
-adapted to embedded runtimes.
+It defines the stable handles that higher-level packages use:
 
-## Public Shape
+- `GizNet`: erased root backend instance.
+- `Conn`: erased peer connection.
+- `Stream`: erased service stream.
+- `DialOptions`: transport-independent peer dial options.
+- `Key` and `KeyPair`: static identity types.
+- `StreamConn`: adapter from `Stream` to `grt.net.Conn`.
+- `HttpTransport`: HTTP-over-`Conn` utility.
+- `NetPerfClient` and `NetPerfServer`: packet and stream perf helpers built
+  only on `Conn` and `Stream`.
 
-The public entry points are exposed from `lib/giznet.zig`:
+Concrete transports are implemented outside this package. The current
+Noise/UDP/KCP backend lives in `giznoise`.
 
-- `GizNet`: erased root handle for a running backend.
-- `Conn`: erased peer connection handle.
-- `DialOptions`: peer dial options.
-- `Key` and `KeyPair`: Noise static identity types.
-- `AddrPort`: endpoint type from `glib`.
+## Runtime Namespace
 
-The erased handles are used so callers can depend on a stable surface while the
-runtime implementation remains generic over `embed-zig` runtime capabilities.
+Use the runtime-bound namespace for public APIs that need runtime-shaped
+adapters:
 
-## Layers
+```zig
+const giznet = @import("giznet").make(grt);
+```
 
-### `noise`
+The namespace exposes the same transport-independent types plus generic
+adapters such as `giznet.StreamConn` and `giznet.HttpTransport`.
 
-The `noise` layer handles peer identity, handshakes, transport sessions, packet
-encryption/decryption, timers, and peer session state.
+## Dependency Boundary
 
-It is a single-threaded state machine driven by the runtime. It emits events
-such as outbound packets, established peers, and decrypted inbound transport
-payloads.
+`giznet` must not depend on concrete transport implementations.
 
-### `packet`
+Allowed here:
 
-The `packet` layer owns inbound and outbound packet wrappers, packet pools, and
-packet state transitions.
+- erased VTable handles
+- transport-independent public types
+- generic adapters and utilities built only on the VTables
 
-Packet pools are owned by the runtime layer. Lower layers receive borrowed pool
-access where needed, but the runtime is responsible for global packet lifecycle.
-The ownership contract is:
+Not allowed here:
 
-- On success, a callee consumes or transfers packet ownership.
-- On error, the caller retains ownership and may clean up with `errdefer`.
-
-This rule keeps error paths predictable and avoids double-returning pooled
-packets.
-
-### `service`
-
-The `service` layer routes plaintext transport payloads above Noise. It parses
-service framing, creates peer ports, and delivers direct packets to per-peer
-channels.
-
-Current service support is focused on direct packet delivery and connection
-control. KCP stream support is still a planned area.
-
-### `runtime`
-
-The `runtime` layer wires everything together:
-
-- UDP `PacketConn` read/write loops.
-- Noise engine drive calls.
-- Service engine drive calls.
-- Accept and input channels.
-- Error reporting.
-- Packet pool ownership.
-- Runtime close and join lifecycle.
-
-`GizNet.up()` starts the drive, read, and timer workers. `close()` signals
-shutdown, and `join()` waits for worker exit.
-
-## Connection Flow
-
-At a high level:
-
-1. A caller creates a concrete `GizNet` backend with a UDP `PacketConn`.
-2. `up()` starts runtime workers.
-3. `dial()` sends an initiate-handshake command to the runtime.
-4. The runtime drives Noise handshake state.
-5. Once a peer is established, service state creates an accepted `Conn`.
-6. `Conn.write(protocol, payload)` sends plaintext service payloads through the
-   runtime and Noise transport.
-7. `Conn.read()` returns the service protocol byte and payload length.
+- Noise handshake/session implementation
+- UDP runtime worker implementation
+- service mux implementation
+- KCP stream implementation
+- concrete backend construction
 
 ## Testing
 
-Run all `giznet` unit tests:
+Run `giznet` API tests:
 
 ```sh
 zig build test-unit-giznet
-```
-
-Run `giznet` integration tests:
-
-```sh
 zig build test-integration-giznet
 ```
 
-Run local benchmarks:
+Concrete Noise backend tests live under `giznoise`:
 
 ```sh
-zig build -Doptimize=ReleaseSafe test-benchmark-giznet
+zig build test-unit-giznoise
+zig build test-integration-giznoise
 ```
-
-CI currently runs unit tests and then integration tests for platforms whose unit
-tests passed. Benchmarks are intentionally kept out of CI because UDP loopback
-throughput and packet loss on hosted runners are noisy and not representative of
-local or target-device behavior.
-
-## Current Limits
-
-- The integration tests use real UDP and strict data integrity checks; they are
-  meant to validate correctness, not benchmark throughput.
-- KCP stream service paths are not yet implemented in the new `giznet` stack.
-- Runtime APIs and packet ownership internals are still being refined.
-- Embedded target integration is a goal, but the current tests primarily run on
-  host platforms.

@@ -4,7 +4,7 @@ const glib = @import("glib");
 
 const Conn = @import("Conn.zig");
 const DialOptions = @import("DialOptions.zig");
-const Stats = @import("runtime/Stats.zig");
+const Stats = @import("Stats.zig");
 
 const GizNet = @This();
 
@@ -151,7 +151,7 @@ pub fn make(comptime grt: type, comptime RuntimeEngine: type, comptime RuntimeCo
 }
 
 /// Wrap a pointer to any concrete giznet root backend.
-fn init(ptr: anytype) GizNet {
+pub fn init(ptr: anytype) GizNet {
     const Ptr = @TypeOf(ptr);
     const info = @typeInfo(Ptr);
     if (info != .pointer or info.pointer.size != .one or info.pointer.is_const) {

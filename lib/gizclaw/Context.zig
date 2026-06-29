@@ -1,5 +1,6 @@
 const glib = @import("glib");
 const giznet = @import("giznet");
+const giznoise = @import("giznoise");
 const std = @import("std");
 
 const Client = @import("Client.zig");
@@ -20,7 +21,7 @@ pub fn make(comptime grt: type) type {
             server_addr: []const u8,
             server_key: giznet.Key,
             key_pair: giznet.KeyPair,
-            cipher_kind: giznet.noise.Cipher.Kind = giznet.noise.default_cipher_kind,
+            cipher_kind: giznoise.noise.Cipher.Kind = giznoise.default_cipher_kind,
             device_info: models.DeviceInfo = .{},
             runtime_options: Client.RuntimeOptions = .{},
             connect_timeout: ?glib.time.duration.Duration = null,
@@ -41,7 +42,7 @@ pub fn make(comptime grt: type) type {
             server_addr: []const u8,
             server_key: []const u8,
             client_key: []const u8,
-            cipher_kind: giznet.noise.Cipher.Kind = giznet.noise.default_cipher_kind,
+            cipher_kind: giznoise.noise.Cipher.Kind = giznoise.default_cipher_kind,
             device_info: models.DeviceInfo = .{},
             runtime_options: Client.RuntimeOptions = .{},
             connect_timeout: ?glib.time.duration.Duration = null,
@@ -51,7 +52,7 @@ pub fn make(comptime grt: type) type {
             server_addr: []const u8,
             server_key: []const u8,
             client_key: []const u8 = "",
-            cipher_kind: giznet.noise.Cipher.Kind = giznet.noise.default_cipher_kind,
+            cipher_kind: giznoise.noise.Cipher.Kind = giznoise.default_cipher_kind,
             namespace: []const u8 = "gizclaw",
             client_key_name: []const u8 = "client_key",
             device_info: models.DeviceInfo = .{},
@@ -64,7 +65,7 @@ pub fn make(comptime grt: type) type {
             server_addr: ?[]const u8 = null,
             server_key: ?[]const u8 = null,
             client_key: ?[]const u8 = null,
-            cipher_kind: ?giznet.noise.Cipher.Kind = null,
+            cipher_kind: ?giznoise.noise.Cipher.Kind = null,
             device_info: models.DeviceInfo = .{},
             runtime_options: Client.RuntimeOptions = .{},
             connect_timeout: ?glib.time.duration.Duration = null,
@@ -209,7 +210,7 @@ pub fn make(comptime grt: type) type {
         const ParsedHostConfig = struct {
             server_addr: ?[]u8 = null,
             server_key: ?giznet.Key = null,
-            cipher_kind: giznet.noise.Cipher.Kind = giznet.noise.default_cipher_kind,
+            cipher_kind: giznoise.noise.Cipher.Kind = giznoise.default_cipher_kind,
 
             fn deinit(self: *ParsedHostConfig, allocator: grt.std.mem.Allocator) void {
                 if (self.server_addr) |server_addr| allocator.free(server_addr);
@@ -241,7 +242,7 @@ pub fn make(comptime grt: type) type {
             return grt.std.mem.trim(u8, raw, " \t\"'");
         }
 
-        fn parseCipherKind(raw: []const u8) !giznet.noise.Cipher.Kind {
+        fn parseCipherKind(raw: []const u8) !giznoise.noise.Cipher.Kind {
             if (grt.std.mem.eql(u8, raw, "chacha_poly")) return .chacha_poly;
             if (grt.std.mem.eql(u8, raw, "aes_256_gcm")) return .aes_256_gcm;
             if (grt.std.mem.eql(u8, raw, "plaintext")) return .plaintext;
