@@ -1,9 +1,7 @@
 const glib = @import("glib");
-const Cipher = @import("../noise/Cipher.zig");
 const Key = @import("../noise/Key.zig");
 const Message = @import("../noise/Message.zig");
 const Protocol = @import("../service/protocol.zig");
-const SessionType = @import("../noise/Session.zig");
 const Uvarint = @import("../service/Uvarint.zig");
 
 const PoolType = glib.sync.Pool;
@@ -13,11 +11,8 @@ const Inbound = @This();
 
 pub const State = enum {
     initial,
-    prepared,
-    ready_to_consume,
     consumed,
     service_delivered,
-    decrypt_failed,
     consume_failed,
 };
 
@@ -77,10 +72,6 @@ timestamp: glib.time.instant.Time = 0,
 state: State = .initial,
 kind: Kind = .unknown,
 remote_static: Key = .{},
-session_key: Key = .{},
-local_session_index: u32 = 0,
-remote_session_index: u32 = 0,
-counter: u64 = 0,
 service_data: ?ServiceData = null,
 
 fn init(self: *Inbound, pointer: anytype) *Inbound {
@@ -122,7 +113,7 @@ pub fn bytes(self: *const Inbound) []u8 {
     const start = switch (self.kind) {
         .handshake, .unknown => 0,
         .transport => switch (self.state) {
-            .ready_to_consume, .consumed, .service_delivered, .consume_failed => Message.TransportHeaderSize,
+            .consumed, .service_delivered, .consume_failed => Message.TransportHeaderSize,
             else => 0,
         },
     };
@@ -188,28 +179,6 @@ pub fn parseServiceData(self: *Inbound) !*Inbound {
     return self;
 }
 
-pub fn decrtpy(comptime grt: type, comptime cipher_kind: Cipher.Kind, self: *Inbound) !void {
-    const CipherSuite = Cipher.make(grt, cipher_kind);
-    errdefer self.state = .decrypt_failed;
-    const transport = Message.parseTransportMessage(self.fullBuffer()[0..self.len]) catch return error.InvalidTransportPacket;
-    if (transport.receiver_index != self.local_session_index) return error.SessionIndexMismatch;
-    if (transport.counter == glib.std.math.maxInt(u64)) return error.InvalidTransportPacket;
-
-    const plaintext_len = transport.ciphertext.len - Message.tag_size;
-    const plaintext = self.fullBuffer()[Message.TransportHeaderSize..];
-    if (plaintext.len < plaintext_len) return error.BufferTooSmall;
-    const session_key = self.session_key;
-    const written = CipherSuite.decrypt(&session_key, transport.counter, transport.ciphertext, "", plaintext[0..plaintext_len]) catch |err| switch (err) {
-        error.AuthenticationFailed => return error.AuthenticationFailed,
-        else => return error.InvalidTransportPacket,
-    };
-
-    self.len = written;
-    self.kind = .transport;
-    self.state = .ready_to_consume;
-    self.service_data = null;
-}
-
 pub fn deinit(self: *Inbound) void {
     const pool = self.pool orelse unreachable;
     const impl_ptr = self.impl_ptr orelse unreachable;
@@ -219,10 +188,6 @@ pub fn deinit(self: *Inbound) void {
     self.state = .initial;
     self.kind = .unknown;
     self.remote_static = .{};
-    self.session_key = .{};
-    self.local_session_index = 0;
-    self.remote_session_index = 0;
-    self.counter = 0;
     self.service_data = null;
     pool.put(impl_ptr);
 }
@@ -322,10 +287,6 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             _ = self;
             _ = allocator;
 
-            tryDecryptTransportCase(grt) catch |err| {
-                t.logErrorf("giznet/packet Inbound decrypt transport failed: {}", .{err});
-                return false;
-            };
             tryWrapperCase(grt) catch |err| {
                 t.logErrorf("giznet/packet Inbound wrapper failed: {}", .{err});
                 return false;
@@ -362,68 +323,6 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             grt.std.testing.allocator.destroy(self);
         }
 
-        fn tryDecryptTransportCase(comptime any_lib: type) !void {
-            const packet_size_capacity = SessionType.min_packet_size_capacity + 1024;
-            const Session = SessionType.make(any_lib, packet_size_capacity, Cipher.default_kind);
-            const CipherSuite = Cipher.make(any_lib, Cipher.default_kind);
-            var pool = try initPool(any_lib, grt.std.testing.allocator, packet_size_capacity);
-            defer pool.deinit();
-
-            const packet = pool.get() orelse return error.TestExpectedPacket;
-            defer packet.deinit();
-
-            const endpoint = AddrPort.from4(.{ 127, 0, 0, 1 }, 9201);
-            const session_key = Key{ .bytes = [_]u8{0x4b} ** 32 };
-            const receiver_index: u32 = 77;
-            const counter: u64 = 9;
-            const payload = "decrypt me";
-
-            var plaintext: [Session.max_plaintext_len]u8 = undefined;
-            const plaintext_len = try Message.encodePayload(payload, plaintext[0..]);
-
-            var ciphertext_storage: [Session.max_ciphertext_len]u8 = undefined;
-            const cipher_len = CipherSuite.encrypt(
-                &session_key,
-                counter,
-                plaintext[0..plaintext_len],
-                "",
-                ciphertext_storage[0..],
-            );
-
-            var wire: [packet_size_capacity]u8 = undefined;
-            const wire_len = try Message.buildTransportMessage(
-                receiver_index,
-                counter,
-                ciphertext_storage[0..cipher_len],
-                wire[0..],
-            );
-
-            if (wire_len > packet.bufRef().len) return error.BufferTooSmall;
-            @memcpy(packet.bufRef()[0..wire_len], wire[0..wire_len]);
-            packet.len = wire_len;
-            packet.remote_endpoint = endpoint;
-            packet.timestamp = 77;
-            packet.state = .prepared;
-            packet.kind = .unknown;
-            packet.remote_static = .{};
-            packet.session_key = .{};
-            packet.local_session_index = 0;
-            packet.remote_session_index = 0;
-            packet.counter = 0;
-            packet.remote_static = Key{ .bytes = [_]u8{0x2a} ** 32 };
-            packet.session_key = session_key;
-            packet.local_session_index = receiver_index;
-            packet.remote_session_index = 88;
-            packet.counter = counter;
-
-            try Inbound.decrtpy(any_lib, Cipher.default_kind, packet);
-
-            try grt.std.testing.expect(glib.std.mem.eql(u8, packet.bytes(), payload));
-            try grt.std.testing.expectEqual(@as(usize, payload.len), packet.len);
-            try grt.std.testing.expectEqual(counter, packet.counter);
-            try grt.std.testing.expectEqual(@as(?ServiceData, null), packet.service_data);
-        }
-
         fn tryWrapperCase(comptime any_lib: type) !void {
             _ = any_lib;
             const Mock = struct {
@@ -445,25 +344,17 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             packet.len = payload.len;
             packet.remote_endpoint = endpoint;
             packet.timestamp = 77;
-            packet.state = .prepared;
+            packet.state = .initial;
             packet.kind = .unknown;
             packet.remote_static = .{};
-            packet.session_key = .{};
-            packet.local_session_index = 0;
-            packet.remote_session_index = 0;
-            packet.counter = 0;
             try grt.std.testing.expect(glib.std.mem.eql(u8, packet.bytes(), &[_]u8{ 7, 'h', 'e', 'l', 'l', 'o' }));
             try grt.std.testing.expect(glib.std.meta.eql(packet.remote_endpoint, endpoint));
             try grt.std.testing.expectEqual(@as(glib.time.instant.Time, 77), packet.timestamp);
-            try grt.std.testing.expectEqual(State.prepared, packet.state);
+            try grt.std.testing.expectEqual(State.initial, packet.state);
             try grt.std.testing.expectEqual(Kind.unknown, packet.kind);
-            try grt.std.testing.expectEqual(@as(u32, 0), packet.local_session_index);
-            try grt.std.testing.expectEqual(@as(u32, 0), packet.remote_session_index);
-            try grt.std.testing.expectEqual(@as(u64, 0), packet.counter);
             try grt.std.testing.expectEqual(@as(?ServiceData, null), packet.service_data);
 
             packet.state = .consumed;
-            packet.counter = 11;
             try grt.std.testing.expectEqual(State.consumed, packet.state);
         }
 
@@ -479,7 +370,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             @memcpy(plaintext[0..payload.len], payload[0..]);
             packet.len = payload.len;
             packet.kind = .transport;
-            packet.state = .ready_to_consume;
+            packet.state = .consumed;
 
             try grt.std.testing.expect((try packet.parseServiceData()) == packet);
             const direct = packet.service_data.?.direct;
@@ -509,7 +400,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             @memcpy(plaintext[0..payload_len], payload[0..payload_len]);
             packet.len = payload_len;
             packet.kind = .transport;
-            packet.state = .ready_to_consume;
+            packet.state = .consumed;
 
             try grt.std.testing.expect((try packet.parseServiceData()) == packet);
             const kcp = packet.service_data.?.kcp;
@@ -542,7 +433,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             @memcpy(plaintext[0..payload.len], payload[0..]);
             packet.len = payload.len;
             packet.kind = .transport;
-            packet.state = .ready_to_consume;
+            packet.state = .consumed;
 
             try grt.std.testing.expect((try packet.parseServiceData()) == packet);
             const kcp = packet.service_data.?.kcp;
@@ -572,7 +463,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             @memcpy(plaintext[0..payload.len], payload[0..]);
             packet.len = payload.len;
             packet.kind = .transport;
-            packet.state = .ready_to_consume;
+            packet.state = .consumed;
 
             try grt.std.testing.expectError(error.InvalidServiceFrame, packet.parseServiceData());
         }
@@ -588,16 +479,11 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             first.len = "ping".len;
             first.remote_endpoint = endpoint;
             first.timestamp = 91;
-            first.state = .prepared;
+            first.state = .initial;
             first.kind = .unknown;
             first.remote_static = .{};
-            first.session_key = .{};
-            first.local_session_index = 0;
-            first.remote_session_index = 0;
-            first.counter = 0;
             first.service_data = .{ .direct = .{ .protocol = 7, .payload = first.bufRef()[0..0] } };
             first.state = .consumed;
-            first.counter = 17;
             first.deinit();
 
             const second = pool.get() orelse return error.TestExpectedSecondPacket;
@@ -608,7 +494,6 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             try grt.std.testing.expect(glib.std.meta.eql(second.remote_endpoint, AddrPort{}));
             try grt.std.testing.expectEqual(State.initial, second.state);
             try grt.std.testing.expectEqual(Kind.unknown, second.kind);
-            try grt.std.testing.expectEqual(@as(u64, 0), second.counter);
             try grt.std.testing.expectEqual(@as(?ServiceData, null), second.service_data);
         }
 

@@ -97,6 +97,7 @@ pub fn make(
     const Peer = PeerType.make(grt, packet_size_capacity, cipher_kind);
     const PeerTable = PeerTableType.make(grt, packet_size_capacity, cipher_kind);
     const Session = SessionType.make(grt, packet_size_capacity, cipher_kind);
+    const CipherSuite = Cipher.make(grt, cipher_kind);
     const log = grt.std.log.scoped(.giznet_noise);
     const TimerTreapKey = struct {
         due: glib.time.instant.Time,
@@ -183,8 +184,7 @@ pub fn make(
         /// - successful drive calls run `tick()` afterwards
         /// - failed drive actions return early and do not advance timers
         /// - `.inbound_packet` is implemented
-        /// - `.send_data` emits a prepared outbound transport pkt and
-        ///   leaves encryption to the caller
+        /// - `.send_data` emits a ready-to-send outbound transport pkt
         /// - `.initiate_handshake` emits a ready-to-send handshake pkt
         /// - `.tick` is a no-op input that exists only to drive the shared
         ///   timer tail
@@ -207,12 +207,9 @@ pub fn make(
 
                     break :inbound switch (pkt.state) {
                         .initial => self.triageInbound(pkt, on_result),
-                        .ready_to_consume => self.consumeInbound(pkt, on_result),
 
-                        .prepared => error.InboundPacketRequiresDecrypt,
                         .consumed => error.InboundPacketConsumed,
                         .service_delivered => error.InboundPacketConsumed,
-                        .decrypt_failed => error.InboundPacketDecryptFailed,
                         .consume_failed => error.InboundPacketConsumeFailed,
                     };
                 },
@@ -255,28 +252,9 @@ pub fn make(
 
             return switch (kind) {
                 .handshake => self.consumeInbound(pkt, on_result),
-                .transport => self.prepareTransport(pkt, on_result),
+                .transport => self.consumeInbound(pkt, on_result),
                 .unknown => error.InvalidInboundPacketKind,
             };
-        }
-
-        fn prepareTransport(
-            self: *Self,
-            pkt: *packet.Inbound,
-            on_result: Engine.Callback,
-        ) !void {
-            const transport = Message.parseTransportMessage(pkt.bytes()) catch return error.InvalidTransportPacket;
-            const peer = self.peers.findBySessionIndex(transport.receiver_index) orelse return error.SessionNotFound;
-            const session = peer.sessionByLocalIndex(transport.receiver_index) orelse return error.SessionNotFound;
-
-            pkt.state = .prepared;
-            pkt.remote_static = peer.key;
-            pkt.session_key = session.recvKey();
-            pkt.local_session_index = session.localIndex();
-            pkt.remote_session_index = session.remoteIndex();
-            pkt.counter = transport.counter;
-
-            try self.emitEvent(on_result, .{ .inbound = pkt });
         }
 
         fn consumeInbound(
@@ -412,16 +390,25 @@ pub fn make(
             pkt: *packet.Inbound,
             on_result: Engine.Callback,
         ) !void {
-            if (pkt.state != .ready_to_consume) return error.InboundPacketRequiresDecrypt;
+            if (pkt.state != .initial) return error.InboundPacketConsumed;
 
-            const peer = self.peers.findBySessionIndex(pkt.local_session_index) orelse return error.SessionNotFound;
-            if (!peer.key.eql(pkt.remote_static)) return error.PeerMismatch;
+            const transport = Message.parseTransportMessage(pkt.fullBuffer()[0..pkt.len]) catch return error.InvalidTransportPacket;
+            if (transport.counter == grt.std.math.maxInt(u64)) return error.InvalidTransportPacket;
 
-            const session = peer.sessionByLocalIndex(pkt.local_session_index) orelse return error.SessionNotFound;
-            if (session.remoteIndex() != pkt.remote_session_index) return error.SessionIndexMismatch;
+            const peer = self.peers.findBySessionIndex(transport.receiver_index) orelse return error.SessionNotFound;
+            const session = peer.sessionByLocalIndex(transport.receiver_index) orelse return error.SessionNotFound;
+
+            const plaintext_len = transport.ciphertext.len - Message.tag_size;
+            const plaintext = pkt.fullBuffer()[Message.TransportHeaderSize..];
+            if (plaintext.len < plaintext_len) return error.BufferTooSmall;
+            const recv_key = session.recvKey();
+            const written = CipherSuite.decrypt(&recv_key, transport.counter, transport.ciphertext, "", plaintext[0..plaintext_len]) catch |err| switch (err) {
+                error.AuthenticationFailed => return error.AuthenticationFailed,
+                else => return error.InvalidTransportPacket,
+            };
 
             const now_time = Self.instantNow();
-            try session.commitRecv(pkt.counter, now_time);
+            try session.commitRecv(transport.counter, now_time);
             peer.endpoint = pkt.remote_endpoint;
             peer.last_received = now_time;
             peer.markOnline(now_time);
@@ -430,6 +417,10 @@ pub fn make(
             peer.updateTimers(now_time, 1);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
 
+            pkt.len = written;
+            pkt.kind = .transport;
+            pkt.remote_static = peer.key;
+            pkt.service_data = null;
             pkt.state = .consumed;
             if (pkt.len != 0) {
                 try self.emitEvent(on_result, .{ .inbound = pkt });
@@ -459,12 +450,38 @@ pub fn make(
             return current;
         }
 
+        fn encryptTransportPacket(session: *const Session, counter: u64, pkt: *packet.Outbound) !void {
+            const buffer = pkt.bufRef();
+            const plaintext = pkt.transportPlaintextBufRef()[0..pkt.len];
+            if (plaintext.len > Session.max_plaintext_len) return error.BufferTooSmall;
+
+            const ciphertext = buffer[Session.outer_header_len..];
+            if (ciphertext.len < plaintext.len + Session.tag_len) return error.BufferTooSmall;
+            const send_key = session.sendKey();
+
+            const cipher_len = CipherSuite.encrypt(
+                &send_key,
+                counter,
+                plaintext,
+                "",
+                ciphertext,
+            );
+
+            const written = try Message.buildTransportMessage(
+                session.remoteIndex(),
+                counter,
+                ciphertext[0..cipher_len],
+                buffer,
+            );
+            pkt.len = written;
+            pkt.state = .ready_to_send;
+        }
+
         fn createDataOutbound(
             self: *Self,
             pkt: *packet.Outbound,
             on_result: Engine.Callback,
         ) !void {
-            pkt.state = .prepared;
             pkt.kind = .transport;
             if (pkt.transportPlaintextBufRef().len < pkt.len) return error.BufferTooSmall;
 
@@ -475,13 +492,12 @@ pub fn make(
 
             pkt.remote_endpoint = session.endpointValue();
             pkt.remote_static = peer.key;
-            pkt.session_key = session.sendKey();
-            pkt.remote_session_index = session.remoteIndex();
-            pkt.counter = counter;
+            try encryptTransportPacket(session, counter, pkt);
 
             peer.last_sent = sent;
             peer.updateTimers(sent, 1);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
+
             try self.emitEvent(on_result, .{ .outbound = pkt });
         }
 
@@ -618,13 +634,10 @@ pub fn make(
             const sent = Self.instantNow();
             const counter = try session.claimSendCounter(sent);
             pkt.len = 0;
-            pkt.state = .prepared;
             pkt.kind = .transport;
             pkt.remote_endpoint = session.endpointValue();
             pkt.remote_static = peer.key;
-            pkt.session_key = session.sendKey();
-            pkt.remote_session_index = session.remoteIndex();
-            pkt.counter = counter;
+            try encryptTransportPacket(session, counter, pkt);
             peer.last_sent = sent;
             peer.updateTimers(sent, 1);
             self.syncPeerTimerEntry(peer) catch @panic("OOM");
@@ -1070,8 +1083,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             defer keepalive_packet.deinit();
 
             try grt.std.testing.expectEqual(packet.Outbound.Kind.transport, keepalive_packet.kind);
-            try grt.std.testing.expectEqual(packet.Outbound.State.prepared, keepalive_packet.state);
-            try grt.std.testing.expectEqual(@as(usize, 0), keepalive_packet.len);
+            try grt.std.testing.expectEqual(packet.Outbound.State.ready_to_send, keepalive_packet.state);
+            try grt.std.testing.expectEqual(@as(usize, Message.TransportHeaderSize + Message.tag_size), keepalive_packet.len);
             try grt.std.testing.expect(keepalive_packet.remote_static.eql(remote_pair.public));
             try grt.std.testing.expect(giznet.eqlAddrPort(keepalive_packet.remote_endpoint, remote_endpoint));
         }
@@ -1379,8 +1392,8 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             defer keepalive_packet.deinit();
 
             try grt.std.testing.expectEqual(packet.Outbound.Kind.transport, keepalive_packet.kind);
-            try grt.std.testing.expectEqual(packet.Outbound.State.prepared, keepalive_packet.state);
-            try grt.std.testing.expectEqual(@as(usize, 0), keepalive_packet.len);
+            try grt.std.testing.expectEqual(packet.Outbound.State.ready_to_send, keepalive_packet.state);
+            try grt.std.testing.expectEqual(@as(usize, Message.TransportHeaderSize + Message.tag_size), keepalive_packet.len);
             try grt.std.testing.expect(keepalive_packet.remote_static.eql(remote_pair.public));
             try grt.std.testing.expect(giznet.eqlAddrPort(keepalive_packet.remote_endpoint, remote_endpoint));
         }
@@ -1489,7 +1502,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             try installEstablishedPeer(EngineType, Session, engine, local_pair.public, remote_pair.public, remote_endpoint, 51, 52);
 
-            const pkt = try makeReadyTransportInbound(&engine_harness, remote_pair.public, remote_endpoint, 51, 52, 0, "emit then fail");
+            const pkt = try makeInitialTransportInbound(&engine_harness, remote_endpoint, 51, 0, "emit then fail", Key{ .bytes = [_]u8{0xaa} ** 32 });
             defer pkt.deinit();
 
             var callback_state: OwnershipCallbackState = .{ .fail_inbound = true };
@@ -1519,7 +1532,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
             try installEstablishedPeer(EngineType, Session, engine, local_pair.public, remote_pair.public, remote_endpoint, 61, 62);
 
-            const pkt = try makeReadyTransportInbound(&engine_harness, remote_pair.public, remote_endpoint, 61, 62, 0, "");
+            const pkt = try makeInitialTransportInbound(&engine_harness, remote_endpoint, 61, 0, "", Key{ .bytes = [_]u8{0xaa} ** 32 });
             var callback_state: OwnershipCallbackState = .{};
             try engine.drive(.{ .inbound_packet = pkt }, callback_state.callback());
             try grt.std.testing.expectEqual(@as(usize, 0), callback_state.inbound_count);
@@ -1618,9 +1631,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
                     const target_engine = self.engineHarness(target_side);
                     const remote_endpoint = self.endpoint(side);
 
-                    if (outbound.state == .prepared) {
-                        try packet.Outbound.encrypt(any_lib, packet_size, cipher_kind, outbound);
-                    }
+                    if (outbound.state != .ready_to_send) return error.UnexpectedOutboundPacketState;
 
                     const inbound = try target_engine.allocInboundPacket();
                     errdefer inbound.deinit();
@@ -1636,10 +1647,6 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
 
                 fn handleInbound(self: *@This(), side: Side, inbound: *packet.Inbound) !void {
                     switch (inbound.state) {
-                        .prepared => {
-                            try packet.Inbound.decrtpy(any_lib, cipher_kind, inbound);
-                            try self.engine(side).drive(.{ .inbound_packet = inbound }, self.callback(side));
-                        },
                         .consumed => {
                             try self.verifyConsumedInbound(side, inbound);
                             inbound.deinit();
@@ -1856,29 +1863,30 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             ), true, now);
         }
 
-        fn makeReadyTransportInbound(
+        fn makeInitialTransportInbound(
             engine_harness: anytype,
-            remote_key: Key,
             endpoint: AddrPort,
             local_index: u32,
-            remote_index: u32,
             counter: u64,
             payload: []const u8,
+            recv_key: Key,
         ) !*packet.Inbound {
             const inbound = try engine_harness.allocInboundPacket();
             errdefer inbound.deinit();
 
-            const plaintext = inbound.bufRef()[Message.TransportHeaderSize..];
-            if (plaintext.len < payload.len) return error.BufferTooSmall;
-            @memcpy(plaintext[0..payload.len], payload);
-            inbound.len = payload.len;
-            inbound.kind = .transport;
-            inbound.state = .ready_to_consume;
-            inbound.remote_static = remote_key;
+            const CipherSuite2 = Cipher.make(grt, Cipher.default_kind);
+            const ciphertext = inbound.bufRef()[Message.TransportHeaderSize..];
+            if (ciphertext.len < payload.len + CipherSuite2.tag_size) return error.BufferTooSmall;
+            const cipher_len = CipherSuite2.encrypt(&recv_key, counter, payload, "", ciphertext);
+            inbound.len = try Message.buildTransportMessage(
+                local_index,
+                counter,
+                ciphertext[0..cipher_len],
+                inbound.bufRef(),
+            );
+            inbound.kind = .unknown;
+            inbound.state = .initial;
             inbound.remote_endpoint = endpoint;
-            inbound.local_session_index = local_index;
-            inbound.remote_session_index = remote_index;
-            inbound.counter = counter;
             return inbound;
         }
 

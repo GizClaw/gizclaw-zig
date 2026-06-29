@@ -116,7 +116,7 @@ pub fn make(comptime grt: type) testing_api.TestRunner {
             pkt.remote_static = remote_key;
             pkt.len = frame.len;
             pkt.kind = .transport;
-            pkt.state = .ready_to_consume;
+            pkt.state = .consumed;
             pkt.service_data = .{ .kcp = .{
                 .service = service_id,
                 .stream = stream_id,

@@ -205,7 +205,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             @memcpy(plaintext_buf[0..data.len], data);
             inbound.len = data.len;
             inbound.kind = .transport;
-            inbound.state = .ready_to_consume;
+            inbound.state = .consumed;
             return inbound;
         }
     };

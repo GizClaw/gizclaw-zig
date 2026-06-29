@@ -1,8 +1,6 @@
 const glib = @import("glib");
-const Cipher = @import("../noise/Cipher.zig");
 const Key = @import("../noise/Key.zig");
 const Message = @import("../noise/Message.zig");
-const SessionType = @import("../noise/Session.zig");
 
 const PoolType = glib.sync.Pool;
 const AddrPort = glib.net.netip.AddrPort;
@@ -11,7 +9,6 @@ const Outbound = @This();
 
 pub const State = enum {
     initial,
-    prepared,
     ready_to_send,
 };
 
@@ -55,9 +52,6 @@ state: State = .initial,
 kind: Kind = .transport,
 remote_endpoint: AddrPort = .{},
 remote_static: Key = .{},
-session_key: Key = .{},
-remote_session_index: u32 = 0,
-counter: u64 = 0,
 service_data: ?ServiceData = null,
 
 pub const VTable = struct {
@@ -112,14 +106,7 @@ fn init(self: *Outbound, pointer: anytype) *Outbound {
 }
 
 pub fn bytes(self: *const Outbound) []u8 {
-    const start = switch (self.kind) {
-        .handshake => 0,
-        .transport => switch (self.state) {
-            .prepared => Message.TransportHeaderSize,
-            else => 0,
-        },
-    };
-    return self.bufRef()[start..][0..self.len];
+    return self.bufRef()[0..self.len];
 }
 
 pub fn bufRef(self: *const Outbound) []u8 {
@@ -136,44 +123,6 @@ pub fn eql(self: *const Outbound, other: *const Outbound) bool {
     return self == other;
 }
 
-pub fn encrypt(
-    comptime grt: type,
-    comptime packet_size_capacity: usize,
-    comptime cipher_kind: Cipher.Kind,
-    self: *Outbound,
-) !void {
-    const Session = SessionType.make(grt, packet_size_capacity, cipher_kind);
-    const CipherSuite = Cipher.make(grt, cipher_kind);
-
-    if (self.kind == .handshake) {
-        self.state = .ready_to_send;
-        return;
-    }
-
-    glib.std.debug.assert(self.kind == .transport);
-
-    const buffer = self.bufRef();
-    const plaintext = self.bytes();
-    if (plaintext.len > Session.max_plaintext_len) return error.BufferTooSmall;
-    const ciphertext = buffer[Session.outer_header_len..];
-    if (ciphertext.len < plaintext.len + Session.tag_len) return error.BufferTooSmall;
-    const cipher_len = CipherSuite.encrypt(
-        &self.session_key,
-        self.counter,
-        plaintext,
-        "",
-        ciphertext,
-    );
-    const written = try Message.buildTransportMessage(
-        self.remote_session_index,
-        self.counter,
-        ciphertext[0..cipher_len],
-        buffer,
-    );
-    self.len = written;
-    self.state = .ready_to_send;
-}
-
 pub fn deinit(self: *Outbound) void {
     const pool = self.pool orelse unreachable;
     const impl_ptr = self.impl_ptr orelse unreachable;
@@ -182,9 +131,6 @@ pub fn deinit(self: *Outbound) void {
     self.kind = .transport;
     self.remote_endpoint = .{};
     self.remote_static = .{};
-    self.session_key = .{};
-    self.remote_session_index = 0;
-    self.counter = 0;
     self.service_data = null;
     pool.put(impl_ptr);
 }
@@ -284,10 +230,6 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             _ = self;
             _ = allocator;
 
-            tryEncryptTransportCase(grt) catch |err| {
-                t.logErrorf("giznet/packet Outbound encrypt transport failed: {}", .{err});
-                return false;
-            };
             tryPoolReuseCase(grt) catch |err| {
                 t.logErrorf("giznet/packet Outbound pool reuse failed: {}", .{err});
                 return false;
@@ -308,53 +250,6 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             grt.std.testing.allocator.destroy(self);
         }
 
-        fn tryEncryptTransportCase(comptime any_lib: type) !void {
-            const packet_size_capacity = SessionType.min_packet_size_capacity + 1024;
-            const Session = SessionType.make(any_lib, packet_size_capacity, Cipher.default_kind);
-            const CipherSuite = Cipher.make(any_lib, Cipher.default_kind);
-            var pool = try initPool(any_lib, grt.std.testing.allocator, packet_size_capacity);
-            defer pool.deinit();
-
-            const packet = pool.get() orelse return error.TestExpectedPacket;
-            defer packet.deinit();
-
-            const endpoint = AddrPort.from4(.{ 127, 0, 0, 1 }, 9301);
-            const session_key = Key{ .bytes = [_]u8{0x5c} ** 32 };
-            const remote_session_index: u32 = 91;
-            const counter: u64 = 14;
-            const payload = [_]u8{ 6, 'e', 'n', 'c', 'r', 'y', 'p', 't', ' ', 'm', 'e' };
-
-            packet.state = .prepared;
-            packet.kind = .transport;
-            if (payload.len > packet.transportPlaintextBufRef().len) return error.BufferTooSmall;
-            @memcpy(packet.transportPlaintextBufRef()[0..payload.len], payload[0..]);
-            packet.len = payload.len;
-            packet.remote_endpoint = endpoint;
-            packet.remote_static = Key{ .bytes = [_]u8{0x7d} ** 32 };
-            packet.session_key = session_key;
-            packet.remote_session_index = remote_session_index;
-            packet.counter = counter;
-
-            try Outbound.encrypt(any_lib, packet_size_capacity, Cipher.default_kind, packet);
-
-            try grt.std.testing.expectEqual(State.ready_to_send, packet.state);
-            try grt.std.testing.expectEqual(Kind.transport, packet.kind);
-
-            const transport = try Message.parseTransportMessage(packet.bytes());
-            try grt.std.testing.expectEqual(remote_session_index, transport.receiver_index);
-            try grt.std.testing.expectEqual(counter, transport.counter);
-
-            var plaintext: [Session.max_plaintext_len]u8 = undefined;
-            const written = try CipherSuite.decrypt(
-                &session_key,
-                counter,
-                transport.ciphertext,
-                "",
-                plaintext[0..],
-            );
-            try grt.std.testing.expect(glib.std.mem.eql(u8, plaintext[0..written], payload[0..]));
-        }
-
         fn tryPoolReuseCase(comptime any_lib: type) !void {
             var pool = try initPool(any_lib, grt.std.testing.allocator, 32);
             defer pool.deinit();
@@ -364,7 +259,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             if ("ping".len > first.bufRef().len) return error.BufferTooSmall;
             @memcpy(first.bufRef()[0.."ping".len], "ping");
             first.len = "ping".len;
-            first.state = .prepared;
+            first.state = .initial;
             first.kind = .transport;
             first.remote_endpoint = endpoint;
             first.state = .ready_to_send;

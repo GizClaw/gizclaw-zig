@@ -506,9 +506,7 @@ pub fn make(
                 const self: *@This() = @ptrCast(@alignCast(ctx));
                 switch (output) {
                     .outbound => |pkt| {
-                        if (pkt.state != .ready_to_send) {
-                            try packet.Outbound.encrypt(grt, packet_size_capacity, cipher_kind, pkt);
-                        }
+                        if (pkt.state != .ready_to_send) return error.InvalidOutboundPacketState;
                         const bytes = pkt.bytes();
                         const written = self.runtime.conn.writeTo(bytes, pkt.remote_endpoint) catch |err| switch (err) {
                             error.NetworkUnreachable,
@@ -541,12 +539,7 @@ pub fn make(
                     },
                     .inbound => |pkt| {
                         switch (pkt.state) {
-                            .prepared => {
-                                try packet.Inbound.decrtpy(grt, cipher_kind, pkt);
-                                var noise_callback = NoiseCallback{ .runtime = self.runtime };
-                                return self.runtime.noise.drive(.{ .inbound_packet = pkt }, noise_callback.callback());
-                            },
-                            .ready_to_consume, .consumed => {
+                            .consumed => {
                                 var service_callback = ServiceCallback{ .runtime = self.runtime };
                                 self.runtime.service.drive(.{ .inbound = pkt }, service_callback.callback()) catch |err| switch (err) {
                                     error.Timeout, error.PacketChannelFull => {
@@ -559,7 +552,6 @@ pub fn make(
                             },
                             .initial,
                             .service_delivered,
-                            .decrypt_failed,
                             .consume_failed,
                             => return error.InvalidInboundPacketState,
                         }

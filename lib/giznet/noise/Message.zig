@@ -53,9 +53,9 @@ pub fn buildTransportMessage(receiver_index: u32, counter: u64, ciphertext: []co
     out[0] = MessageTypeTransport;
     glib.std.mem.writeInt(u32, out[1..5], receiver_index, .little);
     glib.std.mem.writeInt(u64, out[5..13], counter, .little);
-    var index: usize = 0;
-    while (index < ciphertext.len) : (index += 1) {
-        out[13 + index] = ciphertext[index];
+    const out_ciphertext = out[TransportHeaderSize..][0..ciphertext.len];
+    if (out_ciphertext.ptr != ciphertext.ptr) {
+        glib.std.mem.copyForwards(u8, out_ciphertext, ciphertext);
     }
     return needed;
 }

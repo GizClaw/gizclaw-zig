@@ -673,7 +673,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             pkt.remote_static = remote_key;
             pkt.len = frame.len;
             pkt.kind = .transport;
-            pkt.state = .ready_to_consume;
+            pkt.state = .consumed;
             pkt.service_data = .{ .kcp = .{
                 .service = service,
                 .stream = stream_id,

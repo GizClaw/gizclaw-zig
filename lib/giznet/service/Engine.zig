@@ -756,7 +756,7 @@ pub fn TestRunner(comptime grt: type) glib.testing.TestRunner {
             @memcpy(plaintext[0..data.len], data);
             inbound.len = data.len;
             inbound.kind = .transport;
-            inbound.state = .ready_to_consume;
+            inbound.state = .consumed;
             inbound.remote_static = remote_key;
             return inbound;
         }

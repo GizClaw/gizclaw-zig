@@ -361,7 +361,7 @@ fn UdpStreamPair(comptime grt: type) type {
             pkt.remote_static = remote_key;
             pkt.len = frame.len;
             pkt.kind = .transport;
-            pkt.state = .ready_to_consume;
+            pkt.state = .consumed;
             pkt.service_data = .{ .kcp = .{
                 .service = service_id,
                 .stream = stream_id,

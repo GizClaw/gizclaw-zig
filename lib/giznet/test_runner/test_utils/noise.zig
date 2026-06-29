@@ -116,9 +116,7 @@ pub fn runSinglePeerTransfer(
             const target_engine = self.engineHarness(target_side);
             const remote_endpoint = self.endpoint(side);
 
-            if (outbound.state == .prepared) {
-                try packet.Outbound.encrypt(grt, packet_size, cipher_kind, outbound);
-            }
+            if (outbound.state != .ready_to_send) return error.UnexpectedOutboundPacketState;
 
             const inbound = try target_engine.allocInboundPacket();
             errdefer inbound.deinit();
@@ -134,10 +132,6 @@ pub fn runSinglePeerTransfer(
 
         fn handleInbound(self: *@This(), side: Side, inbound: *packet.Inbound) !void {
             switch (inbound.state) {
-                .prepared => {
-                    try packet.Inbound.decrtpy(grt, cipher_kind, inbound);
-                    try self.engine(side).drive(.{ .inbound_packet = inbound }, self.callback(side));
-                },
                 .consumed => {
                     try self.verifyConsumedInbound(side, inbound);
                     inbound.deinit();
@@ -170,13 +164,11 @@ pub fn runSinglePeerTransfer(
         }
 
         fn sendFromInitiator(self: *@This(), chunk_index: usize) !void {
-            var packet_buffer: [payload_size]u8 = undefined;
-            fillSinglePeerPayload(chunk_index, packet_buffer[0..]);
             const pkt = try self.initiator.allocOutboundPacket();
             errdefer pkt.deinit();
-            if (pkt.transportPlaintextBufRef().len < packet_buffer.len) return error.BufferTooSmall;
-            @memcpy(pkt.transportPlaintextBufRef()[0..packet_buffer.len], packet_buffer[0..]);
-            pkt.len = packet_buffer.len;
+            const payload = pkt.transportPlaintextBufRef()[0..payload_size];
+            fillSinglePeerPayload(chunk_index, payload);
+            pkt.len = payload.len;
             pkt.remote_static = self.responder_key;
             try self.initiator.engine.drive(.{
                 .send_data = pkt,
@@ -396,9 +388,7 @@ pub fn runMultiPeerBidirectionalRekey(
             const target_engine = self.engineHarness(target);
             const remote_endpoint = self.endpoint(source);
 
-            if (outbound.state == .prepared) {
-                try packet.Outbound.encrypt(grt, packet_size, cipher_kind, outbound);
-            }
+            if (outbound.state != .ready_to_send) return error.UnexpectedOutboundPacketState;
 
             const inbound = try target_engine.allocInboundPacket();
             errdefer inbound.deinit();
@@ -413,10 +403,6 @@ pub fn runMultiPeerBidirectionalRekey(
 
         fn handleInbound(self: *@This(), node_id: NodeId, inbound: *packet.Inbound) !void {
             switch (inbound.state) {
-                .prepared => {
-                    try packet.Inbound.decrtpy(grt, cipher_kind, inbound);
-                    try self.engine(node_id).drive(.{ .inbound_packet = inbound }, self.callback(node_id));
-                },
                 .consumed => {
                     try self.verifyConsumedInbound(node_id, inbound);
                     inbound.deinit();
