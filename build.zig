@@ -3,13 +3,11 @@ const build_test = @import("build/test.zig");
 
 const lib_giznet = @import("build/lib/giznet.zig");
 const lib_giznoise = @import("build/lib/giznoise.zig");
-const lib_giznet_perf = @import("build/lib/giznet_perf.zig");
 const lib_gizclaw = @import("build/lib/gizclaw.zig");
 
 const Libraries = struct {
     pub const giznet = lib_giznet;
     pub const giznoise = lib_giznoise;
-    pub const giznet_perf = lib_giznet_perf;
     pub const gizclaw = lib_gizclaw;
 };
 

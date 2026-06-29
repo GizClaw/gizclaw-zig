@@ -11,6 +11,8 @@ pub const StreamConn = @import("giznet/StreamConn.zig");
 pub const DialOptions = @import("giznet/DialOptions.zig");
 pub const Key = @import("giznet/Key.zig");
 pub const KeyPair = @import("giznet/KeyPair.zig");
+pub const NetPerfClient = @import("giznet/perf/Client.zig");
+pub const NetPerfServer = @import("giznet/perf/Server.zig");
 pub const Stats = @import("giznet/Stats.zig");
 pub const AddrPort = glib.net.netip.AddrPort;
 
@@ -36,6 +38,8 @@ pub fn make(comptime grt: type) type {
         pub const DialOptions = @import("giznet/DialOptions.zig");
         pub const Key = @import("giznet/Key.zig");
         pub const KeyPair = @import("giznet/KeyPair.zig");
+        pub const NetPerfClient = @import("giznet/perf/Client.zig").make(grt);
+        pub const NetPerfServer = @import("giznet/perf/Server.zig").make(grt);
         pub const Stats = @import("giznet/Stats.zig");
         pub const AddrPort = glib.net.netip.AddrPort;
     };

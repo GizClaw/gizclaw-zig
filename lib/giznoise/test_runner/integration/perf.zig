@@ -3,7 +3,6 @@ const testing_api = glib.testing;
 
 const giznet = @import("giznet");
 const giznoise = @import("../../../giznoise.zig");
-const giznet_perf = @import("giznet_perf");
 const test_utils = @import("../test_utils/giz_net.zig");
 
 pub fn make(comptime grt: type) testing_api.TestRunner {
@@ -45,8 +44,8 @@ fn runPeerPacketSmoke(
     comptime Fixture: type,
     allocator: grt.std.mem.Allocator,
 ) !void {
-    const PerfClient = giznet_perf.Client.make(grt);
-    const PerfServer = giznet_perf.Server.make(grt);
+    const PerfClient = giznet.NetPerfClient.make(grt);
+    const PerfServer = giznet.NetPerfServer.make(grt);
 
     var fixture = try Fixture.init(allocator, .{});
     defer fixture.deinit();
@@ -60,7 +59,7 @@ fn runPeerPacketSmoke(
     };
     const server_thread = try grt.task.go("giznet/test/perf/packet/server", .{}, grt.task.Routine.init(&server, @TypeOf(server).run));
 
-    var results: [4]giznet_perf.Server.Result = undefined;
+    var results: [4]giznet.NetPerfServer.Result = undefined;
     const count = try PerfClient.runAll(pair.a, .{
         .mode = .peer_packet,
         .direction = .all,
@@ -75,7 +74,7 @@ fn runPeerPacketSmoke(
     try grt.std.testing.expectEqual(@as(usize, 4), count);
 
     for (results[0..count]) |result| {
-        try grt.std.testing.expectEqual(giznet_perf.Server.Status.ok, result.status);
+        try grt.std.testing.expectEqual(giznet.NetPerfServer.Status.ok, result.status);
         switch (result.direction) {
             .ping => {
                 try grt.std.testing.expectEqual(@as(u64, 1), result.client.received_packets);
@@ -107,8 +106,8 @@ fn runKcpStreamSmoke(
     comptime Fixture: type,
     allocator: grt.std.mem.Allocator,
 ) !void {
-    const PerfClient = giznet_perf.Client.make(grt);
-    const PerfServer = giznet_perf.Server.make(grt);
+    const PerfClient = giznet.NetPerfClient.make(grt);
+    const PerfServer = giznet.NetPerfServer.make(grt);
     const stream_bytes: u64 = 4096;
 
     var fixture = try Fixture.init(allocator, .{});
@@ -123,7 +122,7 @@ fn runKcpStreamSmoke(
     };
     const server_thread = try grt.task.go("giznet/test/perf/stream/server", .{}, grt.task.Routine.init(&server, @TypeOf(server).run));
 
-    var results: [4]giznet_perf.Server.Result = undefined;
+    var results: [4]giznet.NetPerfServer.Result = undefined;
     const count = try PerfClient.runAll(pair.a, .{
         .mode = .kcp_stream,
         .direction = .all,
@@ -137,7 +136,7 @@ fn runKcpStreamSmoke(
     try grt.std.testing.expectEqual(@as(usize, 4), count);
 
     for (results[0..count]) |result| {
-        try grt.std.testing.expectEqual(giznet_perf.Server.Status.ok, result.status);
+        try grt.std.testing.expectEqual(giznet.NetPerfServer.Status.ok, result.status);
         switch (result.direction) {
             .ping => {
                 try grt.std.testing.expectEqual(@as(u64, 1), result.client.sent_bytes);

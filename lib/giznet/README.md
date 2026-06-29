@@ -12,6 +12,8 @@ It defines the stable handles that higher-level packages use:
 - `Key` and `KeyPair`: static identity types.
 - `StreamConn`: adapter from `Stream` to `grt.net.Conn`.
 - `HttpTransport`: HTTP-over-`Conn` utility.
+- `NetPerfClient` and `NetPerfServer`: packet and stream perf helpers built
+  only on `Conn` and `Stream`.
 
 Concrete transports are implemented outside this package. The current
 Noise/UDP/KCP backend lives in `giznoise`.

@@ -17,11 +17,9 @@ pub fn link(b: *std.Build) void {
     const glib = b.modules.get("glib") orelse @panic("missing module: glib");
     const kcp = b.modules.get("kcp") orelse @panic("missing module: kcp");
     const giznet = b.modules.get("giznet") orelse @panic("missing module: giznet");
-    const giznet_perf = b.modules.get("giznet_perf") orelse @panic("missing module: giznet_perf");
     const giznoise = b.modules.get("giznoise") orelse @panic("missing module: giznoise");
 
     giznoise.addImport("glib", glib);
     giznoise.addImport("kcp", kcp);
     giznoise.addImport("giznet", giznet);
-    giznoise.addImport("giznet_perf", giznet_perf);
 }

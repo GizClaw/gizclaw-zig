@@ -2,8 +2,8 @@
 
 const glib = @import("glib");
 
-const Conn = @import("giznet").Conn;
-const Stream = @import("giznet").Stream;
+const Conn = @import("../Conn.zig");
+const Stream = @import("../Stream.zig");
 
 pub const default_control_protocol: u8 = 0x7e;
 pub const default_packet_protocol: u8 = 0x7d;

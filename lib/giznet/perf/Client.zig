@@ -2,8 +2,8 @@
 
 const glib = @import("glib");
 
-const Conn = @import("giznet").Conn;
-const Stream = @import("giznet").Stream;
+const Conn = @import("../Conn.zig");
+const Stream = @import("../Stream.zig");
 const PerfServer = @import("Server.zig");
 
 pub const Mode = PerfServer.Mode;
