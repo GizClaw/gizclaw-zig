@@ -377,7 +377,7 @@ fn selectWorkspace(comptime sdk: type, client: *sdk.Client, summary: *Summary, r
         try recordFail(summary, reporter, "SetServerRunWorkspace", err);
     }
 
-    if (client.reloadServerRunWorkspace()) |reload_result| {
+    if (client.reloadServerRun()) |reload_result| {
         var reload_state = reload_result;
         defer reload_state.deinit();
         logWorkspaceState("after_reload_workspace", reload_state.value);
@@ -393,12 +393,12 @@ fn selectWorkspace(comptime sdk: type, client: *sdk.Client, summary: *Summary, r
         if (client.getServerRunWorkspace()) |status_result| {
             var status = status_result;
             defer status.deinit();
-            if (mem.eql(u8, status.value.runtime_state, "running") and workspaceStateMatches(status.value, workspace)) {
+            if (mem.eql(u8, runStateName(status.value), "running") and workspaceStateMatches(status.value, workspace)) {
                 try reporter.metric("workspace_ready", @intCast(@divTrunc(grt.time.instant.since(started), duration.MilliSecond)), "ms");
                 try recordPass(summary, reporter, "WaitServerRunWorkspace");
                 return true;
             }
-            if (mem.eql(u8, status.value.runtime_state, "error")) {
+            if (mem.eql(u8, runStateName(status.value), "error")) {
                 try recordFail(summary, reporter, "WaitServerRunWorkspace", error.WorkspaceRunError);
                 return false;
             }
@@ -414,13 +414,13 @@ fn selectWorkspace(comptime sdk: type, client: *sdk.Client, summary: *Summary, r
 
 fn logWorkspaceState(stage: []const u8, state: anytype) void {
     const log = grt.std.log.scoped(.gizclaw_e2e_chat);
-    log.info("{s} runtime_state={s} workspace={s} active={s} selected={s} message={s}", .{
+    log.info("{s} state={s} workspace={s} active={s} selected={s} message={s}", .{
         stage,
-        state.runtime_state,
-        state.workspace_name,
-        state.active_workspace_name orelse "",
-        state.selected_workspace_name orelse "",
-        state.message orelse "",
+        runStateName(state),
+        fieldText(state, "workspace_name"),
+        fieldText(state, "active_workspace_name"),
+        fieldText(state, "selected_workspace_name"),
+        fieldText(state, "message"),
     });
 }
 
@@ -436,14 +436,34 @@ fn peerStreamSmoke(comptime sdk: type, client: *sdk.Client, summary: *Summary, r
 }
 
 fn workspaceStateMatches(status: anytype, workspace: []const u8) bool {
-    if (mem.eql(u8, status.workspace_name, workspace)) return true;
-    if (status.active_workspace_name) |name| {
-        if (mem.eql(u8, name, workspace)) return true;
-    }
-    if (status.selected_workspace_name) |name| {
-        if (mem.eql(u8, name, workspace)) return true;
-    }
+    if (mem.eql(u8, fieldText(status, "workspace_name"), workspace)) return true;
+    if (mem.eql(u8, fieldText(status, "active_workspace_name"), workspace)) return true;
+    if (mem.eql(u8, fieldText(status, "selected_workspace_name"), workspace)) return true;
     return false;
+}
+
+fn runStateName(state: anytype) []const u8 {
+    const old = fieldText(state, "runtime_state");
+    if (old.len != 0) return old;
+    return fieldText(state, "state");
+}
+
+fn fieldText(value: anytype, comptime name: []const u8) []const u8 {
+    const Value = @TypeOf(value);
+    if (!@hasField(Value, name)) return "";
+    const field = @field(value, name);
+    return textValue(field);
+}
+
+fn textValue(value: anytype) []const u8 {
+    const Value = @TypeOf(value);
+    return switch (@typeInfo(Value)) {
+        .optional => if (value) |inner| textValue(inner) else "",
+        .pointer => value,
+        .array => value[0..],
+        .@"enum" => @tagName(value),
+        else => "",
+    };
 }
 
 fn runAudioRoundtrip(comptime sdk: type, allocator: mem.Allocator, client: *sdk.Client, summary: *Summary, reporter: anytype, config: Config, workspace_ready: bool, mode: Mode) !void {

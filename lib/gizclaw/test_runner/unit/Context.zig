@@ -54,6 +54,24 @@ pub fn make(comptime grt: type) glib.testing.TestRunner {
             try testing.expect(host.config.server_key.eql(try lib.key.parse(server_text)));
             try testing.expectEqual(giznoise.noise.Cipher.Kind.plaintext, host.config.cipher_kind);
             try testing.expect(host.config.key_pair.private.eql((try lib.key.fromPrivate(.{ .bytes = identity_bytes })).private));
+
+            var go_style = try Context.fromHostData(
+                grt.std.testing.allocator,
+                "server:\n  host: 127.0.0.1\n  public-api-port: 9820\n  noise-udp-port: 9822\n  public-key: '041061050R3GG28A1C60T3GF208H44RM2MB1E60S38DHR78Y3WG0'\n  transport: noise\n  cipher-mode: chacha_poly\n",
+                &identity_bytes,
+                .{ .context_dir = "unused" },
+            );
+            defer go_style.deinit();
+            try testing.expectEqualStrings("127.0.0.1:9822", go_style.config.server_addr);
+            try testing.expect(go_style.config.server_key.eql(try lib.key.parse(server_text)));
+            try testing.expectEqual(giznoise.noise.Cipher.Kind.chacha_poly, go_style.config.cipher_kind);
+
+            try testing.expectError(error.UnsupportedTransport, Context.fromHostData(
+                grt.std.testing.allocator,
+                "server:\n  host: 127.0.0.1\n  public-api-port: 9823\n  noise-udp-port: 9822\n  public-key: '041061050R3GG28A1C60T3GF208H44RM2MB1E60S38DHR78Y3WG0'\n  transport: webrtc\n  cipher-mode: chacha_poly\n",
+                &identity_bytes,
+                .{ .context_dir = "unused" },
+            ));
         }
     }.run);
 }

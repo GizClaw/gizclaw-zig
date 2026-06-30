@@ -11,7 +11,7 @@ pub const chacha_sdk = gizclaw.make(grt, .{ .cipher_kind = .chacha_poly });
 pub const aes_256_gcm_sdk = gizclaw.make(grt, .{ .cipher_kind = .aes_256_gcm });
 pub const plaintext_sdk = gizclaw.make(grt, .{ .cipher_kind = .plaintext });
 
-pub const host_default_context_dir = "../gizclaw-go/test/gizclaw-e2e/testdata/gizclaw-config-home/gizclaw/e2e-client";
+pub const host_default_context_dir = "test/gizclaw-e2e/testdata/config-home-giznet/gizclaw/gear1";
 pub const default_server_addr = build_config.server_addr;
 pub const default_server_pub_key = build_config.server_pub_key;
 pub const default_client_pri_key = build_config.client_pri_key;

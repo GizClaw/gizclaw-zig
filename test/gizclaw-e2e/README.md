@@ -6,18 +6,58 @@ They are thin host entrypoints around reusable runners under
 
 ## Default Setup
 
-By default, the Zig e2e runners use the local `gizclaw-go` e2e setup context:
+By default, the Zig e2e runners use committed client contexts in this repo:
 
 ```text
-../gizclaw-go/test/gizclaw-e2e/testdata/gizclaw-config-home/gizclaw/e2e-client
+test/gizclaw-e2e/testdata/config-home-giznet/gizclaw/gear1
 ```
 
-Start/reset the Go setup server before running real e2e checks:
+The context format matches `gizclaw-go` e2e contexts:
+
+```yaml
+server:
+  host: 127.0.0.1
+  public-api-port: 9820
+  noise-udp-port: 9820
+  public-key: ...
+  transport: noise
+  cipher-mode: chacha_poly
+```
+
+Zig e2e is client-side only. It does not build, start, stop, reset, or seed the
+server. Prepare the local Go e2e server separately before running these checks.
+
+## Standard Flow
+
+Run the giznet transport suite:
 
 ```sh
-../gizclaw-go/test/gizclaw-e2e/setup/start-server.sh
-../gizclaw-go/test/gizclaw-e2e/setup/reset_data.sh
+./test/gizclaw-e2e/run_giznet_tests.sh
 ```
+
+The script selects `testdata/config-home-giznet` and runs the Zig e2e build
+steps with the committed `gear1` context. The default gate covers RPC smoke,
+server-run RPCs, resource RPCs, and speed test. It intentionally does not run
+the live chat roundtrip because that depends on the provider-backed chat
+resource set being fully initialized.
+
+To include chat explicitly:
+
+```sh
+GIZCLAW_ZIG_E2E_INCLUDE_CHAT=1 ./test/gizclaw-e2e/run_giznet_tests.sh
+```
+
+Transport parity entrypoints use the same names as `gizclaw-go`:
+
+```sh
+./test/gizclaw-e2e/run_giznet_tests.sh
+./test/gizclaw-e2e/run_webrtc_tests.sh
+./test/gizclaw-e2e/run_tests_all.sh
+```
+
+The WebRTC entrypoint selects the committed WebRTC context but currently exits
+with an explicit skip because the Zig e2e client only has the giznet/noise
+transport path wired.
 
 ## Remote Overrides
 
@@ -130,6 +170,6 @@ Expected steps:
 run-gizclaw-e2e-rpc
 run-gizclaw-e2e-rpc-server-run
 run-gizclaw-e2e-rpc-resources
-run-gizclaw-e2e-chat
 run-gizclaw-e2e-speed
+run-gizclaw-e2e-chat
 ```

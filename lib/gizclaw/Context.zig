@@ -131,7 +131,7 @@ pub fn make(comptime grt: type) type {
             options: HostOptions,
         ) !OwnedConfig {
             var parsed = try parseHostConfig(allocator, config_data);
-            errdefer parsed.deinit(allocator);
+            defer parsed.deinit(allocator);
 
             if (options.server_addr) |override| {
                 if (parsed.server_addr) |server_addr| allocator.free(server_addr);
@@ -209,11 +209,17 @@ pub fn make(comptime grt: type) type {
 
         const ParsedHostConfig = struct {
             server_addr: ?[]u8 = null,
+            host: ?[]u8 = null,
+            public_api_port: ?u16 = null,
+            noise_udp_port: ?u16 = null,
+            transport: ?[]u8 = null,
             server_key: ?giznet.Key = null,
             cipher_kind: giznoise.noise.Cipher.Kind = giznoise.default_cipher_kind,
 
             fn deinit(self: *ParsedHostConfig, allocator: grt.std.mem.Allocator) void {
                 if (self.server_addr) |server_addr| allocator.free(server_addr);
+                if (self.host) |host| allocator.free(host);
+                if (self.transport) |transport| allocator.free(transport);
                 self.* = undefined;
             }
         };
@@ -228,10 +234,31 @@ pub fn make(comptime grt: type) type {
                 if (grt.std.mem.startsWith(u8, trimmed, "address:")) {
                     if (parsed.server_addr) |server_addr| allocator.free(server_addr);
                     parsed.server_addr = try allocator.dupe(u8, yamlScalar(trimmed["address:".len..]));
+                } else if (grt.std.mem.startsWith(u8, trimmed, "host:")) {
+                    if (parsed.host) |host| allocator.free(host);
+                    parsed.host = try allocator.dupe(u8, yamlScalar(trimmed["host:".len..]));
+                } else if (grt.std.mem.startsWith(u8, trimmed, "public-api-port:")) {
+                    parsed.public_api_port = try parsePort(yamlScalar(trimmed["public-api-port:".len..]));
+                } else if (grt.std.mem.startsWith(u8, trimmed, "noise-udp-port:")) {
+                    parsed.noise_udp_port = try parsePort(yamlScalar(trimmed["noise-udp-port:".len..]));
+                } else if (grt.std.mem.startsWith(u8, trimmed, "transport:")) {
+                    if (parsed.transport) |transport| allocator.free(transport);
+                    parsed.transport = try allocator.dupe(u8, yamlScalar(trimmed["transport:".len..]));
                 } else if (grt.std.mem.startsWith(u8, trimmed, "public-key:")) {
                     parsed.server_key = try key.parse(yamlScalar(trimmed["public-key:".len..]));
                 } else if (grt.std.mem.startsWith(u8, trimmed, "cipher-mode:")) {
                     parsed.cipher_kind = try parseCipherKind(yamlScalar(trimmed["cipher-mode:".len..]));
+                }
+            }
+
+            if (parsed.transport) |transport| {
+                if (!grt.std.mem.eql(u8, transport, "noise")) return error.UnsupportedTransport;
+            }
+
+            if (parsed.server_addr == null) {
+                if (parsed.host) |host| {
+                    const port = parsed.noise_udp_port orelse parsed.public_api_port orelse 9820;
+                    parsed.server_addr = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ host, port });
                 }
             }
 
@@ -247,6 +274,12 @@ pub fn make(comptime grt: type) type {
             if (grt.std.mem.eql(u8, raw, "aes_256_gcm")) return .aes_256_gcm;
             if (grt.std.mem.eql(u8, raw, "plaintext")) return .plaintext;
             return error.InvalidCipherMode;
+        }
+
+        fn parsePort(raw: []const u8) !u16 {
+            const value = try std.fmt.parseInt(u16, raw, 10);
+            if (value == 0) return error.InvalidPort;
+            return value;
         }
 
         fn parseIdentityData(data: []const u8) !giznet.Key {

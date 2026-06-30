@@ -9,10 +9,10 @@ pub fn run(comptime sdk: type, client: *sdk.Client, summary: *TestRunner.Summary
 
     if (config.fixtures.run_workspace) |workspace| {
         try TestRunner.parsed(summary, reporter, "SetServerRunWorkspace", client.setServerRunWorkspace(.{ .workspace_name = workspace }));
-        try TestRunner.parsed(summary, reporter, "ReloadServerRunWorkspace", client.reloadServerRunWorkspace());
+        try TestRunner.parsed(summary, reporter, "ReloadServerRun", client.reloadServerRun());
     } else {
         try TestRunner.recordFail(summary, reporter, "SetServerRunWorkspace", error.MissingRunWorkspaceFixture);
-        try TestRunner.recordFail(summary, reporter, "ReloadServerRunWorkspace", error.MissingRunWorkspaceFixture);
+        try TestRunner.recordFail(summary, reporter, "ReloadServerRun", error.MissingRunWorkspaceFixture);
     }
 
     var history = client.listServerRunWorkspaceHistory(.{ .limit = 1 }) catch |err| {
@@ -31,7 +31,6 @@ pub fn run(comptime sdk: type, client: *sdk.Client, summary: *TestRunner.Summary
     }
 
     if (config.allow_mutations) {
-        try TestRunner.parsed(summary, reporter, "ReloadServerRun", client.reloadServerRun());
         try TestRunner.parsed(summary, reporter, "StopServerRun", client.stopServerRun());
     }
 }
