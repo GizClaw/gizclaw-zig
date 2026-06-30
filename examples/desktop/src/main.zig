@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const desktop = @import("desktop");
 const gstd = @import("gstd");
 const lvgl_osal = @import("lvgl_osal");
-const opus_osal = @import("opus_osal");
 const app = @import("app");
 const config = @import("desktop_launcher_config");
 
@@ -13,7 +12,6 @@ pub const std_options: std.Options = .{
 
 comptime {
     _ = lvgl_osal.make(gstd.runtime, std.heap.page_allocator);
-    _ = opus_osal.make(gstd.runtime, std.heap.page_allocator).opus_alloc_scratch;
 }
 
 const DesktopPlatformCtx = desktop.PlatformCtxWith(.{

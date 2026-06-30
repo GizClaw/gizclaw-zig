@@ -40,7 +40,7 @@ pub fn createTestModule(
         const mod = b.modules.get(decl.name) orelse @panic("test dependency missing");
         test_mod.addImport(decl.name, mod);
     }
-    for ([_][]const u8{ "glib", "gstd", "kcp" }) |name| {
+    for ([_][]const u8{ "glib", "gstd" }) |name| {
         const mod = b.modules.get(name) orelse @panic("test dependency missing");
         test_mod.addImport(name, mod);
     }
@@ -64,30 +64,6 @@ pub fn createTestModule(
             module_step.dependOn(&run_test.step);
         }
     }
-
-    const kcp_integration_step = b.step(
-        "test-integration-kcp",
-        "Run integration kcp tests",
-    );
-    const kcp_integration_compile = b.addTest(.{
-        .root_module = test_mod,
-        .filters = &.{"kcp/integration"},
-    });
-    const kcp_integration_run = b.addRunArtifact(kcp_integration_compile);
-    kcp_integration_run.setName("kcp:integration");
-    kcp_integration_step.dependOn(&kcp_integration_run.step);
-
-    const kcp_unit_step = b.step(
-        "test-unit-kcp",
-        "Run unit kcp tests",
-    );
-    const kcp_unit_compile = b.addTest(.{
-        .root_module = test_mod,
-        .filters = &.{"kcp/unit"},
-    });
-    const kcp_unit_run = b.addRunArtifact(kcp_unit_compile);
-    kcp_unit_run.setName("kcp:unit");
-    kcp_unit_step.dependOn(&kcp_unit_run.step);
 }
 
 pub fn createZuxSpeedTest(
@@ -232,7 +208,6 @@ pub fn createGizClawE2E(
                 .{ .name = "gstd", .module = b.modules.get("gstd") orelse @panic("missing module: gstd") },
                 .{ .name = "embed", .module = b.modules.get("embed") orelse @panic("missing module: embed") },
                 .{ .name = "opus", .module = b.modules.get("opus") orelse @panic("missing module: opus") },
-                .{ .name = "opus_osal", .module = b.modules.get("opus_osal") orelse @panic("missing module: opus_osal") },
                 .{ .name = "common", .module = common_mod },
             },
         });

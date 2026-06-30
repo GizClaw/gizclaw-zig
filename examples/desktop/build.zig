@@ -89,7 +89,6 @@ pub fn build(b: *std.Build) void {
             .{ .name = "desktop", .module = embed_zig_dep.module("desktop") },
             .{ .name = "gstd", .module = embed_zig_dep.module("gstd") },
             .{ .name = "lvgl_osal", .module = embed_zig_dep.module("thirdparty/lvgl_osal") },
-            .{ .name = "opus_osal", .module = embed_zig_dep.module("thirdparty/opus_osal") },
             .{ .name = "app", .module = app_mod },
         },
     });

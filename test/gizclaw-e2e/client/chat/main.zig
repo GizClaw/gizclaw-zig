@@ -1,11 +1,6 @@
 const std = @import("std");
 const common = @import("common");
-const opus_osal = @import("opus_osal");
 const TestRunner = @import("TestRunner.zig");
-
-comptime {
-    _ = opus_osal.make(common.grt, std.heap.page_allocator).opus_alloc_scratch;
-}
 
 const Options = struct {
     config: TestRunner.Config = .{},
